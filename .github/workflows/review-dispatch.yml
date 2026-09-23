@@ -8,10 +8,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # Tailnet access (HITL provisioned once per repo by the operator):
-      # secrets TAILSCALE_OAUTH_CLIENT_ID / TAILSCALE_OAUTH_SECRET (tag:ci, tailnet
-      # Tonours) + REVIEW_SSH_KEY (forced-command key for the review host) +
-      # REVIEW_KNOWN_HOSTS (pinned host key of the review host).
       - uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
