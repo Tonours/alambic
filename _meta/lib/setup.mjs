@@ -550,20 +550,28 @@ function itemState(context, recorded) {
   }
 }
 
+// Outdated = the recorded value differs from what setup would write now (e.g.
+// the Node binary moved after an upgrade). Without a selection, the recorded
+// harnesses and components are re-rendered; collisions need an explicit one.
 export function setupStatus(context, selection = null) {
-  const items = context.manifest.items.map((recorded) => {
-    const { state, reason } = itemState(context, recorded)
-    return { id: recorded.id, kind: recorded.kind, target: recorded.target, ...(recorded.entryPath ? { entryPath: recorded.entryPath } : {}), state, ...(reason ? { reason } : {}) }
+  const recorded = context.manifest.items
+  const items = recorded.map((entry) => {
+    const { state, reason } = itemState(context, entry)
+    return { id: entry.id, kind: entry.kind, target: entry.target, ...(entry.entryPath ? { entryPath: entry.entryPath } : {}), state, ...(reason ? { reason } : {}) }
   })
-  if (selection) {
-    const recordedIds = new Set(context.manifest.items.map((item) => item.id))
-    for (const item of desiredItems(context, selection)) {
-      const known = items.find((entry) => entry.id === item.id)
-      if (known?.state === 'installed' && context.manifest.items.find((entry) => entry.id === item.id).fingerprint !== item.fingerprint) known.state = 'outdated'
-      if (recordedIds.has(item.id)) continue
-      const action = planItem(context, item, null)
-      if (action.status === 'collision' || action.status === 'refuse') items.push({ id: item.id, kind: item.kind, target: item.target, state: 'collision', reason: action.reason })
+  const wanted = selection ?? {
+    harnesses: HARNESSES.filter((harness) => recorded.some((item) => item.harnesses.includes(harness))),
+    components: Object.fromEntries(COMPONENTS.map((component) => [component, recorded.some((item) => item.kind === component)])),
+  }
+  for (const item of desiredItems(context, wanted)) {
+    const known = items.find((entry) => entry.id === item.id)
+    if (known) {
+      if (['installed', 'pending-trust'].includes(known.state) && recorded.find((entry) => entry.id === item.id).fingerprint !== item.fingerprint) known.state = 'outdated'
+      continue
     }
+    if (!selection) continue
+    const action = planItem(context, item, null)
+    if (action.status === 'collision' || action.status === 'refuse') items.push({ id: item.id, kind: item.kind, target: item.target, state: 'collision', reason: action.reason })
   }
   const manifestVault = context.manifest.vault
   return {
@@ -574,23 +582,12 @@ export function setupStatus(context, selection = null) {
   }
 }
 
-// Doctor view: never fails, only warns. Outdated = the recorded value differs from
-// what setup would write now (e.g. the Node binary moved after an upgrade).
+// Doctor view: never fails, only warns.
 export function doctorSetup(vault, env = process.env) {
   try {
     const context = makeContext({ vault, env })
     if (!context.manifest.items.length) return { installed: false, warnings: [] }
     const status = setupStatus(context)
-    const recorded = context.manifest.items
-    const selection = {
-      harnesses: HARNESSES.filter((harness) => recorded.some((item) => item.harnesses.includes(harness))),
-      components: Object.fromEntries(COMPONENTS.map((component) => [component, recorded.some((item) => item.kind === component)])),
-    }
-    const desired = new Map(desiredItems(context, selection).map((item) => [item.id, item.fingerprint]))
-    for (const item of status.items) {
-      const wanted = desired.get(item.id)
-      if (['installed', 'pending-trust'].includes(item.state) && wanted && wanted !== recorded.find((entry) => entry.id === item.id).fingerprint) item.state = 'outdated'
-    }
     const warnings = status.items.filter((item) => item.state !== 'installed').map((item) => `${item.id}: ${item.state}${item.reason ? ` (${item.reason})` : ''}`)
     if (status.otherVault) warnings.unshift(`manifest points to another vault: ${status.otherVault}`)
     return { installed: true, warnings, items: status.items }

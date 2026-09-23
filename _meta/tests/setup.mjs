@@ -311,6 +311,10 @@ try {
   await setup(vault, ['--yes', '--harness', 'codex', '--prompt-hook', '--no-mcp', '--json'], envFor(home8), node2)
   const stale = doctorSetup(vault, envFor(home8)).warnings
   assert(stale.includes('cli:shim: outdated') && stale.includes('codex:hook: outdated') && !stale.some((warning) => warning.startsWith('agents:skill')), `doctor must flag Node-path drift: ${stale}`)
+  // `setup --status` without --harness agrees with doctor, pending-trust included.
+  const staleStatus = await setup(vault, ['--status', '--json'], envFor(home8))
+  const staleState = Object.fromEntries(staleStatus.json.items.map((item) => [item.id, item.state]))
+  assert(staleStatus.code === 1 && staleState['cli:shim'] === 'outdated' && staleState['codex:hook'] === 'outdated' && staleState['agents:skill'] === 'installed', `status must flag Node-path drift: ${JSON.stringify(staleState)}`)
   const home9 = freshHome('home9')
   await setup(vault, ['--yes', '--harness', 'codex', '--prompt-hook', '--no-mcp', '--json'], envFor(home9))
   assert(doctorSetup(vault, envFor(home9)).warnings.join() === 'codex:hook: pending-trust', 'doctor must report pending-trust only')
