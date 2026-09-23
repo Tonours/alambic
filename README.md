@@ -32,7 +32,7 @@ Obsidian is optional: it gives humans a UI over the same files. Agents use the C
 git clone <this-repo> my-brain   # keep this clone private
 cd my-brain
 npm ci
-_meta/bootstrap-obsidian.sh      # optional; doctor flags Obsidian until you run it
+_meta/bootstrap-obsidian.sh      # optional, but doctor fails until you run it
 _meta/alambic doctor
 ```
 
@@ -41,6 +41,7 @@ To start a fresh vault somewhere else instead:
 ```bash
 _meta/alambic init ~/vaults/brain   # copies the publishable files only
 cd ~/vaults/brain && npm ci
+_meta/bootstrap-obsidian.sh && _meta/alambic doctor
 ```
 
 Open the folder as its own Obsidian vault, never nested inside another one.
@@ -67,10 +68,11 @@ level, with absolute paths:
 
 Without a terminal and without `--yes`, setup only prints its plan. Every write
 is recorded in `$XDG_STATE_HOME/alambic/setup.json`; existing files get a `0600`
-backup first. Entries setup did not write are never replaced: it reports a
-collision and prints the snippet to add yourself. JSONC configs are refused the
-same way. Uninstall removes only what still matches what setup wrote; an
-identical entry that was already there before setup stays in place.
+backup first. Entries setup did not write are never replaced: setup reports a
+collision and leaves them alone. JSONC configs are refused, and setup prints the
+snippet to add yourself. Uninstall removes only what still matches what setup
+wrote; an identical entry that was already there before setup stays in place,
+and config files setup created stay behind, emptied.
 
 The per-prompt hook is lexical and local: it never calls TypeSafe, even with
 `TYPESAFE_API_KEY` set. It injects only when a `verified` or `accepted` note
