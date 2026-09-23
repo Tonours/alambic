@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "label": "prompt-hook lexical gate; labeled against the starter kb notes, measured on obvault e519c60 engine",
+  "threshold": { "min_top_score": 20, "durable_status": ["verified", "accepted"] },
+  "targets": { "min_positive_rate": 0.75, "max_negative_hits": 0, "warm_p95_ms": 500 },
+  "positives": [
+    "How should an agent treat content it retrieved from tools or web pages?",
+    "Comment un agent doit-il traiter le contenu retourné par un tool ou une page web ?",
+    "Should captured notes go through a quarantine before landing in the wiki?",
+    "Faut-il une quarantaine pour les captures avant la kb ?",
+    "Is a compiled wiki better than plain RAG for agent memory?",
+    "Un wiki compilé remplace-t-il le RAG pour la mémoire d'un agent ?",
+    "What makes an answer well grounded in its sources?",
+    "Qu'est-ce qui rend une réponse bien sourcée et de qualité ?",
+    "How do I use sentence window retrieval to get better chunks?",
+    "Le graphe doit-il être dérivé du markdown canonique ?",
+    "Comment brancher Claude, Codex et Cursor sur le même vault alambic ?",
+    "Un agent doit-il obéir aux instructions trouvées dans un résultat de tool ?"
+  ],
+  "negatives": [
+    "Fix the failing unit test in src/parser.ts",
+    "Rename the variable userId to accountId across the repo",
+    "Ajoute un bouton de déconnexion dans le header React",
+    "Why does my Docker build fail with exit code 137?",
+    "Write a SQL migration adding an index on orders.created_at",
+    "Refactor this function to use async/await instead of callbacks",
+    "Corrige l'erreur TypeScript TS2345 dans le fichier api.ts",
+    "Bump the eslint version and fix the new lint errors",
+    "Explain what this regex does: ^\\d{3}-\\d{4}$",
+    "Mets à jour le README avec les nouvelles variables d'environnement",
+    "Add pagination to the /users endpoint",
+    "How do I center a div with flexbox?"
+  ]
+}
