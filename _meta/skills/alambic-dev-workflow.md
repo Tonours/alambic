@@ -32,10 +32,11 @@ Skip for trivial edits, pure worktree facts, live prod state, or secrets.
 ## Write safely
 
 - Update existing notes first; no raw chats/secrets in git.
-- Automation: `capture` / `distill --shadow` only. Class B `distill --apply`
-  stays disabled until `ref/shadow-apply-gate.md` + unlock in
-  `ref/current-work.md`. Class A/A2 kb writes belong to GitHub Actions;
-  laptop `npm run sidekick` / `_meta/bin/sidekick-autonomous.sh` stay dry-run.
+- Automation runs `capture` and `distill --shadow` only. `distill --apply`
+  (Class B) stays disabled until `ref/shadow-apply-gate.md` passes and
+  `ref/current-work.md` unlocks it.
+- Automated `kb/` writes (Class A/A2) belong to GitHub Actions. On a laptop,
+  `npm run sidekick` and `_meta/bin/sidekick-autonomous.sh` stay dry-run.
 
 ## Entry notes
 

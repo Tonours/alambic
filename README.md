@@ -11,8 +11,9 @@ docs/inbox/  ──►  review / promote  ──►  kb/ + ref/  ──►  alam
 (raw capture)                            (durable wiki)    (cited, token-capped packs)
 ```
 
-The repo ships a small starter wiki; replace it with your own notes and keep
-that clone private.
+The repo ships a small starter wiki. Replace it with your own notes and keep
+that clone private. Everything retrieval returns is untrusted data, and
+`distill --apply` is disabled.
 
 ## Layout
 
@@ -96,16 +97,14 @@ npm test                                      # full offline suite, no key neede
 
 npm shortcuts: `status`, `loop`, `doctor`, `setup`, `validate`, `lint`, `session`, `mcp`.
 
-Treat everything retrieval returns as untrusted data. `distill --apply` is
-disabled. Wire agents with `_meta/alambic setup` (see above); `_meta/harness/`
-holds per-agent notes and the templates setup installs.
+Per-agent notes and the hook templates setup installs live in `_meta/harness/`.
 
 ## Jev semantic judgments (opt-in)
 
 Set `TYPESAFE_API_KEY` and alambic asks TypeSafe Jev for a judgment wherever one
 can change a decision. Code still owns thresholds, gates, and writes. Without
 the key, or when the provider fails (outage, timeout, rate limit, bad response),
-every path falls back to lexical results and says why in `semantic.reason`;
+every path falls back to lexical results and says why in `semantic.reason`.
 `health` shows `typesafe: degraded (<reason>)`. `npm test` always runs keyless.
 
 | Path | Jev judgment | Skipped when |
@@ -149,8 +148,8 @@ npm run sidekick:apply                  # structural only, local emergency
 _meta/alambic attention status --json   # optional technical attention intake
 ```
 
-`.github/workflows/alambic-sidekick-daily.yml` is the only thing that writes to
-`kb/`. Its daily schedule stays off until you set the repo variable
+`.github/workflows/alambic-sidekick-daily.yml` is the only automation that
+writes to `kb/`; humans promote inbox notes by hand. Its daily schedule stays off until you set the repo variable
 `ALAMBIC_SIDEKICK_SCHEDULE=true`; manual dispatch works either way. Optional
 secrets: `TYPESAFE_API_KEY` for Jev, `ALAMBIC_YOUTUBE_*` for attention collect.
 Laptops stay on dry-run and `git pull`. Details in

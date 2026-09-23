@@ -8,5 +8,5 @@ Codex `/hooks`; until then `setup --status` reports `pending-trust`.
 Inside the vault, use `AGENTS.md`:
 
 ```bash
-_meta/alambic context --json --max-tokens 2500 "<question>"
+_meta/alambic session --json --max-tokens 2500 "<question>"
 ```

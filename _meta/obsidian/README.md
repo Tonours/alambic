@@ -16,7 +16,7 @@ _meta/alambic doctor
 | File | Purpose |
 | --- | --- |
 | `defaults/app.json` | New notes → `docs/inbox/manual`, attachments → `docs/assets`; ignore corpus, staging, and research trees |
-| `defaults/core-plugins.json` | Search, Properties, Backlinks, Bases, Templates… |
+| `defaults/core-plugins.json` | Search, Properties, Backlinks, Bases, Templates, etc. |
 | `defaults/community-plugins.json` | Empty (no AI plugins by default) |
 | `defaults/templates.json` | Folder `_meta/templates` |
 | `defaults/bookmarks.json` | Hybrid navigation groups |

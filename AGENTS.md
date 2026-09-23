@@ -1,4 +1,4 @@
-# AGENTS.md — alambic
+# AGENTS.md: alambic
 
 - Read `CLAUDE.md` before creating or editing notes.
 - Query with `_meta/alambic context` or `session` (cited, token-capped).
@@ -12,4 +12,4 @@
 - Jev semantic rerank runs only when `TYPESAFE_API_KEY` is set; otherwise
   lexical. Never type secrets into queries (queries egress to TypeSafe).
 - After a retrieval, record `_meta/alambic feedback --status hit|miss|stale|wrong`.
-- `kb/` writes belong to the sidekick workflow; local sidekick stays dry-run.
+- Automated `kb/` writes belong to the sidekick workflow; local sidekick stays dry-run.

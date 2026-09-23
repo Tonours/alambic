@@ -1,11 +1,11 @@
 ---
 name: alambic-attention-review
-description: Morning review of technical attention intake for LLM context — status, digest/synthesis, promote-suggest, never auto-kb.
+description: Morning review of technical attention intake: status, digest or synthesis, promote suggestions. Never writes `kb/`.
 ---
 
 # Review morning attention (alambic)
 
-Use when the user asks to review yesterday/today’s attention capture, morning
+Use when the user asks to review yesterday's or today's attention capture, morning
 knowledge inbox, YouTube/X/Chrome digests, or prepare session context from
 attention.
 
@@ -13,7 +13,7 @@ attention.
 
 1. Never print secrets, tokens, cookies, Keychain values, or `.env`.
 2. Never write durable `kb/` or `ref/` unless the user explicitly confirms a
-   promote after human review. apply-auto is DISABLED.
+   promote after human review. `apply-auto` is disabled.
 3. Prefer update-before-create against `kb/_index.md`.
 4. Do not dump encrypted candidate ciphertext or full Chrome URL lists into chat.
 
