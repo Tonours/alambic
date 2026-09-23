@@ -1,0 +1,3 @@
+{"case_id": "cap-ret-001", "category": "english-paraphrase", "expect_abstain": false, "expected_any": ["kb/compiled-wiki-vs-rag-complement.md"], "family": "retrieval", "intent": "current", "query": "compiled wiki versus raw document retrieval", "set": "capability"}
+{"case_id": "cap-ret-002", "category": "french-paraphrase", "expect_abstain": false, "expected_any": ["ref/method.md", "ref/second-brain-scorecard.md"], "family": "retrieval", "intent": "current", "query": "méthode wiki flat sourced déterministe", "set": "capability"}
+{"case_id": "cap-abs-001", "category": "abstention", "expect_abstain": true, "expected_any": [], "family": "freshness-abstention", "intent": "current", "query": "xyzzy plugh 42-unknown-protocol", "set": "capability"}

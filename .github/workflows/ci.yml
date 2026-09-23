@@ -1,0 +1,54 @@
+name: ci
+
+# PR/push hygiene: tests, validate, lint, leak scan, loop pulse.
+# Never writes kb/ — durable heals run only in alambic-sidekick-daily.yml.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: alambic-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run validate
+      - run: npm run lint
+      - name: Leak scan
+        env:
+          # Newline-separated private markers kept out of the repo (repo secret).
+          ALAMBIC_LEAK_PATTERNS: ${{ secrets.ALAMBIC_LEAK_PATTERNS }}
+          # Required on this repo's own pushes/PRs; forks never receive the secret,
+          # so their runs only warn. Opt out with repo variable ALAMBIC_LEAK_OPTIONAL=true.
+          ALAMBIC_LEAK_REQUIRED: ${{ !github.event.repository.fork && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.ALAMBIC_LEAK_OPTIONAL != 'true' }}
+        run: _meta/tests/leak-scan.sh
+      - name: Living loop CI pulse (read-only)
+        env:
+          XDG_STATE_HOME: ${{ runner.temp }}/xdg-state
+        run: node _meta/alambic.mjs loop --ci --json
+      - name: Upload pulse artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: loop-pulse-${{ github.run_id }}
+          path: |
+            _meta/loop-pulse.latest.json
+            docs/inbox/ai/loop-queue-*.md
+          if-no-files-found: warn
+          retention-days: 14

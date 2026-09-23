@@ -1,0 +1,14 @@
+query	expected	kind
+LLM Wiki Second-Brain Architecture	kb/llm-wiki-second-brain-architecture.md	exact
+strict second brain architecture	kb/llm-wiki-second-brain-architecture.md	lexical
+agent trust boundaries tool results	kb/agent-input-and-tool-trust-boundaries.md	lexical
+untrusted tool results	kb/agent-input-and-tool-trust-boundaries.md	lexical
+capture quarantine before kb	kb/capture-quarantine-before-kb.md	exact
+quarantine captures in inbox	kb/capture-quarantine-before-kb.md	lexical
+conserver le contexte autour du passage pertinent après découpage	kb/sentence-window-retrieval-pattern.md	lexical
+sentence window retrieval	kb/sentence-window-retrieval-pattern.md	lexical
+multi harness access CLI MCP	kb/alambic-multi-harness-access.md	lexical
+source grounded answer quality	kb/source-grounded-answer-quality.md	exact
+derived graph markdown source of truth	kb/derived-graph-markdown-canonical.md	lexical
+purple aardvark quantum bananas	-	no-answer
+unicorn payroll zephyr mars	-	no-answer

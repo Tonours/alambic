@@ -1,0 +1,12 @@
+{
+  "probes_sha256": "b0e45ad9b9d739e3c72b23c9c6663360f7e0a20dff4e513cd9d5b5d7992ac079",
+  "cases": 48,
+  "frozen_at": "2026-09-23",
+  "floor": {
+    "hit_at_5": 0.714,
+    "abstain_rate": 1
+  },
+  "floor_measured": "lexical baseline (TYPESAFE_API_KEY unset)",
+  "labeling": "labels written from active-note titles/summaries before any ranking change; never cite probe ids or queries in _meta/lib; when you replace the starter notes, re-author and re-freeze this set",
+  "floor_sha256": "e8b55467833c7a2c84120a0e3300a8e81e320c42791a6806022124e0de8f61b5"
+}

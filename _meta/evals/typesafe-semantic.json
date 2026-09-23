@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "label": "synthetic policy fixture; not Jev quality evidence",
+  "cases": [
+    {
+      "id": "semantic-near-miss",
+      "expected": "kb/correct.md",
+      "candidates": [
+        { "path": "kb/adjacent.md", "score": 20, "relevant": 0.45, "evidence": 0.25, "contradicts": 0.05, "instruction": 0.02 },
+        { "path": "kb/correct.md", "score": 19, "relevant": 0.95, "evidence": 0.9, "contradicts": 0.05, "instruction": 0.01 }
+      ]
+    },
+    {
+      "id": "instruction-demotion",
+      "expected": "kb/evidence.md",
+      "candidates": [
+        { "path": "kb/redirect.md", "score": 24, "relevant": 0.9, "evidence": 0.75, "contradicts": 0.05, "instruction": 0.92 },
+        { "path": "kb/evidence.md", "score": 22, "relevant": 0.78, "evidence": 0.8, "contradicts": 0.05, "instruction": 0.03 }
+      ]
+    },
+    {
+      "id": "contradiction-retained",
+      "expected": "kb/correction.md",
+      "candidates": [
+        { "path": "kb/general.md", "score": 18, "relevant": 0.55, "evidence": 0.4, "contradicts": 0.05, "instruction": 0.01 },
+        { "path": "kb/correction.md", "score": 17, "relevant": 0.88, "evidence": 0.84, "contradicts": 0.91, "instruction": 0.01 }
+      ]
+    }
+  ]
+}

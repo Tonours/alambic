@@ -1,0 +1,55 @@
+[
+  {
+    "name": "valid durable note",
+    "valid": true,
+    "data": {
+      "type": "finding",
+      "status": "verified",
+      "summary": "A sourced reusable finding.",
+      "sources": ["repo:path/file.ts:10"],
+      "created": "2026-07-09",
+      "updated": "2026-07-09",
+      "tags": ["test"]
+    }
+  },
+  {
+    "name": "invalid enum",
+    "valid": false,
+    "data": {
+      "type": "memo",
+      "status": "verified",
+      "summary": "Invalid type.",
+      "sources": ["repo:path"],
+      "created": "2026-07-09",
+      "updated": "2026-07-09",
+      "tags": ["test"]
+    }
+  },
+  {
+    "name": "unknown field and invalid date",
+    "valid": false,
+    "data": {
+      "type": "finding",
+      "status": "verified",
+      "summary": "Invalid metadata.",
+      "sources": ["repo:path"],
+      "created": "yesterday",
+      "updated": "2026-07-09",
+      "tags": ["test"],
+      "owner": "agent"
+    }
+  },
+  {
+    "name": "empty required lists",
+    "valid": false,
+    "data": {
+      "type": "finding",
+      "status": "verified",
+      "summary": "Empty lists.",
+      "sources": [],
+      "created": "2026-07-09",
+      "updated": "2026-07-09",
+      "tags": []
+    }
+  }
+]

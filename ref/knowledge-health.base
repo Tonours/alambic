@@ -1,0 +1,106 @@
+filters:
+  and:
+    - file.ext == "md"
+    - or:
+        - file.inFolder("kb")
+        - file.inFolder("ref")
+views:
+  - type: table
+    name: Review due
+    filters:
+      and:
+        - review_after
+        - date(review_after) <= today()
+    order:
+      - file.name
+      - status
+      - review_after
+      - updated
+      - sources
+  - type: table
+    name: Stale
+    filters:
+      or:
+        - status == "stale"
+        - status == "superseded"
+    order:
+      - file.name
+      - status
+      - updated
+      - summary
+  - type: table
+    name: Findings needing sources
+    filters:
+      and:
+        - type == "finding" || type == "incident" || type == "adr" || type == "synthesis"
+        - "!sources"
+    order:
+      - file.name
+      - type
+      - status
+      - summary
+  - type: table
+    name: Orphans (view only)
+    filters: file.backlinks.isEmpty()
+    order:
+      - file.name
+      - type
+      - status
+      - updated
+  - type: table
+    name: Incidents
+    filters: type == "incident"
+    order:
+      - file.name
+      - status
+      - updated
+      - summary
+  - type: table
+    name: Architecture
+    filters:
+      or:
+        - type == "adr"
+        - file.name == "llm-wiki-second-brain-architecture"
+        - file.name == "second-brain-operating-model"
+        - file.name == "obsidian-hybrid-workflow"
+        - file.name == "obsidian-ai-integration-boundaries"
+    order:
+      - type
+      - file.name
+      - status
+      - updated
+  - type: table
+    name: Hybrid entrypoints
+    filters:
+      or:
+        - file.name == "home"
+        - file.name == "obsidian-hybrid-workflow"
+        - file.name == "method"
+        - file.name == "current-work"
+        - file.name == "second-brain-operating-model"
+        - file.name == "second-brain-source-capture"
+        - file.name == "obsidian-ai-integration-boundaries"
+        - file.name == "llm-wiki-second-brain-architecture"
+    order:
+      - file.name
+      - status
+      - updated
+      - summary
+  - type: table
+    name: Recent changes
+    filters: file.mtime > now() - "30d"
+    order:
+      - file.name
+      - type
+      - status
+      - updated
+      - tags
+    limit: 50
+  - type: table
+    name: Drafts
+    filters: status == "draft"
+    order:
+      - file.name
+      - type
+      - updated
+      - summary

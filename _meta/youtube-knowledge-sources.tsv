@@ -1,0 +1,3 @@
+category	handle	tier	status	rationale
+dev	ExampleChannel	1	disabled	Example row: set status to enabled and replace the handle with a channel you trust.
+ai	AnotherExample	2	disabled	Tier 1 channels are inspected before tier 2 when the weekly budget is tight.

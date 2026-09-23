@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:alambic:attention-event.schema.json",
+  "title": "alambic technical attention candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "source",
+    "event_type",
+    "canonical_url",
+    "title",
+    "observed_at",
+    "expires_at",
+    "signal_weight",
+    "reason_codes",
+    "topics",
+    "confidence"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "source": { "enum": ["youtube-liked", "reddit-saved", "reddit-upvoted", "x-bookmarks", "chrome-history"] },
+    "event_type": { "enum": ["like", "save", "upvote", "bookmark", "visit"] },
+    "canonical_url": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "observed_at": { "type": "string", "minLength": 1 },
+    "expires_at": { "type": "string", "minLength": 1 },
+    "signal_weight": { "type": "number" },
+    "reason_codes": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "topics": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "confidence": { "enum": ["deterministic"] }
+  }
+}

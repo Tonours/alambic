@@ -1,0 +1,41 @@
+---
+name: alambic-attention-review
+description: Morning review of technical attention intake for LLM context — status, digest/synthesis, promote-suggest, never auto-kb.
+---
+
+# Review morning attention (alambic)
+
+Use when the user asks to review yesterday/today’s attention capture, morning
+knowledge inbox, YouTube/X/Chrome digests, or prepare session context from
+attention.
+
+## Hard rules
+
+1. Never print secrets, tokens, cookies, Keychain values, or `.env`.
+2. Never write durable `kb/` or `ref/` unless the user explicitly confirms a
+   promote after human review. apply-auto is DISABLED.
+3. Prefer update-before-create against `kb/_index.md`.
+4. Do not dump encrypted candidate ciphertext or full Chrome URL lists into chat.
+
+## Steps
+
+```sh
+cd "${ALAMBIC_ROOT:-.}"   # repo root
+./_meta/alambic attention status --json
+./_meta/alambic attention env-check --json   # presence only
+./_meta/alambic session --attention --json --max-tokens 2500
+./_meta/alambic attention compile --dry-run --json   # if re-check needed
+./_meta/alambic attention promote-suggest --json     # suggestions only
+```
+
+1. Open `docs/inbox/ai/attention-synthesis-YYYYMMDD.md` if present; else digest.
+2. List ≤7 claims; drop noise; for keepers note update vs create.
+3. Attention is a reading queue: write a durable, sourced claim to `docs/inbox/manual/` for the normal gate instead of materializing drafts.
+4. Human files durable notes into `kb/` with full frontmatter + sources.
+5. Log feedback: `_meta/alambic feedback --status hit|miss|stale|wrong` if useful.
+
+## Done when
+
+- Session pack `within_budget` is true (≤2500 tokens).
+- User has a short prioritized list of claims (or explicit no-op empty day).
+- No kb write without explicit human intent.

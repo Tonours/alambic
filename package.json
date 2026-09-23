@@ -1,0 +1,32 @@
+{
+  "name": "alambic",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "alambic": "_meta/alambic"
+  },
+  "scripts": {
+    "test": "_meta/tests/run.sh",
+    "mcp": "node _meta/mcp/server.mjs",
+    "doctor": "node _meta/alambic.mjs doctor",
+    "status": "node _meta/alambic.mjs status --json",
+    "loop": "node _meta/alambic.mjs loop --json",
+    "loop:ci": "node _meta/alambic.mjs loop --ci --json",
+    "test:typesafe:live": "node _meta/tests/typesafe-live.mjs",
+    "sidekick": "node _meta/alambic.mjs sidekick run --dry-run --json",
+    "sidekick:apply": "node _meta/alambic.mjs sidekick run --apply-structural --json",
+    "sidekick:all": "node _meta/alambic.mjs sidekick run --apply-all --json",
+    "validate": "_meta/validate-kb.sh",
+    "lint": "node _meta/alambic.mjs lint --check",
+    "session": "node _meta/alambic.mjs session --json",
+    "eval:freeze": "node _meta/bin/eval-freeze.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@typesafe-ai/sdk": "0.6.0",
+    "zod": "4.4.3"
+  }
+}

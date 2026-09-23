@@ -1,0 +1,154 @@
+{
+  "version": 2,
+  "limits": {
+    "max_items_per_source": 100,
+    "max_candidates_per_run": 20,
+    "digest_limit": 10,
+    "candidate_retention_days": 7,
+    "tombstone_retention_days": 7,
+    "receipt_retention_days": 90,
+    "metrics_retention_days": 90,
+    "disabled_audit_retention_days": 30,
+    "max_seen_digests": 1000
+  },
+  "sources": {
+    "youtube-liked": {
+      "weight": 4,
+      "enabled": false
+    },
+    "reddit-saved": {
+      "weight": 5,
+      "enabled": false
+    },
+    "reddit-upvoted": {
+      "weight": 3,
+      "enabled": false
+    },
+    "x-bookmarks": {
+      "weight": 5,
+      "enabled": false
+    },
+    "chrome-history": {
+      "weight": 2,
+      "enabled": false
+    }
+  },
+  "ranking": {
+    "weights": {
+      "source": 0.3,
+      "technical": 0.2,
+      "topics": 0.1,
+      "recency": 0.1,
+      "query": 0.3
+    },
+    "max_term_reasons": 3,
+    "max_topics": 3,
+    "recency_window_days": 7
+  },
+  "classifier": {
+    "minimum_score": 2,
+    "technical_domains": [
+      "github.com",
+      "gitlab.com",
+      "stackoverflow.com",
+      "stackexchange.com",
+      "developer.mozilla.org",
+      "docs.",
+      "developer.",
+      "npmjs.com",
+      "pypi.org",
+      "crates.io",
+      "pkg.go.dev",
+      "arxiv.org"
+    ],
+    "blocked_domains": [
+      "ebay.",
+      "amazon.",
+      "ikea.com",
+      "booking.com",
+      "airbnb.",
+      "etsy.com"
+    ],
+    "technical_terms": [
+      "javascript",
+      "typescript",
+      "react",
+      "next.js",
+      "tanstack",
+      "adonis",
+      "node.js",
+      "node ",
+      "bun",
+      "deno",
+      "python",
+      "rust",
+      "golang",
+      "docker",
+      "kubernetes",
+      "terraform",
+      "postgres",
+      "sql",
+      "database",
+      "api",
+      "oauth",
+      "security",
+      "cybersecurity",
+      "llm",
+      "agent",
+      "graph engineering",
+      "openai",
+      "anthropic",
+      "machine learning",
+      "github",
+      "git",
+      "neovim",
+      "obsidian",
+      "knowledge management",
+      "devops",
+      "infrastructure",
+      "cloud",
+      "aws",
+      "gcp",
+      "azure",
+      "frontend",
+      "backend",
+      "css",
+      "html",
+      "webassembly",
+      "framework",
+      "software engineering",
+      "programming",
+      "developer",
+      "multi-agent",
+      "multi agent",
+      "rag",
+      "crabrag",
+      "neo4j",
+      "graph",
+      "skills",
+      "skill",
+      "pipeline",
+      "assistant",
+      "agents",
+      "open-weight",
+      "open weight",
+      "dgx",
+      "memory"
+    ],
+    "negative_terms": [
+      "promo",
+      "promotion",
+      "soldes",
+      "shopping",
+      "meuble",
+      "jardin",
+      "voyage",
+      "recette",
+      "football",
+      "musique",
+      "people",
+      "immobilier",
+      "assurance"
+    ]
+  }
+}

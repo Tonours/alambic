@@ -1,0 +1,212 @@
+name: alambic-sidekick-daily
+
+# Multi-machine source of truth: daily oracle sidekick on GitHub Actions.
+# Applies structural + budgeted freeform heals, then commits kb/ back to main.
+# Laptops should git pull — they are readers, not competing writers.
+#
+# Opt-in: the schedule only runs when the repository variable
+# ALAMBIC_SIDEKICK_SCHEDULE is 'true' (fresh forks stay idle). Manual
+# workflow_dispatch always works. TYPESAFE_API_KEY and ALAMBIC_YOUTUBE_*
+# secrets are optional; without them the run degrades to lexical/no-collect.
+#
+# Does NOT: push secrets, freeform distill --apply of arbitrary patches,
+# or invent human review prose.
+
+on:
+  schedule:
+    # Daily 05:15 UTC (~06:15–07:15 Europe depending on DST)
+    - cron: '15 5 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'sidekick mode'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - structural
+          - dry-run
+
+concurrency:
+  group: alambic-sidekick-daily
+  cancel-in-progress: false
+
+# Least privilege: read-only by default. Only the sidekick job may write
+# contents (to push kb/). The token is not persisted on checkout and is
+# blanked for every step except the final commit/push.
+permissions:
+  contents: read
+
+jobs:
+  sidekick:
+    if: ${{ github.event_name != 'schedule' || vars.ALAMBIC_SIDEKICK_SCHEDULE == 'true' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # Runner injects GITHUB_TOKEN into every step. Blank it so npm ci /
+      # tests / materialize cannot push. Restored only on commit/push.
+      GITHUB_TOKEN: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit + eval suite
+        run: npm test
+
+      - name: Strict validate (pre)
+        run: npm run validate
+
+      - name: Lint check (pre)
+        run: npm run lint
+
+      - name: Sidekick dry-run
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run' }}
+        env:
+          XDG_STATE_HOME: ${{ runner.temp }}/xdg-state
+          SIDEKICK_REPORT: ${{ runner.temp }}/sidekick-report.json
+        run: |
+          mkdir -p "$XDG_STATE_HOME/alambic/sidekick"
+          node _meta/alambic.mjs sidekick run --dry-run --max 12 --json | tee "$SIDEKICK_REPORT"
+
+      - name: Sidekick apply-structural
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'structural' }}
+        env:
+          XDG_STATE_HOME: ${{ runner.temp }}/xdg-state
+          SIDEKICK_REPORT: ${{ runner.temp }}/sidekick-report.json
+        run: |
+          mkdir -p "$XDG_STATE_HOME/alambic/sidekick"
+          node _meta/alambic.mjs sidekick run --apply-structural --max 12 --json | tee "$SIDEKICK_REPORT"
+
+      - name: Attention collect (if queue secrets present)
+        env:
+          XDG_STATE_HOME: ${{ runner.temp }}/xdg-state
+          ALAMBIC_YOUTUBE_CLIENT_ID: ${{ secrets.ALAMBIC_YOUTUBE_CLIENT_ID }}
+          ALAMBIC_YOUTUBE_CLIENT_SECRET: ${{ secrets.ALAMBIC_YOUTUBE_CLIENT_SECRET }}
+          ALAMBIC_YOUTUBE_REFRESH_TOKEN: ${{ secrets.ALAMBIC_YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          mkdir -p "$XDG_STATE_HOME/alambic/sidekick"
+          if [[ -n "${ALAMBIC_YOUTUBE_REFRESH_TOKEN:-}" ]]; then
+            node _meta/alambic.mjs attention collect --source youtube-liked --summary --json || true
+            node _meta/alambic.mjs attention stage --json
+            node _meta/alambic.mjs attention compile --json
+          fi
+
+      - name: Jev tag enrichment
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'all') }}
+        env:
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          if [[ -z "${TYPESAFE_API_KEY:-}" ]]; then
+            echo "::warning title=Jev enrichment skipped::TYPESAFE_API_KEY secret is missing; enrichment and sidekick dedupe degrade to lexical"
+            exit 0
+          fi
+          node _meta/alambic.mjs enrich --apply --max 40 --json | tee "$RUNNER_TEMP/enrich-report.json"
+
+      - name: Sidekick apply-all (default daily)
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'all') }}
+        env:
+          XDG_STATE_HOME: ${{ runner.temp }}/xdg-state
+          SIDEKICK_REPORT: ${{ runner.temp }}/sidekick-report.json
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          mkdir -p "$XDG_STATE_HOME/alambic/sidekick"
+          # Report stays outside the repo tree so validate layout stays green.
+          node _meta/alambic.mjs sidekick run --apply-all --max 12 --max-freeform 3 --json | tee "$SIDEKICK_REPORT"
+
+      - name: Alert when sidekick stalls
+        if: always()
+        env:
+          SIDEKICK_REPORT: ${{ runner.temp }}/sidekick-report.json
+        run: |
+          [[ -f "$SIDEKICK_REPORT" ]] || exit 0
+          node -e '
+            const fs = require("node:fs")
+            const report = JSON.parse(fs.readFileSync(process.env.SIDEKICK_REPORT, "utf8"))
+            const counts = report.counts || {}
+            const reasons = {}
+            for (const item of report.rejected || []) {
+              const key = String(item.reason || "unknown").replace(/ kb\/\S+| docs\/\S+/g, "")
+              reasons[key] = (reasons[key] || 0) + 1
+            }
+            const lines = ["### alambic sidekick", "", `applied: ${counts.applied || 0} · noop: ${counts.noop || 0} · actionable rejections: ${counts.rejected || 0} · quarantined: ${counts.quarantined || 0}`, "", ...Object.entries(reasons).map(([reason, count]) => `- ${count} × ${reason}`)]
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n")
+            if (!counts.applied && counts.rejected > 0) console.log(`::warning title=Sidekick stalled::${counts.rejected} actionable rejections and 0 applied edits; see the job summary`)
+          '
+
+      - name: Validate after sidekick
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run') }}
+        run: |
+          # Ensure no stray CI artifacts polluted the vault root
+          rm -f sidekick-report.json
+          npm run validate
+          npm run lint
+
+      - name: Leak scan after sidekick
+        # GITHUB_TOKEN pushes never trigger ci.yml, so the gate runs here.
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run') }}
+        env:
+          ALAMBIC_LEAK_PATTERNS: ${{ secrets.ALAMBIC_LEAK_PATTERNS }}
+          ALAMBIC_LEAK_REQUIRED: ${{ vars.ALAMBIC_LEAK_OPTIONAL != 'true' }}
+        run: _meta/tests/leak-scan.sh
+
+      - name: Upload sidekick report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sidekick-report-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/sidekick-report.json
+            _meta/loop-pulse.latest.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Commit and push kb heals
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run') }}
+        env:
+          GIT_AUTHOR_NAME: alambic-sidekick[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: alambic-sidekick[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Only durable wiki paths — never force-add gitignored secrets/inbox noise
+          git add -A kb/
+          git add _meta/enrich-ledger.json 2>/dev/null || true
+          # Class A2 apply renames tracked drafts into gitignored processed/.
+          # `git add promote-ready/*.md` only matches remaining files, so those
+          # deletions never staged and the next checkout restored the queue.
+          # -u updates already-tracked files only (deletions/modifications).
+          # Do not `git add -A docs/inbox/` and do not force-track processed/.
+          git add -u -- docs/inbox/ai/promote-ready || true
+          # Remaining / newly materialized drafts stay shared across machines.
+          if [[ -d docs/inbox/ai/promote-ready ]]; then
+            git add docs/inbox/ai/promote-ready/*.md 2>/dev/null || true
+          fi
+          git diff --cached --quiet && echo "No kb/ (or promote-ready) changes to commit" && exit 0
+          git status --short
+          git commit -m "$(cat <<'EOF'
+          chore(sidekick): daily oracle heals (CI)
+
+          Autonomous structural + budgeted freeform promote from
+          GitHub Actions. Multi-machine vaults should git pull.
+          EOF
+          )"
+          # Token lives only in this step (checkout used persist-credentials: false).
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -1,0 +1,25 @@
+.obsidian/
+.trash/
+.DS_Store
+.workflow/
+# Pi harness local task/workflow state (not durable kb)
+.pi/
+node_modules/
+# Derived knowledge graph cache (rebuild with `_meta/alambic graph --force`)
+_meta/derived-graph.json
+# Derived lexical + secret-scan caches (Markdown canonical; auto-rebuilt)
+_meta/.cache/
+# Living-loop pulse artifact (CI/local; not durable kb)
+_meta/loop-pulse.latest.json
+# Active root plan (archived under docs/plan when done)
+PLAN.md
+# Daily attention staging (personal titles/URLs; not durable kb)
+docs/inbox/ai/attention-digest-*.md
+docs/inbox/ai/attention-candidate-*.md
+docs/inbox/ai/attention-synthesis-*.md
+docs/inbox/ai/attention-suggest-*.md
+docs/inbox/ai/loop-queue-*.md
+docs/inbox/ai/processed/
+docs/inbox/ai/attention-drop/**/processed/
+# Local private leak-scan patterns (never commit)
+.leak-patterns

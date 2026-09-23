@@ -1,0 +1,48 @@
+{"id": "p2-fr-01", "category": "fr-paraphrase", "lang": "fr", "query": "où vont les clips web avant d'entrer dans la base", "expected": ["kb/capture-quarantine-before-kb.md", "ref/obsidian-hybrid-workflow.md"], "abstain": false}
+{"id": "p2-fr-02", "category": "fr-paraphrase", "lang": "fr", "query": "pourquoi garder le markdown comme vérité même avec un graphe", "expected": ["kb/derived-graph-markdown-canonical.md"], "abstain": false}
+{"id": "p2-fr-03", "category": "fr-paraphrase", "lang": "fr", "query": "comment une réponse fiable cite ses sources et son incertitude", "expected": ["kb/source-grounded-answer-quality.md"], "abstain": false}
+{"id": "p2-fr-04", "category": "fr-paraphrase", "lang": "fr", "query": "quand une note devient obsolète ou remplacée", "expected": ["ref/knowledge-lifecycle-policy.md"], "abstain": false}
+{"id": "p2-fr-05", "category": "fr-paraphrase", "lang": "fr", "query": "les propositions automatiques doivent passer une revue humaine", "expected": ["ref/shadow-apply-gate.md", "kb/alambic-self-improvement-loop.md"], "abstain": false}
+{"id": "p2-fr-06", "category": "fr-paraphrase", "lang": "fr", "query": "séparer contenu récupéré et autorité de l'utilisateur", "expected": ["kb/agent-input-and-tool-trust-boundaries.md"], "abstain": false}
+{"id": "p2-fr-07", "category": "fr-paraphrase", "lang": "fr", "query": "élargir le contexte autour des phrases trouvées", "expected": ["kb/sentence-window-retrieval-pattern.md"], "abstain": false}
+{"id": "p2-fr-08", "category": "fr-paraphrase", "lang": "fr", "query": "wiki compilé ou recherche par fragments", "expected": ["kb/compiled-wiki-vs-rag-complement.md"], "abstain": false}
+{"id": "p2-fr-09", "category": "fr-paraphrase", "lang": "fr", "query": "accès au coffre depuis plusieurs harnais en lecture seule", "expected": ["kb/alambic-multi-harness-access.md"], "abstain": false}
+{"id": "p2-fr-10", "category": "fr-paraphrase", "lang": "fr", "query": "profil opérateur épinglé avant la recherche", "expected": ["ref/critical-facts.md"], "abstain": false}
+{"id": "p2-fr-11", "category": "fr-paraphrase", "lang": "fr", "query": "file de revue courte depuis les signaux techniques", "expected": ["ref/technical-attention-intake.md"], "abstain": false}
+{"id": "p2-fr-12", "category": "fr-paraphrase", "lang": "fr", "query": "noter la qualité du second cerveau avec des preuves", "expected": ["ref/second-brain-scorecard.md"], "abstain": false}
+{"id": "p2-en-01", "category": "en-paraphrase", "lang": "en", "query": "keep staged captures out of durable notes until promotion", "expected": ["kb/capture-quarantine-before-kb.md"], "abstain": false}
+{"id": "p2-en-02", "category": "en-paraphrase", "lang": "en", "query": "graph index is derived and never the source of truth", "expected": ["kb/derived-graph-markdown-canonical.md"], "abstain": false}
+{"id": "p2-en-03", "category": "en-paraphrase", "lang": "en", "query": "evidence docs versus compiled knowledge versus entrypoints", "expected": ["kb/llm-wiki-second-brain-architecture.md"], "abstain": false}
+{"id": "p2-en-04", "category": "en-paraphrase", "lang": "en", "query": "choosing between obsidian plugins headless and filesystem skills", "expected": ["kb/obsidian-ai-integration-boundaries.md"], "abstain": false}
+{"id": "p2-en-05", "category": "en-paraphrase", "lang": "en", "query": "tool results must not be trusted like user instructions", "expected": ["kb/agent-input-and-tool-trust-boundaries.md"], "abstain": false}
+{"id": "p2-en-06", "category": "en-paraphrase", "lang": "en", "query": "re-expand neighbouring sentences before answering", "expected": ["kb/sentence-window-retrieval-pattern.md"], "abstain": false}
+{"id": "p2-en-07", "category": "en-paraphrase", "lang": "en", "query": "every harness uses the same read-only command line", "expected": ["kb/alambic-multi-harness-access.md"], "abstain": false}
+{"id": "p2-en-08", "category": "en-paraphrase", "lang": "en", "query": "automated apply disabled until a human review receipt", "expected": ["ref/shadow-apply-gate.md"], "abstain": false}
+{"id": "p2-en-09", "category": "en-paraphrase", "lang": "en", "query": "review dates and supersession for old notes", "expected": ["ref/knowledge-lifecycle-policy.md"], "abstain": false}
+{"id": "p2-en-10", "category": "en-paraphrase", "lang": "en", "query": "capture distill link query validate refresh loop", "expected": ["ref/second-brain-operating-model.md"], "abstain": false}
+{"id": "p2-en-11", "category": "en-paraphrase", "lang": "en", "query": "closed feedback loop from agent misses to durable fixes", "expected": ["kb/alambic-self-improvement-loop.md"], "abstain": false}
+{"id": "p2-rq-01", "category": "real-query", "lang": "en", "query": "how should agents read this vault", "expected": ["ref/home.md", "kb/alambic-multi-harness-access.md", "ref/method.md"], "abstain": false}
+{"id": "p2-rq-02", "category": "real-query", "lang": "en", "query": "what am I working on right now", "expected": ["ref/current-work.md"], "abstain": false}
+{"id": "p2-rq-03", "category": "real-query", "lang": "fr", "query": "comment capturer une idée rapidement", "expected": ["ref/home.md", "ref/obsidian-hybrid-workflow.md", "kb/capture-quarantine-before-kb.md"], "abstain": false}
+{"id": "p2-rq-04", "category": "real-query", "lang": "en", "query": "is rag enough or do I need a wiki", "expected": ["kb/compiled-wiki-vs-rag-complement.md"], "abstain": false}
+{"id": "p2-rq-05", "category": "real-query", "lang": "en", "query": "can I let the agent write notes directly", "expected": ["ref/shadow-apply-gate.md", "ref/obsidian-hybrid-workflow.md", "kb/capture-quarantine-before-kb.md"], "abstain": false}
+{"id": "p2-rq-06", "category": "real-query", "lang": "en", "query": "how do I connect claude code to the vault", "expected": ["kb/alambic-multi-harness-access.md"], "abstain": false}
+{"id": "p2-rq-07", "category": "real-query", "lang": "fr", "query": "comment savoir si le wiki est en bonne santé", "expected": ["ref/second-brain-scorecard.md", "ref/method.md"], "abstain": false}
+{"id": "p2-rq-08", "category": "real-query", "lang": "en", "query": "what goes in docs kb and ref", "expected": ["kb/llm-wiki-second-brain-architecture.md", "ref/home.md"], "abstain": false}
+{"id": "p2-rq-09", "category": "real-query", "lang": "en", "query": "prompt injection in retrieved notes", "expected": ["kb/agent-input-and-tool-trust-boundaries.md"], "abstain": false}
+{"id": "p2-ac-01", "category": "acronym", "lang": "en", "query": "L0 pinned facts", "expected": ["ref/critical-facts.md"], "abstain": false}
+{"id": "p2-ac-02", "category": "acronym", "lang": "en", "query": "RAG complement wiki", "expected": ["kb/compiled-wiki-vs-rag-complement.md"], "abstain": false}
+{"id": "p2-ac-03", "category": "acronym", "lang": "en", "query": "MCP stdio harness access", "expected": ["kb/alambic-multi-harness-access.md"], "abstain": false}
+{"id": "p2-ac-04", "category": "acronym", "lang": "en", "query": "CLI headless obsidian boundaries", "expected": ["kb/obsidian-ai-integration-boundaries.md"], "abstain": false}
+{"id": "p2-ac-05", "category": "acronym", "lang": "en", "query": "KB quarantine staging", "expected": ["kb/capture-quarantine-before-kb.md"], "abstain": false}
+{"id": "p2-ac-06", "category": "acronym", "lang": "en", "query": "AI manual hybrid lanes", "expected": ["ref/obsidian-hybrid-workflow.md"], "abstain": false}
+{"id": "p2-ac-07", "category": "acronym", "lang": "en", "query": "LLM wiki architecture", "expected": ["kb/llm-wiki-second-brain-architecture.md"], "abstain": false}
+{"id": "p2-ac-08", "category": "acronym", "lang": "en", "query": "git markdown canonical layer", "expected": ["kb/llm-wiki-second-brain-architecture.md", "kb/derived-graph-markdown-canonical.md"], "abstain": false}
+{"id": "p2-ab-01", "category": "abstain", "lang": "en", "query": "best sourdough hydration ratio", "expected": [], "abstain": true}
+{"id": "p2-ab-02", "category": "abstain", "lang": "fr", "query": "horaires du train pour lyon demain", "expected": [], "abstain": true}
+{"id": "p2-ab-03", "category": "abstain", "lang": "en", "query": "kubernetes pod autoscaler memory limits", "expected": [], "abstain": true}
+{"id": "p2-ab-04", "category": "abstain", "lang": "en", "query": "who won the football match yesterday", "expected": [], "abstain": true}
+{"id": "p2-ab-05", "category": "abstain", "lang": "fr", "query": "recette de la tarte tatin", "expected": [], "abstain": true}
+{"id": "p2-ab-06", "category": "abstain", "lang": "en", "query": "quarterly revenue forecast spreadsheet", "expected": [], "abstain": true}
+{"id": "p2-mh-01", "category": "multi-hop", "lang": "en", "query": "trust boundaries for retrieved content feeding shadow proposals", "expected": ["kb/agent-input-and-tool-trust-boundaries.md", "ref/shadow-apply-gate.md", "kb/alambic-self-improvement-loop.md"], "abstain": false}
+{"id": "p2-mh-02", "category": "multi-hop", "lang": "fr", "query": "graphe dérivé et fenêtre de phrases pour le contexte", "expected": ["kb/derived-graph-markdown-canonical.md", "kb/sentence-window-retrieval-pattern.md"], "abstain": false}

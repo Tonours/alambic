@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "alambic": {
+      "command": "node",
+      "args": ["_meta/mcp/server.mjs"],
+      "env": {
+        "ALAMBIC_ROOT": "."
+      }
+    }
+  }
+}

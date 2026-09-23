@@ -1,0 +1,152 @@
+{
+  "items": [
+    {
+      "type": "group",
+      "ctime": 1752180000100,
+      "title": "Start here",
+      "items": [
+        {
+          "type": "file",
+          "ctime": 1752180000101,
+          "path": "ref/home.md",
+          "title": "Home"
+        },
+        {
+          "type": "file",
+          "ctime": 1752180000102,
+          "path": "kb/_index.md",
+          "title": "KB Index"
+        },
+        {
+          "type": "file",
+          "ctime": 1752180000103,
+          "path": "ref/current-work.md",
+          "title": "Current work"
+        },
+        {
+          "type": "file",
+          "ctime": 1752180000104,
+          "path": "ref/obsidian-hybrid-workflow.md",
+          "title": "Hybrid AI + manual"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "ctime": 1752180000200,
+      "title": "Operate",
+      "items": [
+        {
+          "type": "file",
+          "ctime": 1752180000201,
+          "path": "ref/second-brain-operating-model.md",
+          "title": "Operating model"
+        },
+        {
+          "type": "file",
+          "ctime": 1752180000202,
+          "path": "ref/method.md",
+          "title": "Method"
+        },
+        {
+          "type": "file",
+          "ctime": 1752180000203,
+          "path": "kb/llm-wiki-second-brain-architecture.md",
+          "title": "Architecture ADR"
+        },
+        {
+          "type": "file",
+          "ctime": 1752180000204,
+          "path": "kb/obsidian-ai-integration-boundaries.md",
+          "title": "AI integration boundaries"
+        },
+        {
+          "type": "file",
+          "ctime": 1752180000205,
+          "path": "ref/knowledge-health.base",
+          "title": "Knowledge health (Bases)"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "ctime": 1752180000300,
+      "title": "Hybrid lanes",
+      "items": [
+        {
+          "type": "folder",
+          "ctime": 1752180000301,
+          "path": "docs/inbox/manual",
+          "title": "Inbox · manual"
+        },
+        {
+          "type": "folder",
+          "ctime": 1752180000302,
+          "path": "docs/inbox/ai",
+          "title": "Inbox · AI proposals"
+        },
+        {
+          "type": "folder",
+          "ctime": 1752180000303,
+          "path": "docs/inbox",
+          "title": "Inbox root"
+        },
+        {
+          "type": "folder",
+          "ctime": 1752180000304,
+          "path": "kb",
+          "title": "Compiled wiki (kb)"
+        },
+        {
+          "type": "folder",
+          "ctime": 1752180000305,
+          "path": "docs",
+          "title": "Sources (docs)"
+        },
+        {
+          "type": "folder",
+          "ctime": 1752180000306,
+          "path": "_meta/templates",
+          "title": "Templates"
+        }
+      ]
+    },
+    {
+      "type": "group",
+      "ctime": 1752180000400,
+      "title": "Search snippets",
+      "items": [
+        {
+          "type": "search",
+          "ctime": 1752180000401,
+          "query": "path:kb OR path:ref",
+          "title": "kb + ref only"
+        },
+        {
+          "type": "search",
+          "ctime": 1752180000402,
+          "query": "path:docs/inbox",
+          "title": "Inbox staging"
+        },
+        {
+          "type": "search",
+          "ctime": 1752180000403,
+          "query": "[status:stale] OR [status:superseded] OR [status:draft]",
+          "title": "Stale / draft"
+        },
+        {
+          "type": "search",
+          "ctime": 1752180000404,
+          "query": "path:kb [type:adr] OR path:kb [type:finding]",
+          "title": "ADRs + findings"
+        },
+        {
+          "type": "search",
+          "ctime": 1752180000405,
+          "query": "hybrid OR inbox OR promotion",
+          "title": "Hybrid keywords"
+        }
+      ]
+    }
+  ]
+}

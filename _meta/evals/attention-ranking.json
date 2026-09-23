@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "label": "private-data-free replay of real alambic project themes; not live-provider performance",
+  "now": "2026-08-15T08:00:00.000Z",
+  "top_k": 3,
+  "candidates": [
+    {
+      "digest": "x-ranking",
+      "version": 1,
+      "source": "x-bookmarks",
+      "event_type": "bookmark",
+      "canonical_url": "https://x.com/dev/status/1001",
+      "title": "X For You candidate ranking pipeline and visibility",
+      "observed_at": "2026-08-15T07:00:00.000Z",
+      "expires_at": "2026-08-22T07:00:00.000Z",
+      "signal_weight": 5,
+      "reason_codes": ["technical-terms", "term:agent", "term:pipeline", "term:ranking"],
+      "topics": ["agents", "retrieval"],
+      "confidence": "deterministic"
+    },
+    {
+      "digest": "mcp-readonly",
+      "version": 1,
+      "source": "youtube-liked",
+      "event_type": "like",
+      "canonical_url": "https://www.youtube.com/watch?v=McpReadOnly1",
+      "title": "Read only MCP vault context and tool security",
+      "observed_at": "2026-08-15T07:00:00.000Z",
+      "expires_at": "2026-08-22T07:00:00.000Z",
+      "signal_weight": 4,
+      "reason_codes": ["technical-terms", "term:mcp", "term:security", "term:context"],
+      "topics": ["security", "retrieval"],
+      "confidence": "deterministic"
+    },
+    {
+      "digest": "graph-engineering",
+      "version": 1,
+      "source": "reddit-saved",
+      "event_type": "save",
+      "canonical_url": "https://www.reddit.com/r/programming/comments/graph1001/markdown_graph_engineering/",
+      "title": "Markdown canonical graph engineering with PageRank",
+      "observed_at": "2026-08-15T07:00:00.000Z",
+      "expires_at": "2026-08-22T07:00:00.000Z",
+      "signal_weight": 5,
+      "reason_codes": ["technical-terms", "term:graph engineering", "term:retrieval", "term:pipeline"],
+      "topics": ["graph", "retrieval"],
+      "confidence": "deterministic"
+    },
+    {
+      "digest": "node-runtime",
+      "version": 1,
+      "source": "x-bookmarks",
+      "event_type": "bookmark",
+      "canonical_url": "https://x.com/dev/status/1002",
+      "title": "Node.js streams and graceful shutdown patterns",
+      "observed_at": "2026-08-15T07:00:00.000Z",
+      "expires_at": "2026-08-22T07:00:00.000Z",
+      "signal_weight": 5,
+      "reason_codes": ["technical-terms", "term:node.js", "term:backend", "term:software engineering"],
+      "topics": ["backend"],
+      "confidence": "deterministic"
+    },
+    {
+      "digest": "css-layout",
+      "version": 1,
+      "source": "reddit-upvoted",
+      "event_type": "upvote",
+      "canonical_url": "https://www.reddit.com/r/css/comments/css1001/container_queries/",
+      "title": "CSS responsive layouts with container queries",
+      "observed_at": "2026-08-15T07:00:00.000Z",
+      "expires_at": "2026-08-22T07:00:00.000Z",
+      "signal_weight": 3,
+      "reason_codes": ["technical-terms", "term:css", "term:frontend", "term:developer"],
+      "topics": ["frontend"],
+      "confidence": "deterministic"
+    },
+    {
+      "digest": "oauth-security",
+      "version": 1,
+      "source": "x-bookmarks",
+      "event_type": "bookmark",
+      "canonical_url": "https://x.com/dev/status/1003",
+      "title": "OAuth refresh token rotation for API security",
+      "observed_at": "2026-08-15T07:00:00.000Z",
+      "expires_at": "2026-08-22T07:00:00.000Z",
+      "signal_weight": 5,
+      "reason_codes": ["technical-terms", "term:oauth", "term:api", "term:security"],
+      "topics": ["security", "backend"],
+      "confidence": "deterministic"
+    },
+    {
+      "digest": "agent-harness",
+      "version": 1,
+      "source": "x-bookmarks",
+      "event_type": "bookmark",
+      "canonical_url": "https://x.com/dev/status/1004",
+      "title": "Long running coding agents and harness verification",
+      "observed_at": "2026-08-15T07:00:00.000Z",
+      "expires_at": "2026-08-22T07:00:00.000Z",
+      "signal_weight": 5,
+      "reason_codes": ["technical-terms", "term:agent", "term:skills", "term:pipeline"],
+      "topics": ["agents", "harness"],
+      "confidence": "deterministic"
+    },
+    {
+      "digest": "database-query",
+      "version": 1,
+      "source": "youtube-liked",
+      "event_type": "like",
+      "canonical_url": "https://www.youtube.com/watch?v=DatabaseQuery1",
+      "title": "Postgres query planner and database indexes",
+      "observed_at": "2026-08-15T07:00:00.000Z",
+      "expires_at": "2026-08-22T07:00:00.000Z",
+      "signal_weight": 4,
+      "reason_codes": ["technical-terms", "term:postgres", "term:database", "term:sql"],
+      "topics": ["backend", "database"],
+      "confidence": "deterministic"
+    }
+  ],
+  "queries": [
+    {
+      "id": "x-candidate-pipeline",
+      "query": "X For You candidate ranking pipeline",
+      "relevant": ["x-ranking"]
+    },
+    {
+      "id": "mcp-context",
+      "query": "read only MCP vault context",
+      "relevant": ["mcp-readonly"]
+    },
+    {
+      "id": "graph-pagerank",
+      "query": "markdown graph engineering pagerank",
+      "relevant": ["graph-engineering"]
+    },
+    {
+      "id": "node-shutdown",
+      "query": "node streams graceful shutdown",
+      "relevant": ["node-runtime"]
+    },
+    {
+      "id": "css-container",
+      "query": "css responsive container queries",
+      "relevant": ["css-layout"]
+    },
+    {
+      "id": "oauth-rotation",
+      "query": "oauth token rotation security",
+      "relevant": ["oauth-security"]
+    }
+  ]
+}
