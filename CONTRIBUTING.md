@@ -3,7 +3,11 @@
 This repository is both the engine and a starter vault.
 
 1. Keep personal data out. No machine paths, account names, or private corpora.
-2. Tests must pass on the starter wiki: `npm ci && npm test`.
-3. Do not add write tools to MCP.
-4. Do not enable `distill --apply` by default.
-5. New durable notes go through the inbox → promotion gate described in `CLAUDE.md`.
+2. Tests must pass on the starter wiki: `npm ci && npm test`, plus
+   `_meta/tests/leak-scan.sh` with your `.leak-patterns`.
+3. Don't edit frozen eval sets to green a change. Re-author them, then
+   `npm run eval:freeze`.
+4. MCP tools never write to `kb/` or `ref/`. A new write tool stages into local
+   state, like `vault_capture`.
+5. Don't enable `distill --apply` by default.
+6. New durable notes go through the inbox → promotion gate described in `CLAUDE.md`.

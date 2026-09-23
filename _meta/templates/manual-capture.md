@@ -12,16 +12,16 @@ tags:
 
 - url / session / repo:
 
-## Notes brutes
+## Raw notes
 
 -
 
-## Candidat durable ?
+## Durable candidate?
 
-- [ ] réutilisable entre sessions
-- [ ] source inspectable
-- [ ] pas déjà couvert dans `kb/`
-- [ ] implication claire
+- [ ] reusable across sessions
+- [ ] inspectable source
+- [ ] not already covered in `kb/`
+- [ ] clear implication
 
 ## Promotion
 

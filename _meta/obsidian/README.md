@@ -23,5 +23,5 @@ _meta/alambic doctor
 | `defaults/graph.json` | Color groups for kb / ref / inbox; same corpus, staging, and research path exclusions |
 | `defaults/appearance.json` | Omarchy theme name when available |
 
-`workspace.json` is intentionally **not** versioned: layout is machine-local.
+`workspace.json` is not versioned on purpose: layout is machine-local.
 After bootstrap, open `ref/home.md` and `ref/knowledge-health.base` once.

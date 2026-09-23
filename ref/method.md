@@ -11,12 +11,12 @@ tags:
 
 # Method
 
-1. **Plain-text plat, metadata-first.** Markdown, frontmatter, wikilinks. No deep folders.
-2. **Provenance obligatoire.** Every durable note names inspectable sources.
-3. **Determinisme > jugement.** Schema, index, and validation reduce ad-hoc decisions.
-4. **Pas de collectionnite.** Skip notes that will not change a future decision.
-5. **IA propose, humain valide.** Agents draft; humans promote.
-6. **Lanes separees.** Capture in `docs/inbox/`; durable knowledge in `kb/` / `ref/`.
+1. **Flat plain text, metadata first.** Markdown, frontmatter, wikilinks. No deep folders.
+2. **Mandatory provenance.** Every durable note names inspectable sources.
+3. **Determinism over judgment.** Schema, index, and validation reduce ad-hoc decisions.
+4. **No hoarding.** Skip notes that will not change a future decision.
+5. **AI proposes, humans validate.** Agents draft; humans promote.
+6. **Separate lanes.** Capture in `docs/inbox/`; durable knowledge in `kb/` / `ref/`.
 
 ## Related
 
