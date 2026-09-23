@@ -19,6 +19,8 @@ docs/inbox/ai/attention-candidate-*.md
 docs/inbox/ai/attention-synthesis-*.md
 docs/inbox/ai/attention-suggest-*.md
 docs/inbox/ai/loop-queue-*.md
+# Session-harvest staging (untrusted, pending human review)
+docs/inbox/ai/harvest-*.md
 docs/inbox/ai/processed/
 docs/inbox/ai/attention-drop/**/processed/
 # Local private leak-scan patterns (never commit)

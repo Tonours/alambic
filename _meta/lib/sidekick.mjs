@@ -16,11 +16,18 @@ import {
   judgeIndexEntry,
   judgeStaleSuccessor,
   judgeStructuralLink,
+  archiveNoop,
+  isSessionOrigin,
   postApplyHealth,
+  readInboxReceipt,
+  readRaw,
+  reviewGate,
   sha256,
 } from './promotion-judge.mjs'
+import { bumpMetrics } from './harvest.mjs'
 import { askJev, noul } from './typesafe-judge.mjs'
 import { buildManifest, listStagedMarkdown, queryVault, validateVault } from './vault.mjs'
+import { parseMarkdownText } from './frontmatter.mjs'
 
 function stateDir() {
   return alambicStateDir()
@@ -55,9 +62,20 @@ export function isNoop(judgment) {
 }
 
 export function dedupeCanChange(judgment) {
+  if (judgment.decision === 'review_required' || judgment.decision === 'noop') return false
   const failed = Object.entries(judgment.oracles || {}).filter(([, value]) => !value).map(([key]) => key)
   if (failed.length === 1 && failed[0] === 'update_or_unique') return true
   return failed.length === 0 && judgment.mode === 'create'
+}
+
+function awaitsReview(root, file) {
+  try {
+    const text = fs.readFileSync(file, 'utf8')
+    const { data } = parseMarkdownText(text)
+    return isSessionOrigin(data, path.relative(root, file)) && readInboxReceipt(undefined, text)?.decision !== 'accept'
+  } catch {
+    return false
+  }
 }
 
 export async function semanticDedupe(root, judgment, options = {}) {
@@ -102,6 +120,7 @@ export async function runSidekick(root, {
   const noops = []
   const rejected = []
   const quarantined = []
+  const reviewRequired = []
   const applyAny = applyStructural || applyFreeform
 
   const preValidate = validateVault(root, { strict: true })
@@ -209,15 +228,35 @@ export async function runSidekick(root, {
   let freeformApplied = 0
   let remaining = budget.remaining
   try {
-    const inboxFiles = listStagedMarkdown(root)
+    const staged = listStagedMarkdown(root)
       .filter((file) => file.includes(`${path.sep}inbox${path.sep}`))
       .filter((file) => !file.includes(`${path.sep}processed${path.sep}`))
-      .slice(-30)
+    const recordNoop = (judgment) => {
+      const result = dryRun || !applyFreeform ? null : archiveNoop(root, judgment)
+      if (result?.ok && judgment.session_origin) bumpMetrics(null, { noop: 1 })
+      noops.push({ ...judgment, applied: Boolean(result?.ok) })
+    }
+    const pending = staged.filter((file) => awaitsReview(root, file))
+    for (const file of pending) {
+      const judgment = judgeFreeformNote(root, file, { freeformBudgetRemaining: remaining })
+      if (judgment.decision === 'noop') recordNoop(judgment)
+      else reviewRequired.push({ path: judgment.path, decision: 'review_required', suggested_action: `alambic review --inbox ${judgment.path} --decision accept|reject --reason TEXT` })
+    }
+    const inboxFiles = staged.filter((file) => !pending.includes(file)).slice(-30)
 
     for (const file of inboxFiles) {
       if (freeformApplied >= maxFreeform || remaining <= 0) break
       const lexicalJudgment = judgeFreeformNote(root, file, { freeformBudgetRemaining: remaining })
-      const judgment = applyFreeform && !dryRun && dedupeCanChange(lexicalJudgment) ? await semanticDedupe(root, lexicalJudgment, semanticOptions) : lexicalJudgment
+      const deduped = applyFreeform && !dryRun && dedupeCanChange(lexicalJudgment) ? await semanticDedupe(root, lexicalJudgment, semanticOptions) : lexicalJudgment
+      const judgment = reviewGate(deduped, readRaw(root, deduped.path), undefined)
+      if (judgment.decision === 'noop') {
+        recordNoop(judgment)
+        continue
+      }
+      if (judgment.decision === 'review_required') {
+        reviewRequired.push(judgment)
+        continue
+      }
       if (judgment.decision === 'reject') {
         rejected.push(judgment)
         continue
@@ -239,6 +278,7 @@ export async function runSidekick(root, {
       consumeFreeformBudget()
       remaining -= 1
       freeformApplied += 1
+      if (judgment.session_origin) bumpMetrics(null, { promoted: 1 })
       const health = postApplyHealth(root)
       writeOracleReceipt(judgment.reason, { kind: 'freeform_promote', path: result.path })
       actions.push({ type: 'freeform_promote', judgment, applied: true, result, health })
@@ -319,11 +359,13 @@ export async function runSidekick(root, {
       noop: noops.length,
       rejected: rejected.length,
       quarantined: quarantined.length,
+      review_required: reviewRequired.length,
       freeform_applied: freeformApplied,
     },
     actions,
     rejected: rejected.slice(0, 25),
     quarantined: quarantined.slice(0, 20),
+    review_required: reviewRequired.slice(0, 20).map(({ path: file, suggested_action: action }) => ({ path: file, suggested_action: action })),
     validation: { ok: postValidate.ok, notes: postValidate.notes, errors: postValidate.errors?.length || 0 },
     pulse: pulse ? {
       hygiene_ready: pulse.checklist?.hygiene_ready,
@@ -428,6 +470,6 @@ function buildSidekickNext(actions, quarantined, validationOk, applyFreeform) {
   if (!applyFreeform) {
     next.push('Freeform promote available: sidekick run --apply-freeform (or --apply-all), budget ≤3/day')
   }
-  next.push('Writer: GitHub Actions alambic-sidekick-daily; laptop sidekick stays dry-run')
+  next.push('Writer: local alambic nightly LaunchAgent (setup --schedule); other machines stay dry-run')
   return next
 }

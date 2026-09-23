@@ -54,13 +54,13 @@ elif [ -n "${CI:-}" ]; then
 fi
 
 # Machine home paths in knowledge/docs/contracts (engine regexes may mention Users as a class).
-if grep -RInE '/(Users|home)/[A-Za-z0-9._-]+([/"'"'"'`[:space:]]|$)' kb ref docs AGENTS.md CLAUDE.md README.md LICENSE SECURITY.md CONTRIBUTING.md _meta/*.md _meta/harness _meta/skills _meta/templates _meta/prompts _meta/obsidian 2>/dev/null; then
+if grep -RInE '/(Users|home)/[A-Za-z0-9._-]+([/"'"'"'`[:space:]]|$)' kb ref docs AGENTS.md CLAUDE.md README.md LICENSE SECURITY.md CONTRIBUTING.md _meta/*.md _meta/harness _meta/skills _meta/templates _meta/prompts _meta/obsidian 2>/dev/null | cut -d: -f1,2 >&2; then
   printf 'leak-scan: absolute home path in user-facing files\n' >&2
   fail=1
 fi
 
 if grep -RInE 'BEGIN [A-Z ]*PRIVATE KEY|(^|[^A-Za-z0-9_-])(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})' "${EXCLUDES[@]}" . 2>/dev/null \
-  | grep -v '_meta/lib/vault.mjs' | grep -v '_meta/tests/eval.mjs' | grep -v '_meta/tests/leak-scan.sh'; then
+  | grep -v '_meta/lib/vault.mjs' | grep -v '_meta/tests/eval.mjs' | grep -v '_meta/tests/leak-scan.sh' | cut -d: -f1,2 >&2; then
   printf 'leak-scan: secret-like token found outside security fixtures\n' >&2
   fail=1
 fi

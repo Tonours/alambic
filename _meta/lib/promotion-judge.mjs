@@ -14,7 +14,7 @@ const GENERIC_TAGS = new Set([
   'tools', 'product', 'backend', 'frontend',
 ])
 
-const REFUSE_BODY = [
+export const REFUSE_BODY = [
   /\bBEGIN [A-Z ]*PRIVATE KEY\b/,
   /\bgh[opusr]_[A-Za-z0-9_]{20,}\b/,
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
@@ -24,6 +24,8 @@ const REFUSE_BODY = [
 
 const PLACEHOLDER_SOURCE = /REPLACE|TODO|FIXME|example\.com|example\.invalid|repo\/path\/file/i
 const FREEFORM_DAILY_MAX = 3
+const SESSION_SOURCE = /^(claude|codex|pi):/i
+export const HUMAN_REVIEWER = 'human:alambic-review'
 const UPDATE_SCORE_THRESHOLD = 45
 // OKM-lite FRESH-2: a dated `(as of YYYY-MM-DD)` stamp older than this window
 // needs re-observe / convert-to-pointer / retire. 90d matches the fastest
@@ -199,7 +201,83 @@ export function extractSupersessionTarget(root, supersededPath) {
  * v2: auto_apply when hard oracles pass (still requires sidekick --apply-freeform).
  * Prefer update when a strong lexical match exists on an active kb note.
  */
-export function judgeFreeformNote(root, filePath, { freeformBudgetRemaining = FREEFORM_DAILY_MAX } = {}) {
+export function isSessionOrigin(data, relativePath = '') {
+  return data?.origin === 'session-harvest'
+    || path.basename(String(relativePath)).startsWith('harvest-')
+    || data?.trust === 'untrusted-session-data'
+    || (Array.isArray(data?.sources) && data.sources.some((source) => SESSION_SOURCE.test(String(source))))
+}
+
+function inboxReceiptFile(stateHome, digest) {
+  return path.join(alambicStateDir(stateHome), 'reviews', `inbox-${digest}.json`)
+}
+
+export function writeInboxReceipt(stateHome, { inboxPath, text, decision, reason }) {
+  const digest = sha256(text)
+  const payload = { version: 1, kind: 'inbox-review', inbox_path: inboxPath, inbox_sha256: digest, decision, reason, reviewer: HUMAN_REVIEWER, reviewed_at: new Date().toISOString() }
+  const receipt = { ...payload, receipt_sha256: sha256(JSON.stringify(payload)) }
+  const file = inboxReceiptFile(stateHome, digest)
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  const temporary = `${file}.${process.pid}.tmp`
+  fs.writeFileSync(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o400 })
+  try {
+    fs.linkSync(temporary, file)
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error
+    const existing = readInboxReceipt(stateHome, text)
+    if (!existing || existing.decision !== decision) throw new Error('inbox review receipt is immutable; a different decision already exists')
+    return { receipt: existing, idempotent: true }
+  } finally {
+    fs.rmSync(temporary, { force: true })
+  }
+  return { receipt, idempotent: false }
+}
+
+export function readInboxReceipt(stateHome, text) {
+  const digest = sha256(text)
+  try {
+    const receipt = JSON.parse(fs.readFileSync(inboxReceiptFile(stateHome, digest), 'utf8'))
+    const { receipt_sha256: stored, ...payload } = receipt
+    if (receipt.kind !== 'inbox-review' || receipt.inbox_sha256 !== digest || stored !== sha256(JSON.stringify(payload))) return null
+    return receipt
+  } catch {
+    return null
+  }
+}
+
+export function reviewInbox(root, relativePath, { decision, reason, tty = false, stateHome } = {}) {
+  const relative = path.relative(root, path.resolve(root, String(relativePath || ''))).split(path.sep).join('/')
+  if (!/^docs\/inbox\/(ai|manual)\/[^/]+\.md$/.test(relative)) throw new Error('review --inbox expects docs/inbox/{ai,manual}/NOTE.md')
+  if (!['accept', 'reject'].includes(decision) || !String(reason || '').trim()) throw new Error('review decision requires accept|reject and a non-empty reason')
+  if (reason.length > 500 || scanUnsafe(reason).length) throw new Error('review reason is unsafe or exceeds 500 characters')
+  if (decision === 'accept' && !tty) throw new Error('review --inbox accept needs an interactive terminal (human review)')
+  const text = readRaw(root, relative)
+  if (scanUnsafe(text).length) throw new Error('inbox note contains unsafe content')
+  const { data } = parseMarkdownText(text)
+  const sessionOrigin = isSessionOrigin(data, relative)
+  const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason })
+  if (decision === 'reject') archiveInboxSource(root, relative, 'rejected')
+  return { ok: true, path: relative, decision, session_origin: sessionOrigin, receipt, idempotent }
+}
+
+export function reviewGate(judgment, text, stateHome) {
+  if (!judgment.session_origin || judgment.decision !== 'auto_apply') return judgment
+  const receipt = readInboxReceipt(stateHome, text)
+  if (receipt?.decision === 'accept') return { ...judgment, review: { reviewer: receipt.reviewer, reviewed_at: receipt.reviewed_at.slice(0, 10) } }
+  return { ...judgment, decision: 'review_required', review: null, suggested_action: `alambic review --inbox ${judgment.path} --decision accept|reject --reason TEXT`, reason: `${judgment.reason} review_required` }
+}
+
+function normalizeText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function alreadyCovered(root, targetPath, body) {
+  const clean = normalizeText(body.replace(/^#\s+.+$/m, ''))
+  if (clean.length < 80) return false
+  try { return normalizeText(readRaw(root, targetPath)).includes(clean) } catch { return false }
+}
+
+export function judgeFreeformNote(root, filePath, { freeformBudgetRemaining = FREEFORM_DAILY_MAX, stateHome } = {}) {
   let text
   try {
     text = fs.readFileSync(filePath, 'utf8')
@@ -212,10 +290,10 @@ export function judgeFreeformNote(root, filePath, { freeformBudgetRemaining = FR
       reason: `oracle:freeform-v2 parse_fail ${error.message}`,
     }
   }
-  return judgeFreeformContent(root, filePath, text, { freeformBudgetRemaining })
+  return judgeFreeformContent(root, filePath, text, { freeformBudgetRemaining, stateHome })
 }
 
-export function judgeFreeformContent(root, filePath, text, { freeformBudgetRemaining = FREEFORM_DAILY_MAX } = {}) {
+export function judgeFreeformContent(root, filePath, text, { freeformBudgetRemaining = FREEFORM_DAILY_MAX, stateHome } = {}) {
   const oracles = {}
   const relative = path.relative(root, filePath).split(path.sep).join('/')
   let data = {}
@@ -266,10 +344,28 @@ export function judgeFreeformContent(root, filePath, text, { freeformBudgetRemai
 
   const title = body.match(/^#\s+(.+)$/m)?.[1]?.trim() || path.basename(relative, '.md')
   const basename = slugifyBasename(title)
+  const sessionOrigin = isSessionOrigin(data, relative)
+  const noop = Boolean(preferUpdate && oracles.no_secrets && alreadyCovered(root, top.path, body))
 
-  return {
+  if (noop) {
+    return {
+      class: 'freeform_note',
+      decision: 'noop',
+      oracles,
+      path: relative,
+      session_origin: sessionOrigin,
+      update_target: top.path,
+      data,
+      suggested_action: 'archive-as-noop',
+      top_similar: { path: top.path, score: top.score, status: top.status },
+      reason: `oracle:freeform-v2 noop already covered by ${top.path}`,
+    }
+  }
+
+  return reviewGate({
     class: 'freeform_note',
     decision: hardPass ? 'auto_apply' : (oracles.parse_ok && oracles.no_secrets && oracles.has_summary ? 'quarantine_ready' : 'reject'),
+    session_origin: sessionOrigin,
     oracles,
     path: relative,
     mode: preferUpdate ? 'update' : 'create',
@@ -284,7 +380,7 @@ export function judgeFreeformContent(root, filePath, text, { freeformBudgetRemai
     reason: hardPass
       ? `oracle:freeform-v2 ${preferUpdate ? 'update' : 'create'} ${preferUpdate ? top.path : basename}`
       : `oracle:freeform-v2 fail ${hard.filter((key) => !oracles[key]).join(',')}`,
-  }
+  }, text, stateHome)
 }
 
 export function freeformDailyBudget(stateHome) {
@@ -320,7 +416,27 @@ export function consumeFreeformBudget(stateHome) {
 /**
  * Promote freeform inbox note: update existing kb note or create new one.
  */
-export function applyFreeformPromote(root, judgment) {
+export function archiveNoop(root, judgment) {
+  if (judgment.decision !== 'noop') return { ok: false, error: 'not-noop', path: judgment.path }
+  archiveInboxSource(root, judgment.path, 'noop')
+  return { ok: true, mode: 'noop', path: judgment.path, changed: false }
+}
+
+const RELATED_NOTES = ['capture-quarantine-before-kb', 'adr-alambic-autonomous-oracle-sidekick']
+function relatedLinks(root) {
+  const links = RELATED_NOTES.filter((name) => fs.existsSync(path.join(root, 'kb', `${name}.md`))).map((name) => `- [[${name}]]`)
+  return links.length ? ['## Related', '', ...links, ''] : []
+}
+
+function setFrontmatterField(text, key, value) {
+  const end = text.startsWith('---\n') ? text.indexOf('\n---', 4) : -1
+  if (end < 0) return text
+  const head = text.slice(0, end)
+  const line = new RegExp(`^${key}:.*$`, 'm')
+  return (line.test(head) ? head.replace(line, `${key}: ${value}`) : `${head}\n${key}: ${value}`) + text.slice(end)
+}
+
+export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   if (judgment.decision !== 'auto_apply') {
     return { ok: false, error: 'not-auto-apply', path: judgment.path }
   }
@@ -328,19 +444,24 @@ export function applyFreeformPromote(root, judgment) {
   const sourceAbs = path.join(root, judgment.path)
   if (!fs.existsSync(sourceAbs)) return { ok: false, error: 'missing-source' }
 
-  const { data, body } = parseMarkdown(sourceAbs)
   const text = fs.readFileSync(sourceAbs, 'utf8')
+  const { data, body } = parseMarkdownText(text)
   if (scanUnsafe(text).length) return { ok: false, error: 'unsafe-source' }
+  const receipt = readInboxReceipt(stateHome, text)
+  if (isSessionOrigin(data, judgment.path) && receipt?.decision !== 'accept') return { ok: false, error: 'review-required', path: judgment.path }
+  const reviewedBy = receipt?.decision === 'accept' ? receipt.reviewer : 'oracle:sidekick-freeform-v2'
+  const reviewedAt = receipt?.decision === 'accept' ? receipt.reviewed_at.slice(0, 10) : today
 
   if (judgment.mode === 'update' && judgment.update_target) {
     const targetAbs = path.join(root, judgment.update_target)
     const before = fs.readFileSync(targetAbs, 'utf8')
     const excerpt = body.replace(/\s+/g, ' ').trim().slice(0, 600)
-    const block = `\n\n## Sidekick promote ${today}\n\nPromoted signal from \`${judgment.path}\` (oracle:freeform-v2).\n\n> ${excerpt}\n`
+    const block = `\n\n## Sidekick promote ${today}\n\nPromoted signal from \`${judgment.path}\` (${reviewedBy === HUMAN_REVIEWER ? `${HUMAN_REVIEWER} ${reviewedAt}` : 'oracle:freeform-v2'}).\n\n> ${excerpt}\n`
     let after = before.replace(/\s*$/, '') + block
     if (/^updated:\s*\d{4}-\d{2}-\d{2}/m.test(after)) {
       after = after.replace(/^updated:\s*\d{4}-\d{2}-\d{2}/m, `updated: ${today}`)
     }
+    if (receipt?.decision === 'accept') after = setFrontmatterField(setFrontmatterField(after, 'reviewed_by', reviewedBy), 'reviewed_at', reviewedAt)
     // Merge inbound wikilinks from source body into Related if present
     const links = [...body.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)].map((m) => m[1].trim())
     for (const link of links.slice(0, 5)) {
@@ -365,7 +486,7 @@ export function applyFreeformPromote(root, judgment) {
   const targetAbs = path.join(root, targetRel)
   if (fs.existsSync(targetAbs)) {
     // Fallback to update if race
-    return applyFreeformPromote(root, { ...judgment, mode: 'update', update_target: targetRel })
+    return applyFreeformPromote(root, { ...judgment, mode: 'update', update_target: targetRel }, { stateHome })
   }
 
   const sources = Array.isArray(data.sources) ? data.sources : []
@@ -382,8 +503,8 @@ export function applyFreeformPromote(root, judgment) {
     `updated: ${today}`,
     `verified_at: ${today}`,
     `promoted_from: ${yamlQuote(judgment.path)}`,
-    'reviewed_by: oracle:sidekick-freeform-v2',
-    `reviewed_at: ${today}`,
+    `reviewed_by: ${reviewedBy}`,
+    `reviewed_at: ${reviewedAt}`,
     'confidence: medium',
     'tags:',
     ...(data.tags || ['auto-promoted']).map((t) => `  - ${t}`),
@@ -391,11 +512,7 @@ export function applyFreeformPromote(root, judgment) {
     '',
     body.trim(),
     '',
-    '## Related',
-    '',
-    '- [[capture-quarantine-before-kb]]',
-    '- [[adr-alambic-autonomous-oracle-sidekick]]',
-    '',
+    ...relatedLinks(root),
   ].join('\n')
 
   if (scanUnsafe(front).length) return { ok: false, error: 'unsafe-create' }
@@ -541,7 +658,7 @@ function indexNotes(root) {
   return map
 }
 
-function readRaw(root, relativePath) {
+export function readRaw(root, relativePath) {
   return fs.readFileSync(path.join(root, relativePath), 'utf8')
 }
 

@@ -338,6 +338,39 @@ try {
     const candidate = { version: 1, surface, source_id: path.basename(input), sha256: digest, observed_at: new Date().toISOString(), trust: 'untrusted-session-data', content: text.slice(0, 12000), truncated: text.length > 12000 }
     if (dryRun) output(candidate, true)
     else { const dir = ensureState(); const target = path.join(dir, 'candidates', `${digest}.json`); atomicJson(target, candidate); output(`shadow candidate: ${target}`) }
+  } else if (command === 'harvest') {
+    const harvest = await import('./lib/harvest.mjs')
+    has('--json')
+    const dryRun = has('--dry-run')
+    const sub = args.shift() || 'status'
+    const usage = 'usage: alambic harvest scan [--harness claude,codex,pi] [--session FILE] [--min-score N] [--dry-run] | distill [--distiller CMD] [--max N] [--dry-run] | digest --out FILE [--max N] | ack --digest FILE | status [--json]'
+    let run
+    if (sub === 'scan') {
+      const harnesses = option('--harness', harvest.HARNESSES.join(',')).split(',').map((value) => value.trim()).filter(Boolean)
+      if (harnesses.some((value) => !harvest.HARNESSES.includes(value))) throw new Error(usage)
+      const minScore = Number(option('--min-score', 40))
+      if (!Number.isFinite(minScore)) throw new Error(usage)
+      const session = option('--session', null)
+      run = () => dryRun ? harvest.harvestScan(ROOT, { harnesses, session, minScore, dryRun }) : harvest.withHarvestLock(null, () => harvest.harvestScan(ROOT, { harnesses, session, minScore }))
+    } else if (sub === 'distill') {
+      const max = Number(option('--max', 5))
+      const distiller = option('--distiller', null)
+      run = () => harvest.withHarvestLock(null, () => harvest.harvestDistill(ROOT, { distiller, max: Number.isFinite(max) ? max : 5, dryRun }))
+    } else if (sub === 'digest') {
+      const max = Number(option('--max', 20))
+      const out = option('--out', '')
+      run = () => harvest.harvestDigest(ROOT, { out, max: Number.isFinite(max) ? max : 20 })
+    } else if (sub === 'ack') {
+      const digest = option('--digest', '')
+      run = () => harvest.withHarvestLock(null, () => harvest.harvestAck(ROOT, { digest }))
+    } else if (sub === 'status') {
+      run = () => harvest.harvestStatus(ROOT)
+    } else throw new Error(usage)
+    if (args.length) throw new Error(usage)
+    if (harvest.stateInsideVault(ROOT)) throw new Error('alambic state dir must be outside the vault')
+    const report = run()
+    output(report, true)
+    if (!report.ok) process.exitCode = 1
   } else if (command === 'distill') {
     const proposalFile = option('--proposal', '')
     if (!proposalFile) throw new Error('usage: alambic distill --proposal FILE [--shadow]')
@@ -350,6 +383,30 @@ try {
     const dir = ensureState(); const target = path.join(dir, 'proposals', `${digest}.json`)
     atomicJson(target, { ...proposal, mode: 'shadow', proposal_sha256: digest })
     output(`shadow proposal: ${target}`)
+  } else if (command === 'nightly') {
+    const json = has('--json')
+    const push = has('--push')
+    const dryRun = has('--dry-run')
+    if (args.length) throw new Error('usage: alambic nightly [--push] [--dry-run] [--json]')
+    const { runNightly } = await import('./lib/nightly.mjs')
+    const report = runNightly(ROOT, { push, dryRun })
+    if (json) output(report, true)
+    else output([`nightly: ${report.ok ? 'ok' : 'failed'}${report.reason ? ` (${report.reason})` : ''}`, ...(report.steps || []).map((step) => `  ${step.ok ? 'ok  ' : 'FAIL'} ${step.name}`), `commit: ${report.commit || 'none'}`, `pushed: ${Boolean(report.pushed)}`].join('\n'))
+    if (!report.ok) process.exitCode = 1
+  } else if (command === 'review' && args.includes('--inbox')) {
+    const json = has('--json')
+    const inboxFile = option('--inbox', '')
+    const decision = option('--decision', '')
+    const reason = option('--reason', '')
+    if (args.length || !inboxFile) throw new Error('usage: alambic review --inbox FILE --decision accept|reject --reason TEXT [--json]')
+    const { reviewInbox } = await import('./lib/promotion-judge.mjs')
+    const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
+    if (report.session_origin && !report.idempotent) {
+      const { bumpMetrics } = await import('./lib/harvest.mjs')
+      bumpMetrics(null, { [decision === 'accept' ? 'accepted' : 'rejected']: 1 })
+    }
+    if (json) output(report, true)
+    else output(`inbox: ${report.path}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'reject' ? '\narchived: docs/inbox/ai/processed/' : '\nnext: sidekick --apply-freeform promotes it'}`)
   } else if (command === 'review') {
     const json = has('--json')
     const proposalFile = option('--proposal', '')
@@ -664,7 +721,7 @@ try {
       output(AGENT_PROMPT)
     } else throw new Error('usage: alambic refresh status|query|staged|agent-prompt')
   } else {
-    output('usage: alambic init|setup|attention|validate|graph|graph-lint|manifest|routing-catalog|route|sources|lint|doctor|query|context|read|health|status|loop|sidekick|session|enrich|eval|state|capture|distill|review|feedback|refresh')
+    output('usage: alambic init|setup|nightly|attention|validate|graph|graph-lint|manifest|routing-catalog|route|sources|lint|doctor|query|context|read|health|status|loop|sidekick|session|enrich|eval|state|capture|harvest|distill|review|feedback|refresh')
   }
 } catch (error) {
   process.stderr.write(`alambic: ${error.message}\n`)
