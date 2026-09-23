@@ -45,7 +45,9 @@ hit|miss|stale|wrong` after a retrieval.
 ## Agent write path
 
 Capture in `docs/inbox/{manual,ai}/`. Update existing `kb/` notes before
-creating. Never paste transcripts, tokens, or `.env` values. `distill --apply`
+creating. Session drafts (`harvest-*.md`, `origin: session-harvest`) wait for a
+human `_meta/alambic review --inbox <file> --decision accept|reject`; never
+write a receipt or edit their review fields yourself. Never paste transcripts, tokens, or `.env` values. `distill --apply`
 stays disabled.
 
 ## Health

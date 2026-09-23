@@ -23,7 +23,7 @@ sources:
   - "https://developers.reddit.com/docs/capabilities/server/reddit-api"
   - "https://docs.x.com/x-api/posts/bookmarks/introduction"
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 tags:
   - attention
   - capture
@@ -80,8 +80,8 @@ workflow. It does **not** by itself prove a provider is live or authorize
 consent, credentials, provider-app creation, token storage, revocation, or
 scheduling. The YouTube row is the narrow exception: its separate OAuth/dry-run
 proof plus an explicit owner decision authorize CI collect (when secrets are set)
-or an optional local helper run. GitHub Actions is the kb writer; this
-intake never writes `kb/` or `ref/`.
+or an optional local helper run. The local `alambic nightly` LaunchAgent is
+the kb writer; this intake never writes `kb/` or `ref/`.
 
 ## Operations
 
@@ -189,9 +189,10 @@ advances local attention state.
 ## Local collection helper (not the kb writer)
 
 `_meta/bin/attention-daily-grok.sh` is an optional laptop helper. It is not a
-scheduler and not the kb writer. GitHub Actions `alambic-sidekick-daily`
-materializes promote-ready (YouTube collect only when repo secrets exist) and
-then writes `kb/`. There is no in-repo LaunchAgent.
+scheduler and not the kb writer. The `alambic-sidekick-daily` workflow, now
+manual dispatch only, materializes promote-ready (YouTube collect only when
+repo secrets exist). The kb writer is the `alambic nightly` LaunchAgent that
+`setup --schedule` installs.
 
 When invoked, the wrapper:
 

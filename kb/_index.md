@@ -1,7 +1,7 @@
 ---
 type: reference
 status: verified
-updated: 2026-08-19
+updated: 2026-09-24
 tags:
   - index
   - second-brain
@@ -36,3 +36,4 @@ Starter wiki for **alambic**. Add your notes here; keep one durable idea per fil
 - [[sentence-window-retrieval-pattern]]
 - [[alambic-multi-harness-access]]
 - [[alambic-self-improvement-loop]]
+- [[adr-alambic-local-session-harvest]]

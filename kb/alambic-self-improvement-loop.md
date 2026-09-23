@@ -3,13 +3,14 @@ type: finding
 status: verified
 summary: "Closed self-improvement loop for alambic: harness miss → inbox or shadow proposal → oracle or human review → promote/update durable note → executable check → aggregate feedback; never silent auto-apply."
 created: 2026-09-23
-updated: 2026-09-23
-verified_at: 2026-09-23
+updated: 2026-09-24
+verified_at: 2026-09-24
 confidence: high
 sources:
   - "ref/shadow-apply-gate.md"
   - "kb/source-grounded-answer-quality.md"
-  - ".github/workflows/alambic-sidekick-daily.yml"
+  - "_meta/lib/nightly.mjs"
+  - "_meta/lib/harvest.mjs"
   - "_meta/automation-contract.json"
   - "_meta/lib/promotion-judge.mjs"
   - "https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f"
@@ -46,7 +47,8 @@ the wiki between sessions; the human curates sources and owns the gates.
 2. JUDGE   — deterministic oracles (promotion-judge); no LLM required
 3. APPLY   — structural heals + stale→successor + budgeted freeform promote
 4. RECEIPT — oracle-labeled accept receipts for measurement
-5. CAPTURE — inbox freeform auto-promotes only when freeform oracles pass
+5. CAPTURE — inbox freeform auto-promotes only when freeform oracles pass;
+              session drafts also need a human accept receipt
 6. CHECK   — re-validate after apply; abort further applies if red
 7. LEARN   — denser graph + promoted notes → better context/route next session
 ```
@@ -64,20 +66,20 @@ Optional Jev (TypeSafe) judgments only rerank or dedupe when
 
 | Layer | Owner | What | Counts toward freeform distill gate? |
 | --- | --- | --- | --- |
-| Sidekick structural + freeform | `sidekick` / GitHub Actions | wikilinks, stale→successor, index, budgeted inbox promote | Oracle receipts yes |
+| Sidekick structural + freeform | `sidekick` / local `nightly` LaunchAgent | wikilinks, stale→successor, index, budgeted inbox promote | Oracle receipts yes |
 | Hygiene pulse | CI / `loop --ci` | validate, lint, graph, pulse artifact | Health only |
 | Eval feedback | optional | aggregate `feedback` counts | No |
 
 - Arbitrary `distill --apply` stays off until the [[shadow-apply-gate]] unlock.
-- The CI workflow `.github/workflows/alambic-sidekick-daily.yml` is the only
-  kb writer; its schedule is off until the repository variable
-  `ALAMBIC_SIDEKICK_SCHEDULE` is `true`. Laptop runs default to dry-run.
+- `alambic nightly --push`, scheduled by `setup --schedule` on the machine that
+  owns the vault, is the only kb writer; see
+  [[adr-alambic-local-session-harvest]]. Other machines stay on dry-run.
 
 ## Agent checklist
 
 1. `_meta/alambic context --max-tokens 2500 "…"`
 2. On a miss: `feedback --status miss`, then stage a sourced inbox draft.
-3. Let the CI sidekick promote when oracles pass, or update an existing note
+3. Let the nightly sidekick promote when oracles pass, or update an existing note
    yourself. Local `npm run sidekick` is dry-run only.
 4. Never claim the wiki is healthy without doctor/lint green.
 

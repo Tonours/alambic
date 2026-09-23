@@ -189,13 +189,43 @@ npm run sidekick:apply                  # structural only, local emergency
 _meta/alambic attention status --json   # optional technical attention intake
 ```
 
-`.github/workflows/alambic-sidekick-daily.yml` is the only automation that
-writes to `kb/`; humans promote inbox notes by hand. Its daily schedule stays
-off until you set the repo variable `ALAMBIC_SIDEKICK_SCHEDULE=true`; manual
-dispatch works either way. Optional
-secrets: `TYPESAFE_API_KEY` for Jev, `ALAMBIC_YOUTUBE_*` for attention collect.
-Laptops stay on dry-run and `git pull`. Details in
-`kb/alambic-self-improvement-loop.md` and `ref/technical-attention-intake.md`.
+`alambic nightly --push` is the only automation that writes to `kb/`. It runs
+on the machine that owns the vault, from a LaunchAgent that `setup --schedule`
+installs:
+
+```bash
+_meta/alambic setup --yes --name work --schedule 05:15 --harvest-hook
+_meta/alambic nightly --dry-run --json   # what the agent runs, without commit
+```
+
+One run holds the harvest lock, checks a clean tree on the default branch equal
+to `origin`, then runs harvest scan, distill, enrich (when `TYPESAFE_API_KEY`
+is in the login env), sidekick, validate, lint and leak-scan. It commits only
+`kb/`, `ref/` and `_meta/enrich-ledger.json`, and pushes one commit when every
+gate is green. The plist holds paths, never secrets. macOS only; the
+`alambic-sidekick-daily.yml` workflow stays for manual dispatch.
+`ALAMBIC_YOUTUBE_*` secrets feed attention collect. Details in
+`kb/alambic-self-improvement-loop.md`, `kb/adr-alambic-local-session-harvest.md`
+and `ref/technical-attention-intake.md`.
+
+### Session harvest
+
+```bash
+_meta/alambic harvest scan --dry-run --json   # Claude, Codex, Pi sessions
+_meta/alambic harvest status --json           # counters, acceptance rate, pending
+_meta/alambic review --inbox docs/inbox/ai/harvest-….md --decision accept --reason "…"
+```
+
+`--harvest-hook` adds a Claude `SessionEnd` hook that queues the ended
+transcript in local state and returns at once. `harvest scan` scores new
+sessions without reading the vault; `harvest distill` turns queued excerpts
+into gitignored `docs/inbox/ai/harvest-*.md` drafts through an external
+distiller (`ALAMBIC_HARVEST_DISTILLER`, default `claude -p` with no tools).
+Session drafts never reach `kb/` without an accept receipt from an interactive
+`review`, bound to the file's sha256. A draft whose body an existing note
+already contains is archived as `noop-*`. `harvest digest --out` and
+`harvest ack --digest` hand the queue to another writer (a vault with its own
+capture agent) and clear it only after that writer pushed.
 
 ## Evals
 

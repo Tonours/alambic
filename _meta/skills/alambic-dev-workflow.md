@@ -35,8 +35,9 @@ Skip for trivial edits, pure worktree facts, live prod state, or secrets.
 - Automation runs `capture` and `distill --shadow` only. `distill --apply`
   stays disabled until `ref/shadow-apply-gate.md` passes and
   `ref/current-work.md` unlocks it.
-- Automated `kb/` writes belong to the GitHub Actions sidekick. On a laptop,
-  `npm run sidekick` and `_meta/bin/sidekick-autonomous.sh` stay dry-run.
+- Automated `kb/` writes belong to `alambic nightly --push`, run by the
+  LaunchAgent `setup --schedule` installs on the vault owner's machine.
+  Elsewhere, `npm run sidekick` and `_meta/bin/sidekick-autonomous.sh` stay dry-run.
 
 ## Entry notes
 
