@@ -65,6 +65,14 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
 - A red gate leaves the tree dirty and the next run refuses at preflight until a
   human resolves it (fail-closed).
 - Existing inbox notes citing session sources now wait for review.
+- The TTY check on `review --inbox --decision accept` is a procedural guard,
+  not proof of a human: any same-user process that opens a pseudo-terminal can
+  write a receipt. Agents must never run it; the receipt only binds the exact
+  bytes that were reviewed.
+- Nightly snapshots the publishable tree before validate, lint and leak-scan,
+  and commits that exact tree; an edit landing during the gates aborts the run.
+- Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
+  archived by promotion or NOOP leaves a clean tree.
 
 ## Related
 

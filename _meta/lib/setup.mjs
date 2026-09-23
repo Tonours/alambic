@@ -736,7 +736,7 @@ function removeAction(run, recorded) {
   const { state, found, reason } = itemState(context, recorded)
   const unload = () => !recorded.launchd || launchctl(context, ['bootout', `${launchDomain()}/${recorded.launchd}`]).ok || !launchctl(context, ['print', `${launchDomain()}/${recorded.launchd}`]).ok
   if (state === 'missing') {
-    unload()
+    if (!unload()) return { result: 'kept', reason: 'launchctl bootout failed' }
     dropItem(run, recorded.id)
     return { result: 'already-absent' }
   }

@@ -66,12 +66,25 @@ function step(root, name, command, argv, env) {
 }
 const cliStep = (root, name, argv, env) => step(root, name, process.execPath, [path.join(ENGINE, 'alambic.mjs'), ...argv], env)
 
-export function nightlyCommit(root, { push, preflight, env }) {
+function stagePublishable(root, env) {
   const targets = COMMIT_PATHS.filter((item) => fs.existsSync(path.join(root, item)) || git(root, ['ls-files', '--error-unmatch', '--', item], env).ok)
   const staged = git(root, ['add', '-A', '--', ...targets], env)
-  if (!staged.ok) return { ok: false, reason: `git add failed: ${staged.err}` }
+  if (!staged.ok) return `git add failed: ${staged.err}`
   const deletions = git(root, ['add', '-u', '--', 'docs/inbox'], env)
-  if (!deletions.ok) return { ok: false, reason: `git add failed: ${deletions.err}` }
+  return deletions.ok ? null : `git add failed: ${deletions.err}`
+}
+
+export function publishableTree(root, env) {
+  const error = stagePublishable(root, env)
+  const tree = error ? null : git(root, ['write-tree'], env)
+  git(root, ['reset', '-q'], env)
+  if (error) return { ok: false, reason: error }
+  return tree.ok ? { ok: true, tree: tree.out } : { ok: false, reason: 'git write-tree failed' }
+}
+
+export function nightlyCommit(root, { push, preflight, env, expectedTree = null }) {
+  const stageError = stagePublishable(root, env)
+  if (stageError) { git(root, ['reset', '-q'], env); return { ok: false, reason: stageError } }
   const index = changes(root, env, ['diff', '--cached', '--name-status', '--no-renames'])
   const pending = changes(root, env, ['diff', '--name-status', '--no-renames'])
   if (index === null || pending === null) return { ok: false, reason: 'git diff failed' }
@@ -80,13 +93,18 @@ export function nightlyCommit(root, { push, preflight, env }) {
     git(root, ['reset', '-q'], env)
     return { ok: false, reason: 'changes outside the commit allowlist', paths: [...new Set(refused.map((item) => item.file))].slice(0, 20) }
   }
-  if (!index.length) return { ok: true, commit: null, pushed: false }
-  const committed = git(root, ['commit', '-q', '--no-verify', '-m', COMMIT_MESSAGE], env)
-  if (!committed.ok) {
+  const tree = git(root, ['write-tree'], env)
+  if (!tree.ok || (expectedTree && tree.out !== expectedTree)) {
     git(root, ['reset', '-q'], env)
-    return { ok: false, reason: `git commit failed: ${committed.err}` }
+    return { ok: false, reason: tree.ok ? 'publishable paths changed after the gates ran' : 'git write-tree failed' }
   }
-  const commit = git(root, ['rev-parse', 'HEAD'], env).out
+  if (!index.length) { git(root, ['reset', '-q'], env); return { ok: true, commit: null, pushed: false } }
+  const parent = git(root, ['rev-parse', 'HEAD'], env).out
+  const made = git(root, ['commit-tree', tree.out, '-p', parent, '-m', COMMIT_MESSAGE], env)
+  const moved = made.ok && git(root, ['update-ref', '-m', `commit: ${COMMIT_MESSAGE}`, 'HEAD', made.out, parent], env).ok
+  git(root, ['reset', '-q'], env)
+  if (!moved) return { ok: false, reason: `git commit failed: ${made.err}` }
+  const commit = made.out
   const committedChanges = changes(root, env, ['diff-tree', '--no-commit-id', '--name-status', '-r', '--no-renames', 'HEAD'])
   if (!committedChanges || !committedChanges.every(allowedChange)) {
     git(root, ['reset', '-q', '--soft', 'HEAD^'], env)
@@ -118,13 +136,15 @@ export function runNightly(root, { push = false, dryRun = false, env = process.e
     if (env.TYPESAFE_API_KEY && !dryRun) report.steps.push(cliStep(root, 'enrich', ['enrich', '--apply', '--max', '40', '--json'], env))
     else report.steps.push({ name: 'enrich', ok: true, skipped_reason: dryRun ? 'dry-run' : 'no TYPESAFE_API_KEY' })
     report.steps.push(cliStep(root, 'sidekick', ['sidekick', 'run', ...(dryRun ? ['--dry-run'] : ['--apply-all', '--max-freeform', '3']), '--max', '12', '--json'], env))
+    const snapshot = dryRun ? null : publishableTree(root, env)
+    if (snapshot && !snapshot.ok) return { ...report, reason: snapshot.reason, commit: null, pushed: false }
     report.steps.push(cliStep(root, 'validate', ['validate', '--mode', 'strict'], env))
     report.steps.push(cliStep(root, 'lint', ['lint', '--check'], env))
     report.steps.push(step(root, 'leak-scan', '/bin/bash', [path.join(ENGINE, 'tests/leak-scan.sh'), root], env))
     const red = report.steps.filter((step) => !step.ok).map((step) => step.name)
     if (red.length) return { ...report, reason: `red gates: ${red.join(', ')}`, commit: null, pushed: false }
     if (dryRun) return { ...report, ok: true, commit: null, pushed: false }
-    const result = nightlyCommit(root, { push, preflight, env })
+    const result = nightlyCommit(root, { push, preflight, env, expectedTree: snapshot.tree })
     return { ...report, ...result }
   })
   return locked.locked ? { ok: false, locked: true, reason: 'another harvest or nightly run holds the lock' } : locked

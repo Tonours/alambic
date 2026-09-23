@@ -201,7 +201,8 @@ _meta/alambic nightly --dry-run --json   # what the agent runs, without commit
 One run holds the harvest lock, checks a clean tree on the default branch equal
 to `origin`, then runs harvest scan, distill, enrich (when `TYPESAFE_API_KEY`
 is in the login env), sidekick, validate, lint and leak-scan. It commits only
-`kb/`, `ref/` and `_meta/enrich-ledger.json`, and pushes one commit when every
+`kb/`, `ref/`, `_meta/enrich-ledger.json` and the deletion of inbox notes it
+promoted, exactly as the gates checked them, and pushes one commit when every
 gate is green. The plist holds paths, never secrets. macOS only; the
 `alambic-sidekick-daily.yml` workflow stays for manual dispatch.
 `ALAMBIC_YOUTUBE_*` secrets feed attention collect. Details in
@@ -222,7 +223,8 @@ sessions without reading the vault; `harvest distill` turns queued excerpts
 into gitignored `docs/inbox/ai/harvest-*.md` drafts through an external
 distiller (`ALAMBIC_HARVEST_DISTILLER`, default `claude -p` with no tools).
 Session drafts never reach `kb/` without an accept receipt from an interactive
-`review`, bound to the file's sha256. A draft whose body an existing note
+`review`, bound to the file's sha256. The TTY check keeps scripts out, not a
+determined local process: never let an agent run `review --inbox`. A draft whose body an existing note
 already contains is archived as `noop-*`. `harvest digest --out` and
 `harvest ack --digest` hand the queue to another writer (a vault with its own
 capture agent) and clear it only after that writer pushed.

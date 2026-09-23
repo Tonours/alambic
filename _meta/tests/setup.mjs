@@ -505,6 +505,9 @@ try {
   assert(readJson(settingsS).hooks.SessionEnd[2].hooks[0].command.includes(`ALAMBIC_STATE_DIR='${customState}'`), 'the default hook follows ALAMBIC_STATE_DIR like the CLI')
   const stuck = await setup(engine, ['--uninstall', '--yes', '--name', 'brain', '--json'], { ...envS, STUB_LAUNCHCTL_BOOTOUT_FAIL: '1' })
   assert(stuck.code === 1 && stuck.json.items.find((item) => item.id === 'launchd:schedule').result === 'kept' && fs.existsSync(plist) && loaded()[label], `a failed bootout keeps the agent tracked: ${stuck.out}`)
+  fs.rmSync(plist)
+  const orphan = await setup(engine, ['--uninstall', '--yes', '--name', 'brain', '--json'], { ...envS, STUB_LAUNCHCTL_BOOTOUT_FAIL: '1' })
+  assert(orphan.json.items.find((item) => item.id === 'launchd:schedule').result === 'kept' && loaded()[label], `a loaded agent without its plist stays tracked when bootout fails: ${orphan.out}`)
   const unscheduled = await setup(engine, ['--uninstall', '--yes', '--name', 'brain', '--json'], envS)
   assert(unscheduled.code === 0 && !fs.existsSync(plist) && !loaded()[label], `named uninstall must boot out and remove the agent: ${unscheduled.out}`)
   const leftHooks = readJson(settingsS).hooks.SessionEnd

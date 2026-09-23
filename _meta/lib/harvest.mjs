@@ -153,9 +153,10 @@ export function buildExcerpt(messages, max = EXCERPT_MAX) {
   const take = (message, limit) => {
     if (picked.has(message.index)) return
     const text = message.text.length > limit ? `${message.text.slice(0, limit)} [...]` : message.text
-    const size = text.length + message.role.length + 3
+    const line = `${message.role}: ${text}`
+    const size = line.length + (picked.size ? 2 : 0)
     if (used + size > max) return
-    picked.set(message.index, `${message.role}: ${text}`)
+    picked.set(message.index, line)
     used += size
   }
   if (first) take(first, 400)
@@ -176,10 +177,15 @@ function realOrAncestor(target) {
   return path.join(fs.realpathSync(current), ...rest)
 }
 
-export function stateInsideVault(root, stateDir = null) {
+function insideVault(root, target) {
   const vault = fs.realpathSync(root)
-  const state = realOrAncestor(stateDir || alambicStateDir())
-  return state === vault || state.startsWith(`${vault}${path.sep}`)
+  const resolved = realOrAncestor(target)
+  return resolved === vault || resolved.startsWith(`${vault}${path.sep}`)
+}
+
+export function stateInsideVault(root, stateDir = null) {
+  const state = stateDir || alambicStateDir()
+  return [state, path.join(state, 'reviews'), harvestDir(state), ...['queue', 'processed', 'lock'].map((sub) => harvestDir(state, sub))].some((dir) => insideVault(root, dir))
 }
 
 function assertStateOutside(root, stateDir) {
@@ -211,8 +217,15 @@ export function withHarvestLock(stateDir, fn) {
     fs.mkdirSync(lock)
   } catch (error) {
     if (error.code !== 'EEXIST') throw error
+    const seen = readJson(path.join(lock, 'owner.json'), null)
     if (lockHolderAlive(lock)) return { ok: false, locked: true }
-    fs.rmSync(lock, { recursive: true, force: true })
+    const tomb = `${lock}.stale-${token}`
+    try { fs.renameSync(lock, tomb) } catch (move) { if (move.code !== 'ENOENT') throw move }
+    if (fs.existsSync(tomb) && readJson(path.join(tomb, 'owner.json'), null)?.token !== seen?.token) {
+      try { fs.renameSync(tomb, lock) } catch {}
+      return { ok: false, locked: true }
+    }
+    fs.rmSync(tomb, { recursive: true, force: true })
     try { fs.mkdirSync(lock) } catch (retry) { if (retry.code === 'EEXIST') return { ok: false, locked: true }; throw retry }
   }
   writeJson(path.join(lock, 'owner.json'), { pid: process.pid, token })
@@ -223,13 +236,31 @@ export function withHarvestLock(stateDir, fn) {
   }
 }
 
+function withFileLock(file, fn) {
+  const lock = `${file}.lock`
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  for (let attempt = 0; ; attempt += 1) {
+    try { fs.mkdirSync(lock); break } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      let age = 0
+      try { age = Date.now() - fs.statSync(lock).mtimeMs } catch { continue }
+      if (age > 10000) { fs.rmSync(lock, { recursive: true, force: true }); continue }
+      if (attempt >= 400) throw new Error(`lock busy: ${path.basename(file)}`)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+    }
+  }
+  try { return fn() } finally { fs.rmSync(lock, { recursive: true, force: true }) }
+}
+
 export function bumpMetrics(stateDir, delta) {
   const file = harvestDir(stateDir, 'metrics.json')
-  const metrics = { version: 1, ...Object.fromEntries(COUNTERS.map((key) => [key, 0])), ...readJson(file, {}) }
-  for (const [key, value] of Object.entries(delta)) if (COUNTERS.includes(key) && value) metrics[key] += value
-  metrics.updated_at = new Date().toISOString()
-  writeJson(file, metrics)
-  return metrics
+  return withFileLock(file, () => {
+    const metrics = { version: 1, ...Object.fromEntries(COUNTERS.map((key) => [key, 0])), ...readJson(file, {}) }
+    for (const [key, value] of Object.entries(delta)) if (COUNTERS.includes(key) && value) metrics[key] += value
+    metrics.updated_at = new Date().toISOString()
+    writeJson(file, metrics)
+    return metrics
+  })
 }
 
 function safeId(value) { return String(value).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) || crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16) }
@@ -432,14 +463,12 @@ export function harvestDigest(root, { out, max = 20, stateDir = null } = {}) {
     entries: entries.map(({ name, entry }) => ({ name, source_ref: entry.source_ref, harness: entry.harness, cwd: entry.cwd, score: entry.score, excerpt_sha256: crypto.createHash('sha256').update(entry.excerpt).digest('hex'), excerpt: entry.excerpt })),
   }
   const target = path.resolve(out)
-  const vault = fs.realpathSync(root)
-  const parent = (() => { try { return fs.realpathSync(path.dirname(target)) } catch { return path.dirname(target) } })()
-  if (parent === vault || parent.startsWith(`${vault}${path.sep}`)) throw new Error('harvest digest --out must be outside the vault')
+  if (insideVault(root, path.dirname(target))) throw new Error('harvest digest --out must be outside the vault')
   writeJson(target, digest)
   return { ok: true, out: target, count: digest.entries.length }
 }
 
-export function harvestAck(root, { digest, stateDir = null } = {}) {
+export function harvestAck(root, { digest, stateDir = null, dryRun = false } = {}) {
   if (!digest) throw new Error('usage: alambic harvest ack --digest FILE')
   const data = readJson(path.resolve(digest), null)
   if (!data || data.kind !== 'alambic-harvest-digest' || !Array.isArray(data.entries)) throw new Error('not an alambic harvest digest')
@@ -448,11 +477,11 @@ export function harvestAck(root, { digest, stateDir = null } = {}) {
     const name = path.basename(String(item.name || ''))
     const current = readJson(harvestDir(stateDir, 'queue', name), null)
     if (!current || crypto.createHash('sha256').update(current.excerpt).digest('hex') !== item.excerpt_sha256) continue
-    retire(stateDir, name, 'acked')
+    if (!dryRun) retire(stateDir, name, 'acked')
     acked += 1
   }
-  bumpMetrics(stateDir, { acked })
-  return { ok: true, acked }
+  if (!dryRun) bumpMetrics(stateDir, { acked })
+  return { ok: true, dry_run: dryRun, acked }
 }
 
 export function harvestStatus(root, { stateDir = null } = {}) {

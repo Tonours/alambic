@@ -139,7 +139,7 @@ try {
   assert.equal(nightly(['--dry-run']).ok, true, 'a dry run works on any branch')
   git(['checkout', '-q', 'main'])
 
-  const { nightlyCommit, nightlyPreflight } = await import(path.join(root, '_meta/lib/nightly.mjs'))
+  const { nightlyCommit, nightlyPreflight, publishableTree } = await import(path.join(root, '_meta/lib/nightly.mjs'))
   const preflight = nightlyPreflight(vault, { push: true, env })
   assert.equal(preflight.ok, true, JSON.stringify(preflight))
   fs.writeFileSync(path.join(vault, 'kb/extra-note.md'), fs.readFileSync(path.join(vault, promoted), 'utf8').replace(/^# .*$/m, '# Extra note'))
@@ -150,6 +150,17 @@ try {
   assert.deepEqual(refused.paths, ['package.json'])
   assert.equal(git(['diff', '--cached', '--name-only']), '', 'refused commit leaves nothing staged')
   git(['checkout', '--', 'package.json'])
+  fs.rmSync(path.join(vault, 'kb/extra-note.md'))
+
+  fs.writeFileSync(path.join(vault, 'kb/extra-note.md'), fs.readFileSync(path.join(vault, promoted), 'utf8').replace(/^# .*$/m, '# Extra note'))
+  const snapshot = publishableTree(vault, env)
+  assert.equal(snapshot.ok, true, JSON.stringify(snapshot))
+  assert.equal(git(['diff', '--cached', '--name-only']), '', 'the snapshot leaves nothing staged')
+  fs.appendFileSync(path.join(vault, 'kb/extra-note.md'), '\nEdited after the gates ran.\n')
+  const raced = nightlyCommit(vault, { push: true, preflight, env, expectedTree: snapshot.tree })
+  assert.equal(raced.ok, false)
+  assert.match(raced.reason, /changed after the gates/)
+  assert.equal(git(['diff', '--cached', '--name-only']), '', 'a raced commit leaves nothing staged')
   fs.rmSync(path.join(vault, 'kb/extra-note.md'))
 
   const stuckNote = path.join(vault, 'kb', path.basename(promoted))

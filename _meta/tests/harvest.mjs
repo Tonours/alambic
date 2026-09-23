@@ -146,6 +146,9 @@ try {
   assert.equal(json(cli(['harvest', 'scan', '--session', codexFile])).queued.length, 1)
   assert.notEqual(cli(['harvest', 'digest', '--out', path.join(vault, 'kb/raw-session.json')]).status, 0, 'a digest inside the vault is refused')
   assert.equal(fs.existsSync(path.join(vault, 'kb/raw-session.json')), false)
+  fs.symlinkSync(vault, path.join(temp, 'vault-alias'))
+  assert.notEqual(cli(['harvest', 'digest', '--out', path.join(temp, 'vault-alias/kb/new/raw.json')]).status, 0, 'a digest under a missing dir of an aliased vault is refused')
+  assert.equal(fs.existsSync(path.join(vault, 'kb/new')), false)
   const digestFile = path.join(temp, 'digest.json')
   const digest = json(cli(['harvest', 'digest', '--out', digestFile]))
   assert.equal(digest.count, 1)
@@ -153,6 +156,8 @@ try {
   assert.equal(digestData.trust, 'untrusted-session-data')
   assert.notEqual(cli(['harvest', 'ack', '--digest', digestFile, '--bogus']).status, 0)
   assert.equal(listQueue().length, 1, 'an usage error leaves the queue intact')
+  assert.equal(json(cli(['harvest', 'ack', '--digest', digestFile, '--dry-run'])).acked, 1)
+  assert.equal(listQueue().length, 1, 'a dry-run ack leaves the queue intact')
   assert.equal(json(cli(['harvest', 'ack', '--digest', digestFile])).acked, 1)
   assert.equal(json(cli(['harvest', 'ack', '--digest', digestFile])).acked, 0, 'ack is idempotent')
 
@@ -170,6 +175,32 @@ try {
   const inVault = cli(['harvest', 'scan', '--session', claudeFile], { ALAMBIC_STATE_DIR: path.join(vault, 'kb/runtime') })
   assert.notEqual(inVault.status, 0, 'a state dir inside the vault is refused')
   assert.equal(fs.existsSync(path.join(vault, 'kb/runtime')), false)
+
+  const linkedState = path.join(temp, 'linked-state')
+  fs.mkdirSync(linkedState)
+  fs.mkdirSync(path.join(vault, 'kb/imports'))
+  fs.symlinkSync(path.join(vault, 'kb/imports'), path.join(linkedState, 'harvest'))
+  assert.notEqual(cli(['harvest', 'scan', '--session', claudeFile], { ALAMBIC_STATE_DIR: linkedState }).status, 0, 'a harvest dir linked into the vault is refused')
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb/imports')), [])
+  fs.rmSync(path.join(vault, 'kb/imports'), { recursive: true })
+
+  const harvestLib = await import(path.join(root, '_meta/lib/harvest.mjs'))
+  const lockState = path.join(temp, 'lock-state')
+  fs.mkdirSync(path.join(lockState, 'harvest/lock'), { recursive: true })
+  fs.writeFileSync(path.join(lockState, 'harvest/lock/owner.json'), JSON.stringify({ pid: 999999, token: 'dead' }))
+  assert.equal(harvestLib.withHarvestLock(lockState, () => ({ ok: true, ran: true })).ran, true, 'a dead owner lock is taken over')
+  assert.deepEqual(fs.readdirSync(path.join(lockState, 'harvest')), [], 'takeover leaves no lock or tombstone')
+  fs.mkdirSync(path.join(lockState, 'harvest/lock'))
+  fs.writeFileSync(path.join(lockState, 'harvest/lock/owner.json'), JSON.stringify({ pid: process.pid, token: 'live' }))
+  assert.equal(harvestLib.withHarvestLock(lockState, () => ({ ok: true })).locked, true, 'a live owner keeps the lock')
+
+  const bumper = `import(${JSON.stringify(path.join(root, '_meta/lib/harvest.mjs'))}).then((lib) => { for (let index = 0; index < 20; index += 1) lib.bumpMetrics(${JSON.stringify(lockState)}, { accepted: 1 }) })`
+  const { spawn } = await import('node:child_process')
+  await Promise.all(Array.from({ length: 6 }, () => new Promise((resolve, reject) => spawn(process.execPath, ['-e', bumper], { stdio: 'inherit' }).on('exit', (code) => code === 0 ? resolve() : reject(new Error(`bumper exited ${code}`))))))
+  assert.equal(JSON.parse(fs.readFileSync(path.join(lockState, 'harvest/metrics.json'), 'utf8')).accepted, 120, 'concurrent metric bumps are not lost')
+
+  const dense = Array.from({ length: 100 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', text: `${richer} step ${index}` }))
+  assert.ok(harvestLib.buildExcerpt(dense).excerpt.length <= 6000, 'the excerpt respects its bound')
 
   fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: richer }] } })}`)
   const started = Date.now()

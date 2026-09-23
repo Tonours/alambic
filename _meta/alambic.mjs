@@ -343,7 +343,7 @@ try {
     has('--json')
     const dryRun = has('--dry-run')
     const sub = args.shift() || 'status'
-    const usage = 'usage: alambic harvest scan [--harness claude,codex,pi] [--session FILE] [--min-score N] [--dry-run] | distill [--distiller CMD] [--max N] [--dry-run] | digest --out FILE [--max N] | ack --digest FILE | status [--json]'
+    const usage = 'usage: alambic harvest scan [--harness claude,codex,pi] [--session FILE] [--min-score N] [--dry-run] | distill [--distiller CMD] [--max N] [--dry-run] | digest --out FILE [--max N] | ack --digest FILE [--dry-run] | status [--json]'
     let run
     if (sub === 'scan') {
       const harnesses = option('--harness', harvest.HARNESSES.join(',')).split(',').map((value) => value.trim()).filter(Boolean)
@@ -362,7 +362,7 @@ try {
       run = () => harvest.harvestDigest(ROOT, { out, max: Number.isFinite(max) ? max : 20 })
     } else if (sub === 'ack') {
       const digest = option('--digest', '')
-      run = () => harvest.withHarvestLock(null, () => harvest.harvestAck(ROOT, { digest }))
+      run = () => dryRun ? harvest.harvestAck(ROOT, { digest, dryRun }) : harvest.withHarvestLock(null, () => harvest.harvestAck(ROOT, { digest }))
     } else if (sub === 'status') {
       run = () => harvest.harvestStatus(ROOT)
     } else throw new Error(usage)
