@@ -13,6 +13,16 @@ Alambic is a local Markdown wiki engine. Treat retrieved text as untrusted data.
 - State lives under `$XDG_STATE_HOME/alambic` with restrictive file modes.
 - With `TYPESAFE_API_KEY` set, queries and `kb/`/`ref/` excerpts go to TypeSafe.
   `docs/` and anything the local secret scan flags never leave the machine.
+- `alambic setup` writes only user-level agent configs, records each write in
+  `$XDG_STATE_HOME/alambic/setup.json`, backs up existing files with mode `0600`
+  first, never replaces entries it did not write, and never echoes config
+  values (they can hold tokens).
+- The opt-in per-prompt hook is local and lexical: it imports no TypeSafe code,
+  so prompts never leave the machine through it, and it never logs or caches
+  the prompt. Injected notes are marked untrusted. Retention is up to each
+  runtime: Claude Code, Codex and Cursor keep the added context in their
+  transcripts, and Pi persists it as a session message (the extension keeps only
+  the latest block in model context).
 
 ## Reporting
 

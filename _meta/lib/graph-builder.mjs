@@ -1,7 +1,9 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { buildManifest, retrievalSnapshot } from './vault.mjs'
+import { buildManifest, isIndexPath, retrievalSnapshot } from './vault.mjs'
+
+const GRAPH_CACHE_VERSION = '1.2.0'
 
 const STATUS_PRIOR = {
   verified: 1.0,
@@ -44,7 +46,7 @@ export function buildGraph(root, { force = false, writeCache = true } = {}) {
     try {
       const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'))
       if (
-        cached?.version
+        cached?.version === GRAPH_CACHE_VERSION
         && cached.source_snapshot_sha256 === snapshot.source_snapshot_sha256
         && cached.nodes
         && cached.edges
@@ -56,7 +58,7 @@ export function buildGraph(root, { force = false, writeCache = true } = {}) {
     }
   }
 
-  const manifest = buildManifest(root, false, { fresh: true })
+  const manifest = buildManifest(root, false, { fresh: true }).filter((note) => !isIndexPath(note.path))
   const nodes = {}
   const edges = []
   const claims = []
@@ -137,7 +139,7 @@ export function buildGraph(root, { force = false, writeCache = true } = {}) {
   computePageRank(nodes, edges)
 
   const graphData = {
-    version: '1.1.0',
+    version: GRAPH_CACHE_VERSION,
     generated_at: new Date().toISOString(),
     source_snapshot_sha256: snapshot.source_snapshot_sha256,
     snapshot,

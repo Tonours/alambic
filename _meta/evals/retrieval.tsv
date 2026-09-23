@@ -12,3 +12,4 @@ source grounded answer quality	kb/source-grounded-answer-quality.md	exact
 derived graph markdown source of truth	kb/derived-graph-markdown-canonical.md	lexical
 purple aardvark quantum bananas	-	no-answer
 unicorn payroll zephyr mars	-	no-answer
+derived-graph-markdown-canonical	kb/derived-graph-markdown-canonical.md	exact

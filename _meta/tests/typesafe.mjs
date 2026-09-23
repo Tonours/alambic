@@ -26,7 +26,7 @@ import {
 } from '../lib/semantic-vault.mjs'
 import { appendTags, candidateTags, enrichVault } from '../lib/enrich.mjs'
 import { askJev, TYPESAFE_MODEL, typesafeHealth, validateTypesafeRequest } from '../lib/typesafe-judge.mjs'
-import { buildManifest, contextPack, queryVault, routeVaultKnowledge, validateVault } from '../lib/vault.mjs'
+import { buildManifest, buildRoutingCatalog, contextPack, queryVault, routeVaultKnowledge, validateVault } from '../lib/vault.mjs'
 
 function answerFor(id, question) {
   if (question.type === 'noul') return { type: 'noul', noul: id.startsWith('instruction_') ? 0.05 : 0.86 }
@@ -108,7 +108,9 @@ for (const file of [...fs.readdirSync(path.join(repoRoot, '_meta/lib')).map((nam
   assert.equal(/^import[^\n]*['"]@typesafe-ai\/sdk['"]/m.test(fs.readFileSync(file, 'utf8')), false, `${path.relative(repoRoot, file)} must load @typesafe-ai/sdk lazily inside askJev, never at module top`)
 }
 
-assert.equal(/^import[^\n]*semantic-vault\.mjs['"]/m.test(fs.readFileSync(path.join(repoRoot, '_meta/alambic.mjs'), 'utf8')), false, 'alambic.mjs must load semantic-vault.mjs only inside the retrieval branches so health stays independent')
+for (const entry of ['_meta/alambic.mjs', '_meta/lib/retrieval-cli.mjs']) {
+  assert.equal(/^import[^\n]*semantic-vault\.mjs['"]/m.test(fs.readFileSync(path.join(repoRoot, entry), 'utf8')), false, `${entry} must load semantic-vault.mjs only inside the retrieval branches so health stays independent`)
+}
 
 const expansionRequest = { state: { query: 'q'.repeat(500) }, questions: { topic: topicQuestion(topicVocabulary(buildManifest(repoRoot, false))) } }
 assert.doesNotThrow(() => validateTypesafeRequest(expansionRequest.state, expansionRequest.questions), 'topic expansion over the real tag vocabulary must fit TypeSafe request ceilings')
@@ -503,7 +505,7 @@ assert.deepEqual(missingQuery.results, [])
 assert.equal(missingQuery.semantic.decision, 'no_match')
 assert.equal(missingContext.abstained, true)
 assert.equal(missingRoute.abstained, true)
-assert.equal(missingClient.calls, 3)
+assert.equal(missingClient.calls, 1, 'query, context and route share one memoised expansion judgement')
 
 const expansionOnlyClient = fakeClient({
   mutate(result, request) {
@@ -602,6 +604,52 @@ assert.equal(enrichClient.calls, callsAfterApply)
 const offline = await enrichVault(enrichRoot, { apply: true, max: 5, env: {} })
 assert.equal(offline.pending, 0)
 fs.rmSync(enrichRoot, { recursive: true, force: true })
+
+const subjectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-subject-'))
+fs.mkdirSync(path.join(subjectRoot, 'kb'), { recursive: true })
+const subjectNote = (name, extra, body) => fs.writeFileSync(path.join(subjectRoot, 'kb', `${name}.md`), `---\ntype: finding\nstatus: verified\nsummary: "Subject fixture ${name} summary"\ncreated: 2026-09-23\nupdated: 2026-09-23\n${extra}---\n\n# ${name}\n\n${body}\n`)
+subjectNote('key-store', '', 'Hashed keys with constant-time verification.')
+subjectNote('token-rotation', '', 'Refresh grant rotation and reuse detection.')
+subjectNote('tagged-note', 'tags:\n  - own-tag\n', 'Tagged note keeps its own tags.')
+fs.writeFileSync(path.join(subjectRoot, 'kb/_index-bff.md'), '---\ntype: reference\nstatus: verified\nsummary: "Subject index for the bff fixture topic"\ncreated: 2026-09-23\nupdated: 2026-09-23\n---\n\n# BFF\n\n- [[key-store]]\n- [[token-rotation]]\n- [[tagged-note]]\n')
+fs.writeFileSync(path.join(subjectRoot, 'kb/_index-workflow.md'), '---\ntype: reference\nstatus: verified\nsummary: "Subject index for a generic workflow topic"\ncreated: 2026-09-23\nupdated: 2026-09-23\n---\n\n# Workflow\n\n- [[token-rotation]]\n')
+fs.writeFileSync(path.join(subjectRoot, 'kb/_index.md'), '# Index\n\n- [[_index-bff]]\n- [[_index-workflow]]\n')
+const subjectManifest = buildManifest(subjectRoot, false, { fresh: true })
+const keyStore = subjectManifest.find((note) => note.path === 'kb/key-store.md')
+assert.deepEqual(keyStore.tags, ['bff'])
+assert.deepEqual(keyStore.topic_tags, ['bff'])
+assert.deepEqual(subjectManifest.find((note) => note.path === 'kb/tagged-note.md').tags, ['own-tag'])
+assert.equal(buildManifest(subjectRoot, false), buildManifest(subjectRoot, false), 'derived manifest is memoized per parsed manifest')
+assert.equal(queryVault(subjectRoot, 'bff', { limit: 10 }).some((result) => result.path.startsWith('kb/_index')), false, 'subject indexes never surface as results')
+assert.ok(buildRoutingCatalog(subjectRoot).some((entry) => entry.term === 'bff' && entry.source === 'topic'), 'short declared topics stay routable')
+const bffRoute = routeVaultKnowledge(subjectRoot, 'rotate the bff token')
+assert.equal(bffRoute.abstained, false)
+assert.equal(bffRoute.query, 'bff rotate token', 'route query keeps the prompt terms after the matched topic')
+assert.equal(buildRoutingCatalog(subjectRoot).some((entry) => entry.term === 'workflow'), false, 'generic subject names stay out of the routing catalog')
+assert.deepEqual(topicVocabulary(subjectManifest), ['bff', 'own-tag', 'workflow'])
+fs.rmSync(subjectRoot, { recursive: true, force: true })
+
+const judgementMemoClient = fakeClient()
+const memoState = { query: 'memo', candidates: [{ path: 'kb/a.md', excerpt: 'alpha' }, { path: 'kb/b.md', excerpt: 'beta' }] }
+const memoQuestions = { relevant_0: noul('Is `candidates[0]` relevant to `query`?'), relevant_1: noul('Is `candidates[1]` relevant to `query`?') }
+const memoFirst = await askJev({ state: memoState, questions: memoQuestions }, { enabled: true, env: {}, client: judgementMemoClient })
+const memoRepeat = await askJev({ state: structuredClone(memoState), questions: memoQuestions }, { enabled: true, env: {}, client: judgementMemoClient })
+assert.equal(judgementMemoClient.calls, 1, 'an identical Jev request must be served from the judgement memo')
+assert.deepEqual(memoRepeat.answers, memoFirst.answers)
+assert.deepEqual(memoRepeat.usage, { input_tokens: 0, output_tokens: 0 }, 'a memo hit spends no provider tokens')
+const memoPermuted = { ...memoState, candidates: [...memoState.candidates].reverse() }
+await askJev({ state: memoPermuted, questions: memoQuestions }, { enabled: true, env: {}, client: judgementMemoClient })
+assert.equal(judgementMemoClient.calls, 2, 'a permuted candidate order must miss the memo because judgements are positional')
+const otherClient = fakeClient()
+await askJev({ state: memoState, questions: memoQuestions }, { enabled: true, env: {}, client: otherClient })
+assert.equal(otherClient.calls, 1, 'memo entries must not leak across clients')
+let failOnce = true
+const flakyClient = { calls: 0, async systemOne(request) { this.calls += 1; if (failOnce) { failOnce = false; throw new APITimeoutError(1_000) } return fakeClient().systemOne(request) } }
+const flakyFirst = await askJev({ state: memoState, questions: memoQuestions }, { enabled: true, env: {}, client: flakyClient })
+const flakySecond = await askJev({ state: memoState, questions: memoQuestions }, { enabled: true, env: {}, client: flakyClient })
+assert.equal(flakyFirst.available, false)
+assert.equal(flakySecond.available, true, 'a failed Jev call must not be memoised')
+assert.equal(flakyClient.calls, 2)
 
 fs.rmSync(tmp, { recursive: true, force: true })
 process.stdout.write('typesafe tests: ok\n')

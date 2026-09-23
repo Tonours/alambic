@@ -1,6 +1,10 @@
 # Cursor
 
-Point Cursor at the vault folder. Prefer the CLI over extra plugins:
+Run `_meta/alambic setup --harness cursor` once from the vault: skill in
+`~/.agents/skills`, MCP in `~/.cursor/mcp.json`, and with `--prompt-hook` a
+`beforeSubmitPrompt` hook in `~/.cursor/hooks.json`.
+
+The CLI works everywhere:
 
 ```bash
 _meta/alambic query --json "<terms>"
