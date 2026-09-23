@@ -4,6 +4,7 @@ import path from 'node:path'
 import { topicVocabulary } from './semantic-vault.mjs'
 import { askJev, noul } from './typesafe-judge.mjs'
 import { buildKnowledgeGraph, buildManifest, validateVault } from './vault.mjs'
+import { journalWrite } from './write-journal.mjs'
 
 const LEDGER = '_meta/enrich-ledger.json'
 const MAX_CANDIDATE_TAGS = 12
@@ -25,6 +26,7 @@ function writeAtomic(file, text) {
   const temporary = `${file}.${process.pid}.tmp`
   fs.writeFileSync(temporary, text, 'utf8')
   fs.renameSync(temporary, file)
+  journalWrite(file, text)
 }
 
 function writeLedger(root, ledger) {

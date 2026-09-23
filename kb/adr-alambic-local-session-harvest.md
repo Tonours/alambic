@@ -44,8 +44,9 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   its current sha256; the judge, the post-Jev re-gate and the promote step each
   check it. A note whose body is already in the update target is a NOOP.
 - `nightly --push` runs on the vault owner's machine from a LaunchAgent that
-  `setup --schedule` installs. It commits only `kb/`, `ref/` and the enrich
-  ledger, and pushes one commit with every gate green. Secrets stay in the login
+  `setup --schedule` installs. It commits only top-level `kb/` and `ref/` files,
+  the enrich ledger and inbox deletions, and only content its own steps wrote,
+  then pushes that one commit SHA with every gate green. Secrets stay in the login
   env, never in the plist.
 - A vault with its own capture agent consumes `harvest digest` and acks it
   after its push.
@@ -71,6 +72,10 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   bytes that were reviewed.
 - Nightly snapshots the publishable tree before validate, lint and leak-scan,
   and commits that exact tree; an edit landing during the gates aborts the run.
+- Enrich and the promotion writers journal what they write
+  (`ALAMBIC_WRITE_JOURNAL`); nightly refuses a changed path whose content is
+  not the last journaled write, so a human edit made during the run is never
+  published. An edit landing between a step's read and its write is merged.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 

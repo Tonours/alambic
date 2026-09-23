@@ -201,9 +201,9 @@ _meta/alambic nightly --dry-run --json   # what the agent runs, without commit
 One run holds the harvest lock, checks a clean tree on the default branch equal
 to `origin`, then runs harvest scan, distill, enrich (when `TYPESAFE_API_KEY`
 is in the login env), sidekick, validate, lint and leak-scan. It commits only
-`kb/`, `ref/`, `_meta/enrich-ledger.json` and the deletion of inbox notes it
-promoted, exactly as the gates checked them, and pushes one commit when every
-gate is green. The plist holds paths, never secrets. macOS only; the
+top-level `kb/` and `ref/` files, `_meta/enrich-ledger.json` and the deletion
+of inbox notes it promoted, only as its own steps wrote them and exactly as the
+gates checked them, and pushes that one commit when every gate is green. The plist holds paths, never secrets. macOS only; the
 `alambic-sidekick-daily.yml` workflow stays for manual dispatch.
 `ALAMBIC_YOUTUBE_*` secrets feed attention collect. Details in
 `kb/alambic-self-improvement-loop.md`, `kb/adr-alambic-local-session-harvest.md`

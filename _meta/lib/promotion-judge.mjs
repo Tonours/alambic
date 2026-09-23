@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { alambicStateDir } from './state-dir.mjs'
 import path from 'node:path'
 import { parseMarkdownText } from './frontmatter.mjs'
+import { journalWrite } from './write-journal.mjs'
 import { buildManifest, invalidateManifest, queryVault, scanUnsafe, validateVault } from './vault.mjs'
 
 /**
@@ -475,6 +476,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
     const temporary = `${targetAbs}.${process.pid}.tmp`
     fs.writeFileSync(temporary, after, 'utf8')
     fs.renameSync(temporary, targetAbs)
+    journalWrite(targetAbs, after)
     archiveInboxSource(root, judgment.path, 'updated')
     invalidateManifest(root)
     return { ok: true, mode: 'update', path: judgment.update_target, changed: true }
@@ -518,6 +520,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   if (scanUnsafe(front).length) return { ok: false, error: 'unsafe-create' }
   fs.writeFileSync(`${targetAbs}.${process.pid}.tmp`, front, 'utf8')
   fs.renameSync(`${targetAbs}.${process.pid}.tmp`, targetAbs)
+  journalWrite(targetAbs, front)
   applyIndexEntry(root, basename)
   archiveInboxSource(root, judgment.path, 'created')
   invalidateManifest(root)
@@ -538,6 +541,7 @@ function archiveInboxSource(root, relativePath, mode) {
     fs.copyFileSync(abs, dest)
     fs.unlinkSync(abs)
   }
+  journalWrite(abs, null)
 }
 
 function sourceLooksInspectable(root, source) {
@@ -602,6 +606,7 @@ export function applyStructuralWikilink(root, sourcePath, targetBasename) {
   const temporary = `${absolute}.${process.pid}.tmp`
   fs.writeFileSync(temporary, after, 'utf8')
   fs.renameSync(temporary, absolute)
+  journalWrite(absolute, after)
   invalidateManifest(root)
   return { ok: true, path: sourcePath, changed: true, link }
 }
@@ -633,6 +638,7 @@ export function applyIndexEntry(root, basename) {
   const temporary = `${indexPath}.${process.pid}.tmp`
   fs.writeFileSync(temporary, after, 'utf8')
   fs.renameSync(temporary, indexPath)
+  journalWrite(indexPath, after)
   invalidateManifest(root)
   return { ok: true, path: 'kb/_index.md', changed: true, basename }
 }

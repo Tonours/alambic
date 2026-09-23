@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -162,6 +163,35 @@ try {
   assert.match(raced.reason, /changed after the gates/)
   assert.equal(git(['diff', '--cached', '--name-only']), '', 'a raced commit leaves nothing staged')
   fs.rmSync(path.join(vault, 'kb/extra-note.md'))
+
+  const journal = path.join(temp, 'writes.jsonl')
+  const ownText = fs.readFileSync(path.join(vault, promoted), 'utf8').replace(/^# .*$/m, '# Own note')
+  fs.writeFileSync(path.join(vault, 'kb/own-note.md'), ownText)
+  fs.writeFileSync(journal, `${JSON.stringify({ path: path.resolve(vault, 'kb/own-note.md'), sha: crypto.createHash('sha256').update(ownText).digest('hex') })}\n`)
+  fs.writeFileSync(path.join(vault, 'kb/human-note.md'), ownText.replace('# Own note', '# Human note'))
+  const foreign = nightlyCommit(vault, { push: true, preflight, env, journal })
+  assert.equal(foreign.ok, false)
+  assert.match(foreign.reason, /not written by this run/)
+  assert.deepEqual(foreign.paths, ['kb/human-note.md'], 'a human edit made during the run is never published')
+  fs.rmSync(path.join(vault, 'kb/human-note.md'))
+  fs.appendFileSync(path.join(vault, 'kb/own-note.md'), '\nHuman touch after the run wrote it.\n')
+  assert.deepEqual(nightlyCommit(vault, { push: true, preflight, env, journal }).paths, ['kb/own-note.md'], 'an edit on top of a run write is refused')
+  fs.rmSync(path.join(vault, 'kb/own-note.md'))
+
+  fs.appendFileSync(path.join(vault, 'package.json'), '\n')
+  git(['add', 'package.json'])
+  const staged = nightlyCommit(vault, { push: true, preflight, env })
+  assert.match(staged.reason, /index changed during the run/)
+  assert.equal(git(['diff', '--cached', '--name-only']), 'package.json', 'a refused run keeps what the user staged')
+  git(['reset', '-q', '--', 'package.json'])
+  git(['checkout', '--', 'package.json'])
+
+  fs.mkdirSync(path.join(vault, 'kb/imports'))
+  fs.writeFileSync(path.join(vault, 'kb/imports/draft.md'), ownText)
+  const nested = nightlyCommit(vault, { push: true, preflight, env })
+  assert.match(nested.reason, /outside the commit allowlist/)
+  assert.deepEqual(nested.paths, ['kb/imports/draft.md'], 'nested kb paths the validator skips are never published')
+  fs.rmSync(path.join(vault, 'kb/imports'), { recursive: true })
 
   const stuckNote = path.join(vault, 'kb', path.basename(promoted))
   fs.appendFileSync(stuckNote, '\nLocal nightly commit that never reached the remote.\n')

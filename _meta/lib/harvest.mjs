@@ -170,17 +170,19 @@ export function buildExcerpt(messages, max = EXCERPT_MAX) {
 
 function harvestDir(stateDir, ...parts) { return path.join(stateDir || alambicStateDir(), 'harvest', ...parts) }
 
-function realOrAncestor(target) {
+function existingAncestor(target) {
   let current = path.resolve(target)
-  const rest = []
-  while (!fs.existsSync(current) && path.dirname(current) !== current) { rest.unshift(path.basename(current)); current = path.dirname(current) }
-  return path.join(fs.realpathSync(current), ...rest)
+  while (!fs.existsSync(current) && path.dirname(current) !== current) current = path.dirname(current)
+  return fs.realpathSync.native(current)
 }
 
 function insideVault(root, target) {
-  const vault = fs.realpathSync(root)
-  const resolved = realOrAncestor(target)
-  return resolved === vault || resolved.startsWith(`${vault}${path.sep}`)
+  const vault = fs.statSync(root)
+  for (let current = existingAncestor(target); ; current = path.dirname(current)) {
+    const stat = fs.statSync(current)
+    if (stat.dev === vault.dev && stat.ino === vault.ino) return true
+    if (path.dirname(current) === current) return false
+  }
 }
 
 export function stateInsideVault(root, stateDir = null) {
@@ -203,53 +205,90 @@ function writeJson(file, value) {
   fs.renameSync(temporary, file)
 }
 
-function lockHolderAlive(lock) {
-  const owner = readJson(path.join(lock, 'owner.json'), null)
-  if (!owner) return Date.now() - fs.statSync(lock).mtimeMs < 30 * 60 * 1000
+const LOCK_STALE_MS = 30 * 60 * 1000
+const REAP_DEPTH = 8
+
+function lockOwner(dir) { return readJson(path.join(dir, 'owner.json'), null) }
+
+function ownerAlive(dir, owner) {
+  if (!owner) {
+    try { return Date.now() - fs.statSync(dir).mtimeMs < LOCK_STALE_MS } catch { return false }
+  }
   try { process.kill(owner.pid, 0); return true } catch (error) { return error.code === 'EPERM' }
+}
+
+function createOwned(dir, owner) {
+  if (fs.existsSync(dir)) return false
+  const temporary = fs.mkdtempSync(`${dir}.new-`)
+  fs.writeFileSync(path.join(temporary, 'owner.json'), JSON.stringify(owner), { mode: 0o600 })
+  try {
+    fs.renameSync(temporary, dir)
+    return true
+  } catch (error) {
+    fs.rmSync(temporary, { recursive: true, force: true })
+    if (error.code === 'EEXIST' || error.code === 'ENOTEMPTY') return false
+    throw error
+  }
+}
+
+function discard(dir) {
+  const gone = `${dir}.gone-${crypto.randomUUID()}`
+  try { fs.renameSync(dir, gone) } catch (error) { if (error.code === 'ENOENT') return; throw error }
+  fs.rmSync(gone, { recursive: true, force: true })
+}
+
+function ownerKey(dir, owner) {
+  if (owner?.token) return String(owner.token).replace(/[^A-Za-z0-9-]/g, '').slice(0, 64)
+  try { return `ino${fs.statSync(dir).ino}` } catch { return null }
+}
+
+function claimReap(lock, deadKey, me, depth) {
+  if (!deadKey || depth > REAP_DEPTH) return null
+  const reaper = `${lock}.reap-${deadKey}`
+  if (createOwned(reaper, me)) return [reaper]
+  const other = lockOwner(reaper)
+  if (ownerAlive(reaper, other)) return null
+  const inherited = claimReap(lock, ownerKey(reaper, other), me, depth + 1)
+  return inherited ? [reaper, ...inherited] : null
+}
+
+function acquireOwned(lock, me) {
+  if (createOwned(lock, me)) return true
+  const holder = lockOwner(lock)
+  if (ownerAlive(lock, holder)) return false
+  const deadKey = ownerKey(lock, holder)
+  const reapers = claimReap(lock, deadKey, me, 0)
+  if (!reapers) return false
+  let acquired = false
+  if (ownerKey(lock, lockOwner(lock)) === deadKey) {
+    discard(lock)
+    acquired = createOwned(lock, me)
+  }
+  for (const reaper of reapers.reverse()) discard(reaper)
+  return acquired
+}
+
+function releaseOwned(lock, me) {
+  if (lockOwner(lock)?.token === me.token) discard(lock)
 }
 
 export function withHarvestLock(stateDir, fn) {
   const lock = harvestDir(stateDir, 'lock')
-  const token = crypto.randomUUID()
+  const me = { pid: process.pid, token: crypto.randomUUID() }
   fs.mkdirSync(path.dirname(lock), { recursive: true, mode: 0o700 })
-  try {
-    fs.mkdirSync(lock)
-  } catch (error) {
-    if (error.code !== 'EEXIST') throw error
-    const seen = readJson(path.join(lock, 'owner.json'), null)
-    if (lockHolderAlive(lock)) return { ok: false, locked: true }
-    const tomb = `${lock}.stale-${token}`
-    try { fs.renameSync(lock, tomb) } catch (move) { if (move.code !== 'ENOENT') throw move }
-    if (fs.existsSync(tomb) && readJson(path.join(tomb, 'owner.json'), null)?.token !== seen?.token) {
-      try { fs.renameSync(tomb, lock) } catch {}
-      return { ok: false, locked: true }
-    }
-    fs.rmSync(tomb, { recursive: true, force: true })
-    try { fs.mkdirSync(lock) } catch (retry) { if (retry.code === 'EEXIST') return { ok: false, locked: true }; throw retry }
-  }
-  writeJson(path.join(lock, 'owner.json'), { pid: process.pid, token })
-  try {
-    return fn()
-  } finally {
-    if (readJson(path.join(lock, 'owner.json'), null)?.token === token) fs.rmSync(lock, { recursive: true, force: true })
-  }
+  if (!acquireOwned(lock, me)) return { ok: false, locked: true }
+  try { return fn() } finally { releaseOwned(lock, me) }
 }
 
 function withFileLock(file, fn) {
   const lock = `${file}.lock`
+  const me = { pid: process.pid, token: crypto.randomUUID() }
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
-  for (let attempt = 0; ; attempt += 1) {
-    try { fs.mkdirSync(lock); break } catch (error) {
-      if (error.code !== 'EEXIST') throw error
-      let age = 0
-      try { age = Date.now() - fs.statSync(lock).mtimeMs } catch { continue }
-      if (age > 10000) { fs.rmSync(lock, { recursive: true, force: true }); continue }
-      if (attempt >= 400) throw new Error(`lock busy: ${path.basename(file)}`)
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
-    }
+  for (let attempt = 0; !acquireOwned(lock, me); attempt += 1) {
+    if (attempt >= 400) throw new Error(`lock busy: ${path.basename(file)}`)
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
   }
-  try { return fn() } finally { fs.rmSync(lock, { recursive: true, force: true }) }
+  try { return fn() } finally { releaseOwned(lock, me) }
 }
 
 export function bumpMetrics(stateDir, delta) {
@@ -273,12 +312,16 @@ export function harvestScan(root, { harnesses = HARNESSES, session = null, minSc
   const targets = session
     ? [{ harness: detectHarness(session, roots), file: path.resolve(session) }]
     : harnesses.flatMap((harness) => listSessionFiles(harness, roots).map((file) => ({ harness, file })))
-  const report = { ok: true, dry_run: dryRun, min_score: minScore, scanned: 0, queued: [], below: 0, skipped_recent: 0, skipped_unchanged: 0, dropped_unsafe: 0 }
-  for (const { harness, file } of targets) {
+  const report = { ok: true, dry_run: dryRun, min_score: minScore, scanned: 0, queued: [], below: 0, skipped_recent: 0, skipped_unchanged: 0, skipped_pending: 0, dropped_unsafe: 0 }
+  for (const target of targets) {
+    const { harness } = target
     if (!harness) { report.ok = false; report.error = 'session file is outside known harness session roots'; continue }
     let stat
-    try { stat = fs.statSync(file) } catch { continue }
-    const previous = cursor.files[file]
+    let file
+    try { file = fs.realpathSync.native(target.file); stat = fs.statSync(file) } catch { continue }
+    const previous = cursor.files[file] || cursor.files[path.resolve(target.file)]
+    if (file !== path.resolve(target.file)) delete cursor.files[path.resolve(target.file)]
+    if (previous) cursor.files[file] = previous
     if (previous && previous.size === stat.size && previous.mtimeMs === stat.mtimeMs) { report.skipped_unchanged += 1; continue }
     if (!session && now - stat.mtimeMs < QUIET_MS) { report.skipped_recent += 1; continue }
     if (!previous && !session && now - stat.mtimeMs > LOOKBACK_MS) continue
@@ -307,6 +350,12 @@ export function harvestScan(root, { harnesses = HARNESSES, session = null, minSc
       excerpt,
     }
     const name = `${harness}-${safeId(parsed.id)}-m${previous?.messages || 0}.json`
+    if (fs.existsSync(harvestDir(stateDir, 'queue', name))) {
+      if (previous) cursor.files[file] = previous
+      else delete cursor.files[file]
+      report.skipped_pending += 1
+      continue
+    }
     report.queued.push({ name, source_ref: entry.source_ref, score: entry.score })
     if (!dryRun) writeJson(harvestDir(stateDir, 'queue', name), entry)
   }
@@ -388,8 +437,14 @@ export function renderHarvestNote(answer, entry, today = new Date().toISOString(
   return text
 }
 
-function writeExclusive(dir, base, text) {
+function harvestInbox(root) {
+  const dir = path.join(root, 'docs/inbox/ai')
   fs.mkdirSync(dir, { recursive: true })
+  if (fs.realpathSync.native(dir) !== path.join(fs.realpathSync.native(root), 'docs', 'inbox', 'ai')) throw new Error('docs/inbox/ai must be a real directory inside the vault')
+  return dir
+}
+
+function writeExclusive(dir, base, text) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const file = path.join(dir, `${base}${attempt ? `-${attempt}` : ''}.md`)
     try {
@@ -435,7 +490,7 @@ export function harvestDistill(root, { distiller = null, max = 5, stateDir = nul
       }
       const text = renderHarvestNote(answer, entry)
       const today = new Date().toISOString().slice(0, 10)
-      const file = writeExclusive(path.join(root, 'docs/inbox/ai'), `harvest-${today}-${entry.harness}-${safeId(entry.session_id).slice(0, 8)}`, text)
+      const file = writeExclusive(harvestInbox(root), `harvest-${today}-${entry.harness}-${safeId(entry.session_id).slice(0, 8)}`, text)
       const relative = path.relative(root, file).split(path.sep).join('/')
       report.written.push({ name, path: relative })
       retire(stateDir, name, 'distilled', { inbox_path: relative })
