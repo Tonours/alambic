@@ -103,11 +103,13 @@ function scaffoldFiles(from) {
 }
 
 function initVault(dest, { force = false } = {}) {
-  const target = path.resolve(dest)
+  let target = path.resolve(dest)
   if (fs.existsSync(target)) {
     const names = fs.readdirSync(target).filter((name) => name !== '.git' && name !== '.DS_Store')
     if (names.length && !force) throw new Error(`init refuses non-empty directory ${target} (pass --force to overwrite missing files only)`)
   } else fs.mkdirSync(target, { recursive: true })
+  // Physical path, like _meta/alambic (pwd -P): setup reruns from the vault must see the same root.
+  target = fs.realpathSync(target)
   for (const rel of scaffoldFiles(ROOT)) {
     const dest = path.join(target, rel)
     if (fs.existsSync(dest)) continue

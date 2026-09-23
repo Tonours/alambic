@@ -51,7 +51,7 @@ try {
   assert(full.status === 0, `init --install failed: ${full.stdout}${full.stderr}`)
   assert(fs.existsSync(path.join(installed, '.obsidian')), 'init --install skipped the Obsidian bootstrap')
   const skill = fs.readFileSync(path.join(home, '.agents/skills/alambic/SKILL.md'), 'utf8')
-  assert(skill.includes(installed), 'init --install must point setup at the new vault')
+  assert(skill.includes(fs.realpathSync(installed)), 'init --install must point setup at the new vault (physical path)')
   assert(/alambic doctor: ok/.test(full.stdout), 'init --install must finish with a passing doctor')
   const extra = spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), 'init', `${dest}-extra`, '--harness', 'pi'], { encoding: 'utf8' })
   assert(extra.status !== 0, 'init must reject setup options without --install')
