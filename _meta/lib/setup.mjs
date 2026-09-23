@@ -5,13 +5,17 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const HARNESSES = ['claude', 'codex', 'pi', 'opencode', 'cursor']
-export const COMPONENTS = ['skill', 'mcp', 'shim', 'hook']
+export const COMPONENTS = ['skill', 'mcp', 'shim', 'hook', 'harvest', 'schedule']
 const BINARIES = { claude: 'claude', codex: 'codex', pi: 'pi', opencode: 'opencode', cursor: 'cursor-agent' }
 const MCP_HARNESSES = ['claude', 'codex', 'opencode', 'cursor']
 const HOOK_SCRIPT = '_meta/hooks/prompt-context.mjs'
 const HOOK_MARKER = 'prompt-context.mjs'
+const HARVEST_SCRIPT = '_meta/hooks/harvest-hook.mjs'
+const DEFAULT_SCHEDULE = '05:15'
+const SCHEDULE_PATTERN = /^([01]?\d|2[0-3]):([0-5]\d)$/
+const SESSION_DIR_VARS = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'PI_CODING_AGENT_DIR']
 const TEMPLATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../harness')
-export const USAGE = 'usage: alambic setup [--name <slug> [--vault <path>]] [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor|all|detected] [--prompt-hook] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--yes]'
+export const USAGE = 'usage: alambic setup [--name <slug> [--vault <path>]] [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor|all|detected] [--prompt-hook] [--harvest-hook] [--schedule [HH:MM]] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--yes]'
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,30}$/
 const NAMED_MANIFEST = /^setup-([a-z0-9][a-z0-9-]{0,30})\.json$/
 export const handleFor = (name) => (name ? `alambic-${name}` : 'alambic')
@@ -46,6 +50,8 @@ export function resolvePaths(env, name = null) {
     cursorDir: path.join(home, '.cursor'),
     agentsSkills: path.join(home, '.agents/skills'),
     binDir: path.join(home, '.local/bin'),
+    launchAgents: path.join(home, 'Library/LaunchAgents'),
+    logs: path.join(home, 'Library/Logs'),
     xdgState,
     manifest: path.join(xdgState, 'alambic', name ? `setup-${name}.json` : 'setup.json'),
   }
@@ -72,7 +78,7 @@ export function detectHarnesses(env, paths = resolvePaths(env)) {
 }
 
 export function parseSetupArgs(argv) {
-  const options = { mode: 'install', yes: false, dryRun: false, json: false, harness: null, name: null, vault: null, components: { skill: true, mcp: true, shim: true, hook: false } }
+  const options = { mode: 'install', yes: false, dryRun: false, json: false, harness: null, name: null, vault: null, schedule: DEFAULT_SCHEDULE, components: { skill: true, mcp: true, shim: true, hook: false, harvest: false, schedule: false } }
   const rest = [...argv]
   while (rest.length) {
     const arg = rest.shift()
@@ -80,6 +86,13 @@ export function parseSetupArgs(argv) {
     else if (arg === '--dry-run') options.dryRun = true
     else if (arg === '--json') options.json = true
     else if (arg === '--prompt-hook') options.components.hook = true
+    else if (arg === '--harvest-hook') options.components.harvest = true
+    else if (arg === '--schedule' || arg.startsWith('--schedule=')) {
+      options.components.schedule = true
+      const value = arg === '--schedule' ? (/^\d/.test(rest[0] || '') ? rest.shift() : DEFAULT_SCHEDULE) : arg.slice('--schedule='.length)
+      if (!SCHEDULE_PATTERN.test(value)) throw new Error(`--schedule expects HH:MM (24h)\n${USAGE}`)
+      options.schedule = value
+    }
     else if (arg === '--no-skill') options.components.skill = false
     else if (arg === '--no-mcp') options.components.mcp = false
     else if (arg === '--no-shim') options.components.shim = false
@@ -243,6 +256,7 @@ function recordItem(run, action, preState) {
     type: action.type,
     target: action.target,
     ...(action.entryPath ? { entryPath: action.entryPath, container: action.container } : {}),
+    ...(action.launchd ? { launchd: action.launchd, schedule: action.schedule } : {}),
     fingerprint: action.fingerprint,
     preState: previous?.preState || preState,
     installed_at: new Date().toISOString(),
@@ -321,6 +335,42 @@ function renderTemplate(relative, values) {
   return text
 }
 const jsString = (value) => JSON.stringify(String(value)).slice(1, -1)
+const xml = (value) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+export const launchdLabel = (handle) => `dev.alambic.${handle}.nightly`
+
+function schedulePlist(context, schedule, stateDir) {
+  const { paths, vault, engine, node, handle, env } = context
+  const [hour, minute] = schedule.split(':').map(Number)
+  const variables = { ALAMBIC_ROOT: vault, ALAMBIC_STATE_DIR: stateDir, PATH: env.PATH || '/usr/bin:/bin', ...Object.fromEntries(SESSION_DIR_VARS.filter((key) => env[key] && path.isAbsolute(env[key])).map((key) => [key, env[key]])) }
+  const log = path.join(paths.logs, `${handle}.nightly.log`)
+  const command = `exec ${shq(node)} ${shq(path.join(engine, '_meta/alambic.mjs'))} nightly --push --json`
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+    '<plist version="1.0">',
+    '<dict>',
+    `  <key>Label</key><string>${xml(launchdLabel(handle))}</string>`,
+    `  <key>ProgramArguments</key><array><string>/bin/zsh</string><string>-lc</string><string>${xml(command)}</string></array>`,
+    '  <key>EnvironmentVariables</key>',
+    '  <dict>',
+    ...Object.entries(variables).map(([key, value]) => `    <key>${xml(key)}</key><string>${xml(value)}</string>`),
+    '  </dict>',
+    `  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>${hour}</integer><key>Minute</key><integer>${minute}</integer></dict>`,
+    `  <key>StandardOutPath</key><string>${xml(log)}</string>`,
+    `  <key>StandardErrorPath</key><string>${xml(log)}</string>`,
+    '  <key>RunAtLoad</key><false/>',
+    '</dict>',
+    '</plist>',
+    '',
+  ].join('\n')
+}
+
+function launchctl(context, argv) {
+  const binary = context.env.ALAMBIC_LAUNCHCTL || '/bin/launchctl'
+  const result = spawnSync(binary, argv, { env: context.env, encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] })
+  return { ok: result.status === 0, status: result.status ?? result.signal }
+}
+const launchDomain = () => `gui/${process.getuid()}`
 
 function hookCommand(context, format) {
   return `${shq(context.node)} ${shq(path.join(context.vault, HOOK_SCRIPT))} --format ${format}`
@@ -331,7 +381,8 @@ export function desiredItems(context, selection) {
   const { harnesses, components } = selection
   const items = []
   const server = path.join(engine, '_meta/mcp/server.mjs')
-  const runtimeEnv = { ALAMBIC_ROOT: vault, ...(name ? { ALAMBIC_STATE_DIR: path.join(paths.xdgState, handle) } : {}) }
+  const stateDir = name || !path.isAbsolute(context.env.ALAMBIC_STATE_DIR || '') ? path.join(paths.xdgState, handle) : path.resolve(context.env.ALAMBIC_STATE_DIR)
+  const runtimeEnv = { ALAMBIC_ROOT: vault, ...(name ? { ALAMBIC_STATE_DIR: stateDir } : {}) }
   const envPrefix = name ? `${Object.entries(runtimeEnv).map(([key, value]) => `${key}=${shq(value)}`).join(' ')} ` : ''
   const mcpValue = { command: node, args: [server], env: runtimeEnv }
   if (components.skill) {
@@ -354,6 +405,14 @@ export function desiredItems(context, selection) {
   if (components.shim) {
     const content = `#!/bin/sh\nexec ${name ? `env ${envPrefix}` : ''}${shq(node)} ${shq(path.join(engine, '_meta/alambic.mjs'))} "$@"\n`
     items.push({ id: 'cli:shim', harnesses: ['cli'], kind: 'shim', type: 'file', target: path.join(paths.binDir, handle), content, mode: 0o755 })
+  }
+  if (components.harvest && harnesses.includes('claude')) {
+    const command = `${Object.entries({ ...runtimeEnv, ALAMBIC_STATE_DIR: stateDir }).map(([key, value]) => `${key}=${shq(value)}`).join(' ')} ${shq(node)} ${shq(path.join(engine, HARVEST_SCRIPT))}`
+    items.push({ id: 'claude:harvest', harnesses: ['claude'], kind: 'harvest', type: 'entry', container: 'array', target: path.join(paths.claudeDir, 'settings.json'), entryPath: ['hooks', 'SessionEnd'], value: { hooks: [{ type: 'command', command, timeout: 10 }] }, base: {} })
+  }
+  if (components.schedule) {
+    const schedule = selection.schedule || DEFAULT_SCHEDULE
+    items.push({ id: 'launchd:schedule', harnesses: ['launchd'], kind: 'schedule', type: 'file', target: path.join(paths.launchAgents, `${launchdLabel(handle)}.plist`), content: schedulePlist(context, schedule, stateDir), mode: 0o644, launchd: launchdLabel(handle), schedule })
   }
   if (components.hook) {
     const values = { NODE: jsString(node), HOOK: jsString(path.join(vault, HOOK_SCRIPT)) }
@@ -385,6 +444,7 @@ function inspect(context, item, recorded) {
     const found = fingerprint(current)
     return { preimage: found, state: classify(found, item, recorded) }
   }
+  if (item.launchd && process.platform !== 'darwin' && !context.env.ALAMBIC_LAUNCHCTL) throw new Refusal('LaunchAgent schedules need macOS')
   const file = readTarget(item.target)
   if (item.type === 'file') {
     if (!file.exists) return { preimage: 'absent', state: 'absent', file }
@@ -404,7 +464,7 @@ function inspect(context, item, recorded) {
   const fingerprints = node.map(fingerprint)
   if (fingerprints.includes(item.fingerprint)) return { preimage: file.hash, file, json, state: 'match' }
   if (recorded && fingerprints.includes(recorded.fingerprint)) return { preimage: file.hash, file, json, state: 'owned' }
-  if (node.some(claimsHook)) return { preimage: file.hash, file, json, state: 'foreign', reason: 'another alambic hook entry exists' }
+  if (item.kind === 'hook' && node.some(claimsHook)) return { preimage: file.hash, file, json, state: 'foreign', reason: 'another alambic hook entry exists' }
   return { preimage: file.hash, file, json, state: 'absent' }
 }
 
@@ -415,6 +475,7 @@ function planItem(context, item, recorded) {
     action.preimage = found.preimage
     action.status = { absent: 'create', match: 'unchanged', owned: 'update', foreign: 'collision' }[found.state]
     if (found.state === 'foreign') action.reason = found.reason || (recorded ? 'changed since setup wrote it' : 'exists and is not owned by setup')
+    if (item.launchd && action.status === 'unchanged' && !launchctl(context, ['print', `${launchDomain()}/${item.launchd}`]).ok) Object.assign(action, { status: 'update', reason: 'LaunchAgent not loaded' })
   } catch (error) {
     if (!(error instanceof Refusal)) throw error
     action.status = 'refuse'
@@ -446,6 +507,7 @@ export function planSetup(context, selection) {
     if (features?.status === 0 && /^hooks\s+\S+\s+false\b/m.test(features.stdout)) warnings.push('codex hooks are disabled; enable with: codex features enable hooks')
     warnings.push('codex hook stays pending-trust until you approve it in codex /hooks')
   }
+  if (selection.components.harvest && !selection.harnesses.includes('claude')) warnings.push('the harvest hook is Claude-only; select the claude harness (Codex and Pi sessions are picked up by nightly)')
   if (selection.components.mcp && selection.harnesses.includes('pi')) warnings.push('pi has no MCP support; pi gets the skill (and the hook when selected)')
   return { vault: context.vault, node: context.node, selection, actions, warnings }
 }
@@ -473,6 +535,7 @@ function applyAction(run, action) {
   if (file.exists) backupOnce(run, file.real)
   if (action.type === 'file') {
     atomicWrite(file.real, action.content, action.mode)
+    if (action.launchd) loadAgent(context, action, file)
     return 'applied'
   }
   const json = found.json || structuredClone(action.base)
@@ -495,6 +558,20 @@ function applyAction(run, action) {
   return 'applied'
 }
 
+function loadAgent(context, action, previous) {
+  fs.mkdirSync(context.paths.logs, { recursive: true })
+  launchctl(context, ['bootout', `${launchDomain()}/${action.launchd}`])
+  const loaded = launchctl(context, ['bootstrap', launchDomain(), previous.real])
+  if (loaded.ok) return
+  if (!previous.exists) {
+    fs.rmSync(previous.real, { force: true })
+    throw new Refusal(`launchctl bootstrap failed (exit ${loaded.status}); LaunchAgent not installed`)
+  }
+  atomicWrite(previous.real, previous.bytes, previous.mode)
+  const restored = launchctl(context, ['bootstrap', launchDomain(), previous.real])
+  throw new Refusal(`launchctl bootstrap failed (exit ${loaded.status}); ${restored.ok ? 'previous LaunchAgent restored' : 'previous plist restored but not loaded'}`)
+}
+
 function newRun(context) {
   return { context, manifest: context.manifest, stamp: new Date().toISOString().replace(/[:.]/g, '-'), backedUp: new Set(), backups: [] }
 }
@@ -512,6 +589,10 @@ export function applySetup(context, plan) {
     try {
       action.result = action.status === 'unchanged' ? 'unchanged' : applyAction(run, action)
       if (action.result === 'applied' || (action.result === 'unchanged' && !journaled)) recordItem(run, action, preState)
+      if (action.result === 'applied' && action.type !== 'mcp-cli') {
+        const written = readTarget(action.target).hash
+        for (const next of plan.actions) if (next !== action && next.target === action.target && next.preimage === action.preimage) next.preimage = written
+      }
     } catch (error) {
       action.result = 'failed'
       action.reason = failureReason(error)
@@ -542,6 +623,7 @@ function itemState(context, recorded) {
     const found = inspect(context, recorded, null)
     if (found.state === 'match') {
       if (recorded.id === 'codex:hook' && !codexTrusted(context, recorded)) return { state: 'pending-trust', found }
+      if (recorded.launchd && !launchctl(context, ['print', `${launchDomain()}/${recorded.launchd}`]).ok) return { state: 'not-loaded', found }
       return { state: 'installed', found }
     }
     if (found.state === 'absent') return { state: 'missing', found }
@@ -561,11 +643,12 @@ export function setupStatus(context, selection = null) {
   const wanted = selection ?? {
     harnesses: HARNESSES.filter((harness) => recorded.some((item) => item.harnesses.includes(harness))),
     components: Object.fromEntries(COMPONENTS.map((component) => [component, recorded.some((item) => item.kind === component)])),
+    schedule: recorded.find((item) => item.launchd)?.schedule,
   }
   for (const item of desiredItems(context, wanted)) {
     const known = items.find((entry) => entry.id === item.id)
     if (known) {
-      if (['installed', 'pending-trust'].includes(known.state) && recorded.find((entry) => entry.id === item.id).fingerprint !== item.fingerprint) known.state = 'outdated'
+      if (['installed', 'pending-trust', 'not-loaded'].includes(known.state) && recorded.find((entry) => entry.id === item.id).fingerprint !== item.fingerprint) known.state = 'outdated'
       continue
     }
     if (!selection) continue
@@ -651,7 +734,9 @@ export function doctorSetup(vault, env = process.env) {
 function removeAction(run, recorded) {
   const context = run.context
   const { state, found, reason } = itemState(context, recorded)
+  const unload = () => !recorded.launchd || launchctl(context, ['bootout', `${launchDomain()}/${recorded.launchd}`]).ok || !launchctl(context, ['print', `${launchDomain()}/${recorded.launchd}`]).ok
   if (state === 'missing') {
+    unload()
     dropItem(run, recorded.id)
     return { result: 'already-absent' }
   }
@@ -665,6 +750,7 @@ function removeAction(run, recorded) {
     mcpAdapter(context, recorded.harnesses[0]).remove()
   } else if (recorded.type === 'file') {
     if (readTarget(recorded.target).hash !== found.preimage) return { result: 'changed-during-setup' }
+    if (!unload()) return { result: 'kept', reason: 'launchctl bootout failed' }
     fs.rmSync(found.file.real)
     const dir = path.dirname(found.file.real)
     if (recorded.kind === 'skill' && path.basename(dir) === context.handle && !fs.readdirSync(dir).length) fs.rmdirSync(dir)
@@ -701,7 +787,7 @@ export function uninstallSetup(context, { dryRun = false } = {}) {
     if (dryRun) {
       const { state } = itemState(context, recorded)
       const leave = recorded.preState === 'preexisting' && state !== 'missing' && state !== 'drifted'
-      results.push({ ...base, result: leave ? 'would-leave' : { installed: 'would-remove', 'pending-trust': 'would-remove', missing: 'already-absent', drifted: 'kept' }[state] })
+      results.push({ ...base, result: leave ? 'would-leave' : { installed: 'would-remove', 'pending-trust': 'would-remove', 'not-loaded': 'would-remove', missing: 'already-absent', drifted: 'kept' }[state] })
       continue
     }
     try {
@@ -730,6 +816,8 @@ function pickerRows(detection, options, handle) {
     { id: 'mcp', group: 'Components', label: 'MCP server', hint: 'vault_search/context/read tools (not pi)', checked: options.components.mcp },
     { id: 'shim', group: 'Components', label: 'CLI shim', hint: `~/.local/bin/${handle}`, checked: options.components.shim },
     ...(options.name ? [] : [{ id: 'hook', group: 'Components', label: 'per-prompt context', hint: 'opt-in: inject matching vault notes on every prompt', checked: options.components.hook }]),
+    { id: 'harvest', group: 'Components', label: 'session harvest hook', hint: 'opt-in: Claude SessionEnd queues the ended transcript', checked: options.components.harvest },
+    ...(process.platform === 'darwin' ? [{ id: 'schedule', group: 'Components', label: 'nightly LaunchAgent', hint: `opt-in: nightly --push daily at ${options.schedule}`, checked: options.components.schedule }] : []),
   ]
 }
 
@@ -777,7 +865,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
     return report.items.some((item) => ['kept', 'failed', 'changed-during-setup'].includes(item.result)) ? 1 : 0
   }
 
-  let selection = { harnesses: selectHarnesses(options.harness, detection), components: { ...options.components } }
+  let selection = { harnesses: selectHarnesses(options.harness, detection), components: { ...options.components }, schedule: options.schedule }
   const interactive = tty && !options.yes && !options.dryRun && !options.json
   if (interactive) {
     const { runPicker } = await import('./checkbox.mjs')
@@ -787,7 +875,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
       return 130
     }
     const checked = new Set(rows.filter((row) => row.checked).map((row) => row.id))
-    selection = { harnesses: HARNESSES.filter((harness) => checked.has(harness)), components: Object.fromEntries(COMPONENTS.map((component) => [component, checked.has(component)])) }
+    selection = { harnesses: HARNESSES.filter((harness) => checked.has(harness)), components: Object.fromEntries(COMPONENTS.map((component) => [component, checked.has(component)])), schedule: options.schedule }
   }
   const dryRun = options.dryRun || (!interactive && !options.yes)
   const plan = planSetup(context, selection)

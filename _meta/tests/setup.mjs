@@ -60,6 +60,25 @@ else if (argv.length === 4 && argv[0] === 'mcp' && argv[1] === 'get' && named(ar
 } else process.exit(97)
 `
 
+const LAUNCHCTL_STUB = `#!${process.execPath}
+const fs = require('fs'), path = require('path')
+const argv = process.argv.slice(2)
+fs.appendFileSync(process.env.STUB_LOG, JSON.stringify({ bin: 'launchctl', argv }) + '\\n')
+const file = path.join(process.env.HOME, '.launchd-loaded.json')
+const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return {} } }
+const write = (json) => fs.writeFileSync(file, JSON.stringify(json))
+const label = (target) => target.split('/').pop()
+if (argv[0] === 'bootstrap' && argv.length === 3) {
+  const text = fs.readFileSync(argv[2], 'utf8')
+  if (process.env.STUB_LAUNCHCTL_FAIL && text.includes(process.env.STUB_LAUNCHCTL_FAIL)) process.exit(5)
+  write({ ...read(), [/<key>Label<\\/key><string>([^<]+)</.exec(text)[1]]: text })
+} else if (argv[0] === 'bootout' && argv.length === 2) {
+  if (process.env.STUB_LAUNCHCTL_BOOTOUT_FAIL) process.exit(5)
+  const json = read(); if (!json[label(argv[1])]) process.exit(3); delete json[label(argv[1])]; write(json)
+} else if (argv[0] === 'print' && argv.length === 2) process.exit(read()[label(argv[1])] ? 0 : 113)
+else process.exit(97)
+`
+
 function writeExec(file, content) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, content, { mode: 0o755 })
@@ -424,6 +443,72 @@ try {
   assert(!fs.existsSync(path.join(homeN, '.claude/skills/alambic-brain')) && !fs.existsSync(path.join(homeN, '.agents/skills/alambic-brain')) && !fs.existsSync(namedShim), 'named uninstall must remove its skill dirs and shim')
   assert(Object.keys(readJson(path.join(homeN, '.claude.json')).mcpServers).sort().join() === 'alambic,alambic-self' && !readJson(path.join(homeN, '.codex/stub-mcp.json'))['alambic-brain'], 'named uninstall must remove only its MCP entries')
   assert(fs.existsSync(path.join(homeN, '.claude/skills/alambic/SKILL.md')) && fs.existsSync(path.join(homeN, '.claude/skills/alambic-self/SKILL.md')), 'named uninstall must keep sibling setups')
+
+  assert(parseSetupArgs(['--schedule']).schedule === '05:15' && parseSetupArgs(['--schedule', '06:30', '--yes']).schedule === '06:30' && parseSetupArgs(['--schedule=7:05']).schedule === '7:05', 'schedule parsing')
+  assert(parseSetupArgs(['--name', 'brain', '--harvest-hook']).components.harvest, '--harvest-hook is allowed with --name')
+  for (const args of [['--schedule', '25:00'], ['--schedule=6']]) {
+    threw = false
+    try { parseSetupArgs(args) } catch { threw = true }
+    assert(threw, `setup must refuse ${args.join(' ')}`)
+  }
+  writeExec(path.join(engine, '_meta/hooks/harvest-hook.mjs'), "console.log([process.env.ALAMBIC_ROOT, process.env.ALAMBIC_STATE_DIR].join('|'))\n")
+  const launchctlStub = path.join(stubBin, 'launchctl-stub')
+  writeExec(launchctlStub, LAUNCHCTL_STUB)
+  const homeS = freshHome('home-schedule')
+  const envS = envFor(homeS, { ALAMBIC_LAUNCHCTL: launchctlStub, CODEX_HOME: path.join(homeS, 'codex-home'), TYPESAFE_API_KEY: CANARY })
+  const settingsS = path.join(homeS, '.claude/settings.json')
+  fs.mkdirSync(path.dirname(settingsS), { recursive: true })
+  fs.writeFileSync(settingsS, JSON.stringify({ hooks: { SessionEnd: [{ hooks: [{ type: 'command', command: 'echo bye' }] }] } }, null, 2))
+  const label = 'dev.alambic.alambic-brain.nightly'
+  const plist = path.join(homeS, `Library/LaunchAgents/${label}.plist`)
+  const scheduleArgs = ['--yes', '--harness', 'claude', '--no-skill', '--no-mcp', '--no-shim', '--name', 'brain', '--vault', brain, '--harvest-hook']
+  const stateS = path.join(homeS, '.local/state/alambic-brain')
+  const loaded = () => readJson(path.join(homeS, '.launchd-loaded.json'))
+  resetLog()
+  const scheduled = await setup(engine, [...scheduleArgs, '--schedule', '06:30', '--json'], envS)
+  assert(scheduled.code === 0 && byId(scheduled.json)['launchd:schedule'].result === 'applied' && byId(scheduled.json)['claude:harvest'].result === 'applied', `schedule install failed: ${scheduled.out}`)
+  const plistText = fs.readFileSync(plist, 'utf8')
+  assert(mode(plist) === 0o644 && !plistText.includes(CANARY) && !plistText.includes('TYPESAFE'), 'plist must be 0644 and carry no secret')
+  assert(plistText.includes('<string>/bin/zsh</string><string>-lc</string>') && plistText.includes('<key>Hour</key><integer>6</integer><key>Minute</key><integer>30</integer>'), 'plist program and calendar wrong')
+  assert(plistText.includes(`<key>CODEX_HOME</key><string>${envS.CODEX_HOME}</string>`) && !plistText.includes('CLAUDE_CONFIG_DIR'), 'plist must carry only the session-dir variables set at setup')
+  assert(JSON.stringify(calls('launchctl').map((entry) => entry.argv[0])) === JSON.stringify(['bootout', 'bootstrap']) && calls('launchctl')[1].argv[1] === `gui/${process.getuid()}`, `launchctl sequence wrong: ${JSON.stringify(calls('launchctl'))}`)
+  assert(loaded()[label] === plistText, 'agent must be bootstrapped')
+  if (process.platform === 'darwin') {
+    assert(spawnSync('/usr/bin/plutil', ['-lint', plist], { encoding: 'utf8' }).status === 0, 'plist must lint')
+    const parsed = JSON.parse(spawnSync('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plist], { encoding: 'utf8' }).stdout)
+    assert(parsed.EnvironmentVariables.ALAMBIC_ROOT === brain && parsed.EnvironmentVariables.ALAMBIC_STATE_DIR === stateS, 'plist env must pin root and state')
+    const ran = spawnSync('/bin/sh', ['-c', parsed.ProgramArguments[2]], { encoding: 'utf8', env: parsed.EnvironmentVariables })
+    assert(ran.stdout.trim() === `${brain}|${stateS}|nightly|--push|--json`, `plist command must run nightly --push: ${ran.stdout}${ran.stderr}`)
+  }
+  const sessionEnd = readJson(settingsS).hooks.SessionEnd
+  assert(sessionEnd.length === 2 && sessionEnd[0].hooks[0].command === 'echo bye' && sessionEnd[1].hooks[0].timeout === 10, 'harvest hook must merge beside foreign SessionEnd entries')
+  const hookRun = spawnSync('/bin/sh', ['-c', sessionEnd[1].hooks[0].command], { encoding: 'utf8', input: '{}', env: { PATH: '/usr/bin:/bin' } })
+  assert(hookRun.stdout.trim() === `${brain}|${stateS}`, `harvest hook must pin root and state: ${hookRun.stdout}${hookRun.stderr}`)
+  const scheduledStatus = await setup(engine, ['--status', '--name', 'brain', '--json'], envS)
+  assert(scheduledStatus.code === 0 && scheduledStatus.json.items.every((item) => item.state === 'installed'), `schedule status wrong: ${scheduledStatus.out}`)
+  fs.writeFileSync(path.join(homeS, '.launchd-loaded.json'), '{}')
+  const unloaded = await setup(engine, ['--status', '--name', 'brain', '--json'], envS)
+  assert(unloaded.code === 1 && unloaded.json.items.find((item) => item.id === 'launchd:schedule').state === 'not-loaded', 'status must flag an unloaded agent')
+  const reload = await setup(engine, [...scheduleArgs, '--schedule', '06:30', '--json'], envS)
+  assert(byId(reload.json)['launchd:schedule'].status === 'update' && loaded()[label] === plistText && byId(reload.json)['claude:harvest'].status === 'unchanged', 'rerun must reload an unloaded agent')
+  const failed = await setup(engine, [...scheduleArgs, '--schedule', '07:00', '--json'], { ...envS, STUB_LAUNCHCTL_FAIL: '<integer>7</integer>' })
+  assert(failed.code === 1 && byId(failed.json)['launchd:schedule'].result === 'failed' && /bootstrap failed.*previous LaunchAgent restored/.test(byId(failed.json)['launchd:schedule'].reason), `failed bootstrap must fail the item: ${failed.out}`)
+  assert(fs.readFileSync(plist, 'utf8') === plistText && loaded()[label] === plistText, 'failed bootstrap must restore and reload the previous plist')
+  assert((await setup(engine, ['--status', '--name', 'brain', '--json'], envS)).code === 0, 'manifest keeps the working schedule after a failed bootstrap')
+  const homeB = freshHome('home-both-hooks')
+  const bothSetup = await setup(engine, ['--yes', '--harness', 'claude', '--no-skill', '--no-mcp', '--no-shim', '--prompt-hook', '--harvest-hook', '--json'], envFor(homeB))
+  const bothHooks = readJson(path.join(homeB, '.claude/settings.json')).hooks
+  assert(bothSetup.code === 0 && bothHooks.UserPromptSubmit?.length === 1 && bothHooks.SessionEnd?.length === 1, `prompt and harvest hooks install together: ${bothSetup.out}`)
+  const customState = path.join(homeS, 'custom-state')
+  const defaultHarvest = await setup(engine, ['--yes', '--harness', 'claude', '--no-skill', '--no-mcp', '--no-shim', '--harvest-hook', '--json'], { ...envS, ALAMBIC_STATE_DIR: customState })
+  assert(defaultHarvest.code === 0 && readJson(settingsS).hooks.SessionEnd.length === 3, 'default and named harvest hooks coexist')
+  assert(readJson(settingsS).hooks.SessionEnd[2].hooks[0].command.includes(`ALAMBIC_STATE_DIR='${customState}'`), 'the default hook follows ALAMBIC_STATE_DIR like the CLI')
+  const stuck = await setup(engine, ['--uninstall', '--yes', '--name', 'brain', '--json'], { ...envS, STUB_LAUNCHCTL_BOOTOUT_FAIL: '1' })
+  assert(stuck.code === 1 && stuck.json.items.find((item) => item.id === 'launchd:schedule').result === 'kept' && fs.existsSync(plist) && loaded()[label], `a failed bootout keeps the agent tracked: ${stuck.out}`)
+  const unscheduled = await setup(engine, ['--uninstall', '--yes', '--name', 'brain', '--json'], envS)
+  assert(unscheduled.code === 0 && !fs.existsSync(plist) && !loaded()[label], `named uninstall must boot out and remove the agent: ${unscheduled.out}`)
+  const leftHooks = readJson(settingsS).hooks.SessionEnd
+  assert(leftHooks.length === 2 && leftHooks[0].hooks[0].command === 'echo bye' && !leftHooks[1].hooks[0].command.includes('alambic-brain'), 'uninstall removes only its own SessionEnd entry')
 
   console.log('setup: ok')
 } finally {
