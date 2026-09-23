@@ -581,6 +581,17 @@ export function setupStatus(context, selection = null) {
   }
 }
 
+function samePath(a, b) {
+  const real = (value) => {
+    try {
+      return fs.realpathSync(value)
+    } catch {
+      return path.resolve(value)
+    }
+  }
+  return Boolean(a && b) && real(a) === real(b)
+}
+
 function namedManifestsFor(vault, env) {
   const dir = path.dirname(resolvePaths(env).manifest)
   let files
@@ -590,32 +601,51 @@ function namedManifestsFor(vault, env) {
     if (error.code === 'ENOENT') return []
     throw error
   }
-  return files.map((file) => NAMED_MANIFEST.exec(file)?.[1]).filter(Boolean).sort().filter((name) => readManifest(resolvePaths(env, name).manifest)?.vault === vault)
+  const found = []
+  for (const name of files.map((file) => NAMED_MANIFEST.exec(file)?.[1]).filter(Boolean).sort()) {
+    try {
+      const manifest = readManifest(resolvePaths(env, name).manifest)
+      if (manifest && samePath(manifest.vault, vault)) found.push({ name, manifest })
+    } catch (error) {
+      found.push({ name, error })
+    }
+  }
+  return found
 }
 
-function doctorOne(context) {
-  const status = setupStatus(context)
-  const prefix = context.name ? `${context.handle}: ` : ''
-  const warnings = status.items.filter((item) => item.state !== 'installed').map((item) => `${prefix}${item.id}: ${item.state}${item.reason ? ` (${item.reason})` : ''}`)
-  if (status.otherVault) warnings.unshift(`${prefix}manifest points to another vault: ${status.otherVault}`)
-  return { warnings, items: status.items }
+function doctorOne(build, handle = null) {
+  try {
+    const context = build()
+    const status = setupStatus(context)
+    const prefix = context.name ? `${context.handle}: ` : ''
+    const warnings = status.items.filter((item) => item.state !== 'installed').map((item) => `${prefix}${item.id}: ${item.state}${item.reason ? ` (${item.reason})` : ''}`)
+    if (status.otherVault) warnings.unshift(`${prefix}manifest points to another vault: ${status.otherVault}`)
+    return { warnings, items: status.items }
+  } catch (error) {
+    return { warnings: [`${handle ? `${handle}: ` : ''}setup check failed: ${error.message}`], items: [] }
+  }
 }
 
 export function doctorSetup(vault, env = process.env) {
+  let base
+  let named
   try {
-    const base = makeContext({ vault, env })
-    const contexts = base.manifest.items.length && (base.manifest.vault === vault || !namedManifestsFor(vault, env).length) ? [base] : []
-    for (const name of namedManifestsFor(vault, env)) {
-      const manifest = readManifest(resolvePaths(env, name).manifest)
-      contexts.push(makeContext({ vault, env, name, engine: manifest.engine || vault, node: manifest.node || process.execPath }))
-    }
-    const active = contexts.filter((context) => context.manifest.items.length)
-    if (!active.length) return { installed: false, warnings: [] }
-    const reports = active.map(doctorOne)
-    return { installed: true, warnings: reports.flatMap((report) => report.warnings), items: reports.flatMap((report) => report.items) }
+    base = makeContext({ vault, env })
+    named = namedManifestsFor(vault, env)
   } catch (error) {
     return { installed: false, warnings: [`setup check failed: ${error.message}`] }
   }
+  const reports = []
+  if (base.manifest.items.length && (samePath(base.manifest.vault, vault) || !named.length)) reports.push(doctorOne(() => base))
+  for (const { name, manifest, error } of named) {
+    if (manifest && !manifest.items.length) continue
+    reports.push(doctorOne(() => {
+      if (error) throw error
+      return makeContext({ vault: manifest.vault, env, name, engine: manifest.engine || vault, node: manifest.node || process.execPath })
+    }, handleFor(name)))
+  }
+  if (!reports.length) return { installed: false, warnings: [] }
+  return { installed: true, warnings: reports.flatMap((report) => report.warnings), items: reports.flatMap((report) => report.items) }
 }
 
 function removeAction(run, recorded) {
