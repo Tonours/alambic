@@ -1,22 +1,24 @@
 {
   "version": 2,
   "writer": {
-    "kind": "github-actions",
-    "id": "alambic-sidekick-daily",
-    "workflow": ".github/workflows/alambic-sidekick-daily.yml",
-    "expected_status": "ACTIVE",
-    "schedule": "15 5 * * *",
-    "schedule_gate": "vars.ALAMBIC_SIDEKICK_SCHEDULE == 'true'",
-    "dispatch": true,
+    "kind": "local-launchd",
+    "id": "alambic-nightly",
+    "command": "alambic nightly --push",
+    "installer": "alambic setup --schedule [HH:MM]",
+    "label": "dev.alambic.<handle>.nightly",
+    "default_time": "05:15",
     "mode": "apply-all",
     "max_actions": 12,
     "max_freeform_per_run": 3,
     "scope": [
       "kb/",
-      "docs/inbox/ai/promote-ready/"
+      "ref/",
+      "_meta/enrich-ledger.json",
+      "docs/inbox/ deletions"
     ],
+    "manual_fallback": ".github/workflows/alambic-sidekick-daily.yml",
     "laptop_default": "dry-run",
-    "note": "Single kb writer. Laptops git pull. Local sidekick stays dry-run so it cannot race CI."
+    "note": "Single kb writer per vault: the machine that holds the sessions. Other machines git pull. Session notes need a human review receipt before they reach kb/."
   },
   "non_writers": [
     {
@@ -50,7 +52,7 @@
       "kind": "codex-automation",
       "id": "daily-alambic-conversation-kb",
       "expected_active": false,
-      "reason": "superseded by GitHub Actions alambic-sidekick-daily"
+      "reason": "superseded by the local alambic-nightly LaunchAgent"
     },
     {
       "kind": "codex-automation",

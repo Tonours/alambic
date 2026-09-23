@@ -1,21 +1,16 @@
 name: alambic-sidekick-daily
 
-# Multi-machine source of truth: daily oracle sidekick on GitHub Actions.
-# Applies structural + budgeted freeform heals, then commits kb/ back to main.
-# Laptops should git pull — they are readers, not competing writers.
-#
-# Opt-in: the schedule only runs when the repository variable
-# ALAMBIC_SIDEKICK_SCHEDULE is 'true' (fresh forks stay idle). Manual
-# workflow_dispatch always works. TYPESAFE_API_KEY and ALAMBIC_YOUTUBE_*
-# secrets are optional; without them the run degrades to lexical/no-collect.
+# Manual oracle sidekick on GitHub Actions (workflow_dispatch only).
+# The daily writer is the local LaunchAgent installed by
+# `alambic setup --schedule`, which runs `alambic nightly --push` on the
+# machine that holds the session transcripts. Use this workflow for a one-off
+# heal from CI. TYPESAFE_API_KEY and ALAMBIC_YOUTUBE_* secrets are optional;
+# without them the run degrades to lexical/no-collect.
 #
 # Does NOT: push secrets, freeform distill --apply of arbitrary patches,
 # or invent human review prose.
 
 on:
-  schedule:
-    # Daily 05:15 UTC (~06:15–07:15 Europe depending on DST)
-    - cron: '15 5 * * *'
   workflow_dispatch:
     inputs:
       mode:
@@ -40,7 +35,6 @@ permissions:
 
 jobs:
   sidekick:
-    if: ${{ github.event_name != 'schedule' || vars.ALAMBIC_SIDEKICK_SCHEDULE == 'true' }}
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -107,7 +101,7 @@ jobs:
           fi
 
       - name: Jev tag enrichment
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'all') }}
+        if: ${{ inputs.mode == 'all' }}
         env:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: |
@@ -118,7 +112,7 @@ jobs:
           node _meta/alambic.mjs enrich --apply --max 40 --json | tee "$RUNNER_TEMP/enrich-report.json"
 
       - name: Sidekick apply-all (default daily)
-        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'all') }}
+        if: ${{ inputs.mode == 'all' }}
         env:
           XDG_STATE_HOME: ${{ runner.temp }}/xdg-state
           SIDEKICK_REPORT: ${{ runner.temp }}/sidekick-report.json
