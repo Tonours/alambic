@@ -24,7 +24,7 @@ const file = process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG
 const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return {} } }
 const write = (json) => fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\\n')
 if (argv[0] === 'mcp' && argv[1] === 'add' && argv[2] === '-s' && argv[3] === 'user' && argv[4] === 'alambic') {
-  if (process.env.STUB_FAIL === 'claude:add') { process.stderr.write('boom ' + process.env.STUB_CANARY); process.exit(5) }
+  if (process.env.STUB_FAIL === 'claude:add' || process.env.STUB_FAIL === 'claude:add:' + argv[argv.indexOf('--') + 1]) { process.stderr.write('boom ' + process.env.STUB_CANARY); process.exit(5) }
   const sep = argv.indexOf('--')
   const env = {}
   for (let i = 5; i < sep; i += 2) { if (argv[i] !== '-e') process.exit(98); const [k, ...v] = argv[i + 1].split('='); env[k] = v.join('=') }
@@ -182,6 +182,13 @@ try {
   fs.appendFileSync(path.join(home, '.agents/skills/alambic/SKILL.md'), '\nuser edit\n')
   status = setupStatus(makeContext({ vault, env }))
   assert(status.items.find((item) => item.id === 'agents:skill').state === 'drifted', 'edited skill should be drifted')
+  // A codex setting edited after add (codex reports it next to the transport) is drift.
+  const codexMcp = path.join(home, '.codex/stub-mcp.json')
+  const codexBefore = fs.readFileSync(codexMcp, 'utf8')
+  fs.writeFileSync(codexMcp, JSON.stringify({ alambic: { ...readJson(codexMcp).alambic, cwd: '/somewhere' } }))
+  status = setupStatus(makeContext({ vault, env }))
+  fs.writeFileSync(codexMcp, codexBefore)
+  assert(status.items.find((item) => item.id === 'codex:mcp').state === 'drifted', 'customised codex mcp should be drifted')
   const statusRun = await setup(vault, ['--status'], env)
   assert(statusRun.code === 1 && statusRun.out.includes('drifted'), 'status must fail on drift')
   fs.renameSync(shim, `${shim}.away`)
@@ -189,7 +196,13 @@ try {
   fs.renameSync(`${shim}.away`, shim)
   assert(missingRun.code === 1 && missingRun.json.items.find((item) => item.id === 'cli:shim').state === 'missing', 'status must report a deleted target as missing')
 
-  // 5. Owned update when the Node path changes: MCP remove then add, files backed up.
+  // 5. Owned update when the Node path changes: a failed add restores the working
+  // entry; then MCP remove then add, files backed up.
+  const node3 = path.join(temp, 'node-bad/node')
+  fs.mkdirSync(path.dirname(node3))
+  fs.symlinkSync(process.execPath, node3)
+  const failedUpdate = await setup(vault, ['--yes', '--harness', 'claude', '--no-skill', '--no-shim', '--json'], envFor(home, { STUB_FAIL: `claude:add:${node3}` }), node3)
+  assert(failedUpdate.code === 1 && byId(failedUpdate.json)['claude:mcp'].result === 'failed' && readJson(path.join(home, '.claude.json')).mcpServers.alambic.command === process.execPath, 'a failed update must restore the previous MCP entry')
   resetLog()
   const node2 = path.join(temp, 'node-bin/node')
   fs.mkdirSync(path.dirname(node2))
@@ -210,7 +223,12 @@ try {
   settings.theme = 'dark'
   settings.hooks.Stop = [{ hooks: [{ type: 'command', command: 'echo stop' }] }]
   fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2))
-  // Re-sync the manifest preimage for the settings hook (edit happened outside the entry).
+  // The Pi extension replaced by a symlink to an identical copy elsewhere.
+  const piExtension = path.join(home, '.pi/agent/extensions/alambic-context.ts')
+  const piCopy = path.join(temp, 'pi-copy.ts')
+  fs.copyFileSync(piExtension, piCopy)
+  fs.rmSync(piExtension)
+  fs.symlinkSync(piCopy, piExtension)
   const preview = snapshot(home)
   const unDry = await setup(vault, ['--uninstall'], env)
   assert(unDry.out.includes('dry-run') && JSON.stringify(snapshot(home)) === JSON.stringify(preview), 'uninstall without --yes must be a dry-run')
@@ -224,7 +242,8 @@ try {
   assert(!readJson(path.join(home, '.cursor/hooks.json')).hooks, 'emptied hook container on our path should be pruned')
   assert(!('alambic' in readJson(path.join(home, '.claude.json')).mcpServers) && calls('claude').some((entry) => entry.argv[1] === 'remove'), 'claude mcp must be removed')
   assert(removed.code === 1, 'uninstall with a kept item exits 1')
-  assert(readJson(manifestFile).items.map((item) => item.id).join() === 'agents:skill', 'manifest keeps only the kept item')
+  assert(removedById['pi:hook'].result === 'kept' && fs.existsSync(piCopy), 'a symlinked file must be kept, its target untouched')
+  assert(readJson(manifestFile).items.map((item) => item.id).join() === 'agents:skill,pi:hook', 'manifest keeps only the kept items')
 
   // 7. Foreign content: preserved, never overwritten, secrets never echoed.
   const home2 = freshHome('home2')
@@ -277,6 +296,18 @@ try {
   const bare = await setup(vault, ['--yes', '--json'], { ...envFor(bareHome), PATH: `${partialBin}:/usr/bin:/bin` })
   assert(bare.code === 0 && bare.json.mode === 'apply' && bare.json.selection.harnesses.join() === 'pi,opencode', `bare --yes must select the detected harnesses: ${JSON.stringify(bare.json.selection)}`)
   assert(!bare.json.selection.components.hook && !bare.json.actions.some((action) => action.id.endsWith(':hook')), 'bare --yes must leave the prompt hook off')
+
+  // An identical entry that setup did not write is left in place on uninstall.
+  const adoptHome = freshHome('home-adopt')
+  const adoptEnv = envFor(adoptHome)
+  await setup(vault, ['--yes', '--harness', 'cursor', '--no-skill', '--no-shim', '--json'], adoptEnv)
+  fs.rmSync(path.join(adoptHome, '.local/state/alambic/setup.json'))
+  const adopted = await setup(vault, ['--yes', '--harness', 'cursor', '--no-skill', '--no-shim', '--json'], adoptEnv)
+  assert(byId(adopted.json)['cursor:mcp'].status === 'unchanged', 'identical foreign entry should plan as unchanged')
+  const unAdoptDry = await setup(vault, ['--uninstall', '--json'], adoptEnv)
+  const unAdopt = await setup(vault, ['--uninstall', '--yes', '--json'], adoptEnv)
+  assert(unAdoptDry.json.items[0].result === 'would-leave' && unAdopt.code === 0 && unAdopt.json.items[0].result === 'left', `preexisting entry must be left: ${JSON.stringify(unAdopt.json.items)}`)
+  assert(readJson(path.join(adoptHome, '.cursor/mcp.json')).mcpServers.alambic, 'preexisting entry must survive uninstall')
 
   // 8. Partial failure: journal holds exactly what was applied; CLI stderr never echoed.
   const home3 = freshHome('home3')

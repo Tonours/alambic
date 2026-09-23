@@ -68,7 +68,8 @@ Without a terminal and without `--yes`, setup only prints its plan. Every write
 is recorded in `$XDG_STATE_HOME/alambic/setup.json`; existing files get a `0600`
 backup first. Entries setup did not write are never replaced: it reports a
 collision and prints the snippet to add yourself. JSONC configs are refused the
-same way. Uninstall removes only what still matches what setup wrote.
+same way. Uninstall removes only what still matches what setup wrote; an
+identical entry that was already there before setup stays in place.
 
 The per-prompt hook is lexical and local: it never calls TypeSafe, even with
 `TYPESAFE_API_KEY` set. It injects only when a `verified` or `accepted` note

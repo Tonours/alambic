@@ -300,7 +300,15 @@ function mcpAdapter(context, harness) {
       } catch {
         throw new Refusal('codex mcp get returned non-JSON output')
       }
-      return normalizeMcp(parsed?.transport || parsed)
+      // Settings edited after `add` (codex defaults: enabled, the rest null or
+      // empty) join the fingerprint, so a customised entry is no longer ours.
+      const transport = parsed?.transport || parsed
+      const custom = Object.fromEntries(['enabled_tools', 'disabled_tools', 'startup_timeout_sec', 'tool_timeout_sec'].filter((key) => parsed?.[key] != null).map((key) => [key, parsed[key]]))
+      if (parsed?.enabled === false) custom.enabled = false
+      if (transport?.cwd != null) custom.cwd = transport.cwd
+      if (transport?.env_vars?.length) custom.env_vars = transport.env_vars
+      const value = normalizeMcp(transport)
+      return Object.keys(custom).length ? { ...value, custom } : value
     },
     add(value) {
       const envArgs = Object.entries(value.env).flatMap(([key, item]) => ['--env', `${key}=${item}`])
@@ -314,7 +322,7 @@ function mcpAdapter(context, harness) {
 
 function renderTemplate(relative, values) {
   let text = fs.readFileSync(path.join(TEMPLATES, relative), 'utf8')
-  for (const [key, value] of Object.entries(values)) text = text.replaceAll(`{{${key}}}`, value)
+  for (const [key, value] of Object.entries(values)) text = text.replaceAll(`{{${key}}}`, () => value)
   return text
 }
 // Placeholders inside JS/TS string literals get JSON escaping.
@@ -458,8 +466,15 @@ function applyAction(run, action) {
   if (found.preimage !== action.preimage) return 'changed-during-setup'
   if (action.type === 'mcp-cli') {
     const adapter = mcpAdapter(context, action.harnesses[0])
-    if (action.status === 'update') adapter.remove()
-    adapter.add(action.value)
+    const previous = action.status === 'update' ? adapter.read() : null
+    if (previous) adapter.remove()
+    try {
+      adapter.add(action.value)
+    } catch (error) {
+      // Put the working entry back; the add failure is what gets reported.
+      if (previous) try { adapter.add(previous) } catch {}
+      throw error
+    }
     const after = adapter.read()
     if (!after || fingerprint(after) !== action.fingerprint) throw new Refusal('registered entry does not match after add')
     return 'applied'
@@ -501,7 +516,10 @@ export function applySetup(context, plan) {
       action.result = 'skipped'
       continue
     }
-    const preState = action.status === 'create' ? 'absent' : 'existing-owned'
+    // An identical entry found without a manifest record was not written by setup:
+    // it is recorded as preexisting and uninstall leaves it in place.
+    const known = run.manifest.items.some((item) => item.id === action.id)
+    const preState = action.status === 'create' ? 'absent' : action.status === 'unchanged' && !known ? 'preexisting' : 'existing-owned'
     const journaled = run.manifest.items.some((item) => item.id === action.id && item.fingerprint === action.fingerprint)
     try {
       action.result = action.status === 'unchanged' ? 'unchanged' : applyAction(run, action)
@@ -604,6 +622,12 @@ function removeAction(run, recorded) {
     return { result: 'already-absent' }
   }
   if (state === 'drifted') return { result: 'kept', reason: reason || 'changed since setup wrote it' }
+  if (recorded.preState === 'preexisting') {
+    dropItem(run, recorded.id)
+    return { result: 'left', reason: 'existed before setup' }
+  }
+  // A file replaced by a symlink points at something setup never wrote.
+  if (recorded.type === 'file' && fs.lstatSync(recorded.target).isSymbolicLink()) return { result: 'kept', reason: 'now a symlink' }
   if (recorded.type === 'mcp-cli') {
     mcpAdapter(context, recorded.harnesses[0]).remove()
   } else if (recorded.type === 'file') {
@@ -644,7 +668,8 @@ export function uninstallSetup(context, { dryRun = false } = {}) {
     const base = { id: recorded.id, kind: recorded.kind, target: recorded.target, ...(recorded.entryPath ? { entryPath: recorded.entryPath } : {}) }
     if (dryRun) {
       const { state } = itemState(context, recorded)
-      results.push({ ...base, result: { installed: 'would-remove', 'pending-trust': 'would-remove', missing: 'already-absent', drifted: 'kept' }[state] })
+      const leave = recorded.preState === 'preexisting' && state !== 'missing' && state !== 'drifted'
+      results.push({ ...base, result: leave ? 'would-leave' : { installed: 'would-remove', 'pending-trust': 'would-remove', missing: 'already-absent', drifted: 'kept' }[state] })
       continue
     }
     try {

@@ -81,6 +81,8 @@ async function main() {
   if (!FORMATS.has(format)) return
   const prompt = promptFrom(await readStdin(process.stdin))
   const output = formatOutput(format, await buildContext(prompt, { canary: process.env.ALAMBIC_HOOK_CANARY || '' }))
+  // A harness closing stdout early must not turn into a non-zero exit.
+  process.stdout.on('error', () => {})
   if (output) process.stdout.write(`${output}\n`)
 }
 

@@ -12,7 +12,8 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-adapters-')))
-const vault = path.join(temp, "va'ult dir")
+// `$&` and `$'` would be expanded by a string replacement in the template renderer.
+const vault = path.join(temp, "va'ult $& $' dir")
 const stub = path.join(vault, '_meta/hooks/prompt-context.mjs')
 
 // Stub hook: echoes context for prompts containing "vault", nothing otherwise,
