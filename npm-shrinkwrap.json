@@ -1,17 +1,19 @@
 {
   "name": "alambic",
+  "version": "0.1.0",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "alambic",
+      "version": "0.1.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "1.30.0",
         "@typesafe-ai/sdk": "0.6.0",
         "zod": "4.4.3"
       },
       "bin": {
-        "alambic": "_meta/alambic"
+        "alambic": "_meta/alambic.mjs"
       },
       "engines": {
         "node": ">=22"

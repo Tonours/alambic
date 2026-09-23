@@ -1,12 +1,13 @@
 {
   "name": "alambic",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "bin": {
-    "alambic": "_meta/alambic"
+    "alambic": "_meta/alambic.mjs"
   },
   "scripts": {
     "test": "_meta/tests/run.sh",

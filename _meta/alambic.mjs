@@ -114,7 +114,33 @@ function initVault(dest, { force = false } = {}) {
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     fs.copyFileSync(path.join(ROOT, rel), dest)
   }
+  // npm pack (npx github:...) always drops .gitignore; restore it from the template.
+  const gitignore = path.join(target, '.gitignore')
+  if (!fs.existsSync(gitignore)) fs.copyFileSync(path.join(ROOT, '_meta/templates/gitignore'), gitignore)
   return target
+}
+
+// One-shot install for `npx github:<owner>/alambic init <dir> --install`: the
+// npx copy is throwaway, so every step runs against the new vault.
+function installVault(target, setupArgs) {
+  const cli = path.join(target, '_meta/alambic.mjs')
+  const steps = [
+    ['npm', ['ci', '--no-audit', '--no-fund']],
+    ['bash', [path.join(target, '_meta/bootstrap-obsidian.sh')]],
+    [process.execPath, [cli, 'setup', '--yes', ...setupArgs]],
+    [process.execPath, [cli, 'doctor']],
+  ]
+  for (const [bin, argv] of steps) {
+    const label = bin === process.execPath ? `alambic ${argv.slice(1).join(' ')}` : `${bin} ${argv.map((arg) => path.basename(arg)).join(' ')}`
+    output(`\n==> ${label}`)
+    const run = spawnSync(bin, argv, { cwd: target, stdio: 'inherit', env: { ...process.env, ALAMBIC_ROOT: target } })
+    if (run.status !== 0) {
+      process.stderr.write(`alambic init: '${label}' failed; fix it, then rerun from ${target}\n`)
+      return run.status || 1
+    }
+  }
+  output(`\nalambic init: vault ready at ${target}`)
+  return 0
 }
 
 function validateProposal(proposal) {
@@ -189,10 +215,12 @@ try {
     process.exitCode = await runSetup({ vault: ROOT, args })
   } else if (command === 'init') {
     const force = has('--force')
+    const install = has('--install')
     const dest = args.shift()
-    if (!dest || args.length) throw new Error('usage: alambic init <dir> [--force]')
+    if (!dest || (args.length && !install)) throw new Error('usage: alambic init <dir> [--force] [--install [setup options]]')
     const target = initVault(dest, { force })
-    output(`alambic init: ${target}\nnext: cd ${target} && npm ci && _meta/bootstrap-obsidian.sh && _meta/alambic doctor`)
+    if (install) process.exitCode = installVault(target, args)
+    else output(`alambic init: ${target}\nnext: cd ${target} && npm ci && _meta/bootstrap-obsidian.sh && _meta/alambic doctor`)
   } else if (command === 'attention') {
     const { runAttentionCommand } = await import('./lib/attention/index.mjs')
     await runAttentionCommand({ root: ROOT, args, output })

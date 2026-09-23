@@ -252,7 +252,7 @@ export const ALLOWED_TOP_LEVEL_DIRS = new Set([
 ])
 export const ALLOWED_ROOT_FILES = new Set([
   'CLAUDE.md', 'AGENTS.md', 'README.md', 'PLAN.md', 'LICENSE', 'SECURITY.md', 'CONTRIBUTING.md', 'CHANGELOG.md',
-  'package.json', 'package-lock.json', '.gitignore', '.gitattributes',
+  'package.json', 'package-lock.json', 'npm-shrinkwrap.json', '.gitignore', '.gitattributes',
 ])
 
 export const AGENT_PROMPT = [

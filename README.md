@@ -28,6 +28,20 @@ Obsidian is optional: it gives humans a UI over the same files. Agents use the C
 
 ## Setup
 
+One command creates a fresh vault, installs its dependencies and Obsidian
+config, wires your agents, and runs `doctor`:
+
+```bash
+npx github:<owner>/alambic init ~/vaults/brain --install
+```
+
+`<owner>` is the GitHub account that hosts alambic. Options after `--install`
+go to `setup`, for example `--harness claude,codex --prompt-hook`. If a step
+fails, the command stops and names it; fix it and rerun the remaining steps
+from the vault.
+
+To work on a clone instead:
+
 ```bash
 git clone <this-repo> my-brain   # keep this clone private
 cd my-brain
@@ -36,13 +50,8 @@ _meta/bootstrap-obsidian.sh      # optional, but doctor fails until you run it
 _meta/alambic doctor
 ```
 
-To start a fresh vault somewhere else instead:
-
-```bash
-_meta/alambic init ~/vaults/brain   # copies the publishable files only
-cd ~/vaults/brain && npm ci
-_meta/bootstrap-obsidian.sh && _meta/alambic doctor
-```
+From a clone, `_meta/alambic init <dir> [--install]` does the same as the
+`npx` command. It copies only the publishable files.
 
 Open the folder as its own Obsidian vault, never nested inside another one.
 
