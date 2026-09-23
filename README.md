@@ -130,6 +130,7 @@ note you deleted, the suite fails and asks you to re-author the set.
 _meta/alambic eval --suite tuning        # held-out excellence gates
 _meta/alambic eval --suite probes-v2     # frozen probes + frozen lexical floor
 npm run eval:freeze                      # after re-authoring: re-hash, re-measure the floor
+node _meta/tests/mcp-bench.mjs . _meta/evals/probes-v2.jsonl --runs 3   # MCP-path latency + quality (needs the key)
 ```
 
 Don't edit a frozen set or its floor to turn a red run green. `eval:freeze`

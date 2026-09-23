@@ -24,6 +24,12 @@ export const SECRET_PATTERNS = [
 ]
 
 const MANIFEST_CACHE = new Map()
+const SUBJECT_TOPIC_CACHE = new WeakMap()
+const INDEX_PATH_RE = /^kb\/_index(?:-([a-z0-9-]+))?\.md$/
+
+export function isIndexPath(relativePath) {
+  return INDEX_PATH_RE.test(relativePath)
+}
 const MANIFEST_CACHE_MAX_AGE_MS = 1_000
 const LEXICAL_CACHE_VERSION = 1
 
@@ -126,7 +132,31 @@ function walk(dir, results) {
   }
 }
 
-export function buildManifest(root, includeDocs = false, { fresh = false } = {}) {
+export function buildManifest(root, includeDocs = false, options = {}) {
+  return withSubjectTopics(buildParsedManifest(root, includeDocs, options))
+}
+
+function withSubjectTopics(manifest) {
+  const known = SUBJECT_TOPIC_CACHE.get(manifest)
+  if (known) return known
+  const topicsByName = new Map()
+  for (const note of manifest) {
+    const topic = note.path.match(INDEX_PATH_RE)?.[1]
+    if (!topic) continue
+    for (const name of wikilinkNames(note.raw)) {
+      const key = wikilinkKey(name)
+      topicsByName.set(key, [...new Set([...(topicsByName.get(key) || []), topic])])
+    }
+  }
+  const derived = topicsByName.size ? manifest.map((note) => {
+    const topics = note.tags.length || isIndexPath(note.path) ? null : topicsByName.get(wikilinkKey(note.basename))
+    return topics ? { ...note, tags: topics, topic_tags: topics, search: { ...note.search, tags: topics.map(searchablePhrase) } } : note
+  }) : manifest
+  SUBJECT_TOPIC_CACHE.set(manifest, derived)
+  return derived
+}
+
+function buildParsedManifest(root, includeDocs, { fresh = false }) {
   const cacheKey = `${path.resolve(root)}:${includeDocs ? 'with-docs' : 'durable'}`
   const cached = MANIFEST_CACHE.get(cacheKey)
   const now = Date.now()
@@ -659,18 +689,24 @@ function routableTerm(value) {
   return (term.length >= 4 || ROUTING_ACRONYMS.has(term)) && !ROUTING_GENERIC_TERMS.has(term) ? term : null
 }
 
+function routableTopic(value) {
+  const term = routingTerm(value)
+  return term.length >= 3 && !ROUTING_GENERIC_TERMS.has(term) ? term : null
+}
+
 export function buildRoutingCatalog(root, { manifest = null } = {}) {
   const entries = []
-  for (const note of (manifest || buildManifest(root)).filter((item) => ['verified', 'accepted'].includes(item.status) && item.path !== 'kb/_index.md')) {
+  for (const note of (manifest || buildManifest(root)).filter((item) => ['verified', 'accepted'].includes(item.status) && !isIndexPath(item.path))) {
     const candidates = [
-      ...note.tags.map((value) => ({ value, source: 'tag', weight: 16 })),
+      ...(note.topic_tags || []).map((value) => ({ value, source: 'topic', weight: 16 })),
+      ...(note.topic_tags ? [] : note.tags).map((value) => ({ value, source: 'tag', weight: 16 })),
       ...note.aliases.map((value) => ({ value, source: 'alias', weight: 18 })),
       { value: note.title, source: 'title', weight: 10 },
       { value: note.basename, source: 'basename', weight: 8 },
     ]
     const best = new Map()
     for (const candidate of candidates) {
-      const term = routableTerm(candidate.value)
+      const term = candidate.source === 'topic' ? routableTopic(candidate.value) : routableTerm(candidate.value)
       if (!term) continue
       const current = best.get(term)
       if (!current || candidate.weight > current.weight) best.set(term, { ...candidate, term })
@@ -705,7 +741,7 @@ export function routeVaultKnowledge(root, prompt, { limit = 3, manifest = null }
   const expansionTerms = catalog
     .filter((entry) => matches.some((match) => match.path === entry.path) && ['tag', 'alias'].includes(entry.source))
     .map((entry) => entry.term)
-  const query = [...new Set([...matchedTerms, ...expansionTerms])].slice(0, 12).join(' ').slice(0, 240).trim()
+  const query = [...new Set([...matchedTerms, ...queryTerms(prompt), ...expansionTerms])].slice(0, 12).join(' ').slice(0, 240).trim()
   return {
     abstained: false,
     topics: matchedTerms.slice(0, 6),
@@ -740,13 +776,15 @@ export function queryVault(root, query, { includeDocs = false, limit = 5, includ
   // Default current-knowledge retrieval hides lifecycle-retired notes.
   // Explicit history intent passes includeHistory: true.
   const historyStatuses = new Set(['stale', 'superseded'])
-  const notes = (lane || buildManifest(root, includeDocs)).filter((note) => note.path !== 'kb/_index.md')
+  const notes = (lane || buildManifest(root, includeDocs)).filter((note) => !isIndexPath(note.path))
   const matchers = new Map(words.map((word) => [word, termMatcher(word)]))
   const rare = words.length === 1 ? rareTerms(words, notes, matchers) : new Set()
   const distinctive = (term) => isDistinctiveTerm(term) || rare.has(term)
   const candidates = notes.map((note) => {
     const { title, aliases, tags, summary, body } = note.search
     const collection = collectionFor(note)
+    const basename = collection === 'durable' ? note.basename || '' : ''
+    const names = [...aliases, searchablePhrase(basename), searchablePhrase(basename.replace(/[-_]+/g, ' '))]
     let score = STATUS_WEIGHT[note.status] || 0
     const reasons = []
     // Explicit history mode: let retired notes compete fairly (exact titles often live only there).
@@ -754,7 +792,7 @@ export function queryVault(root, query, { includeDocs = false, limit = 5, includ
       score += 45
       reasons.push('history-status')
     }
-    if (normalizedQuery && (title === normalizedQuery || aliases.includes(normalizedQuery))) {
+    if (normalizedQuery && (title === normalizedQuery || names.includes(normalizedQuery))) {
       score += 50
       reasons.push(`exact:${normalizedQuery}`)
     }
@@ -840,7 +878,7 @@ export function queryVault(root, query, { includeDocs = false, limit = 5, includ
 }
 
 export function buildKnowledgeGraph(root) {
-  const notes = buildManifest(root).filter((note) => note.path !== 'kb/_index.md')
+  const notes = buildManifest(root).filter((note) => !isIndexPath(note.path))
   const targets = new Map()
   for (const note of notes) for (const name of [note.basename, ...note.aliases]) targets.set(wikilinkKey(name), note.path)
   const adjacency = new Map(notes.map((note) => [note.path, new Set()]))
@@ -864,7 +902,7 @@ function graphExpansion(root, ranked, includeDocs, { manifest = null, graph = nu
     const expanded = []
     for (const candidate of candidates) {
       const note = notes.get(candidate.path)
-      if (!note || note.path.startsWith('docs/') || !['verified', 'accepted'].includes(note.status)) continue
+      if (!note || note.path.startsWith('docs/') || isIndexPath(note.path) || !['verified', 'accepted'].includes(note.status)) continue
       if (!includeDocs && note.path.startsWith('docs/')) continue
       const seed = ranked.find((result) => result.path === candidate.edge_from) || ranked[0]
       expanded.push({
@@ -897,7 +935,7 @@ function graphExpansion(root, ranked, includeDocs, { manifest = null, graph = nu
     for (const neighborPath of [...(legacy.adjacency.get(seed.path) || [])].sort()) {
       if (expanded.length >= 2 || selected.has(neighborPath)) continue
       const note = legacy.notes.get(neighborPath)
-      if (!note || note.path.startsWith('docs/') || !['verified', 'accepted'].includes(note.status)) continue
+      if (!note || note.path.startsWith('docs/') || isIndexPath(note.path) || !['verified', 'accepted'].includes(note.status)) continue
       if (!includeDocs && note.path.startsWith('docs/')) continue
       selected.add(neighborPath)
       expanded.push({
@@ -1330,7 +1368,7 @@ function wikilinkKey(name) { return String(name).toLowerCase() }
 export function lintVault(root) {
   invalidateManifest(root)
   const validation = validateVault(root, { strict: true })
-  const notes = buildManifest(root).filter((note) => note.path !== 'kb/_index.md')
+  const notes = buildManifest(root).filter((note) => !isIndexPath(note.path))
   const targets = new Map()
   for (const note of notes) {
     for (const name of [note.basename, ...note.aliases]) {

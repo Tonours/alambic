@@ -1,4 +1,5 @@
 import { graphAdjacencyMap, loadGraph } from './graph-builder.mjs'
+import { isIndexPath } from './vault.mjs'
 
 const MAX_GAPS = 10
 const MAX_STALE = 10
@@ -25,7 +26,7 @@ export function checkGraphLint(root, { graph = null } = {}) {
   // Inverted tag index → O(sum binom(|tag|,2)) instead of full O(n²).
   const tagToPaths = new Map()
   for (const [pathKey, node] of Object.entries(nodes)) {
-    if (pathKey === 'kb/_index.md') continue
+    if (isIndexPath(pathKey)) continue
     for (const tag of node.tags || []) {
       const list = tagToPaths.get(tag) || []
       list.push(pathKey)
@@ -107,7 +108,7 @@ export function checkGraphLint(root, { graph = null } = {}) {
   // Zero-degree active orphans (graph view; may differ from backlink-only orphans).
   const graphOrphans = Object.values(nodes)
     .filter((node) => node.path.startsWith('kb/')
-      && node.path !== 'kb/_index.md'
+      && !isIndexPath(node.path)
       && ['verified', 'accepted'].includes(node.status)
       && (adj.get(node.path)?.size || 0) === 0)
     .map((node) => ({ path: node.path, status: node.status }))

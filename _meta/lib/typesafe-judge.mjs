@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -10,7 +11,26 @@ export const TYPESAFE_MAX_REQUEST_BYTES = 36_000
 export const TYPESAFE_MAX_QUESTIONS = 40
 export const TYPESAFE_TIMEOUT_MS = 5_000
 
+const JUDGEMENT_MEMO_LIMIT = 64
+const SDK_CLIENT = {}
+const judgementMemos = new WeakMap()
+
 let sdkModule = null
+
+function judgementMemo(client) {
+  const owner = client || SDK_CLIENT
+  if (!judgementMemos.has(owner)) judgementMemos.set(owner, new Map())
+  return judgementMemos.get(owner)
+}
+
+function judgementKey(state, questions, model) {
+  return crypto.createHash('sha256').update(JSON.stringify({ state, questions, model })).digest('hex')
+}
+
+function rememberJudgement(memo, key, judgement) {
+  if (memo.size >= JUDGEMENT_MEMO_LIMIT) memo.delete(memo.keys().next().value)
+  memo.set(key, judgement)
+}
 
 export const noul = (instructions, criteria) => ({ type: 'noul', instructions, criteria })
 export const choice = (instructions, criteria) => ({ type: 'choice', instructions, criteria })
@@ -166,9 +186,17 @@ export async function askJev({ state, questions }, {
   let request
   try {
     request = validateTypesafeRequest(state, questions)
-    auditProviderCall(env)
   } catch (error) {
     return { available: false, reason: error instanceof Error && error.message.includes('safety scan') ? 'unsafe_input' : 'invalid_request', model: config.model }
+  }
+  const memo = judgementMemo(client)
+  const key = judgementKey(state, questions, config.model)
+  const remembered = memo.get(key)
+  if (remembered) return { ...remembered, latency_ms: 0, usage: { input_tokens: 0, output_tokens: 0 } }
+  try {
+    auditProviderCall(env)
+  } catch {
+    return { available: false, reason: 'invalid_request', model: config.model }
   }
 
   const sdk = await loadTypesafeSdk()
@@ -185,7 +213,7 @@ export async function askJev({ state, questions }, {
     })
     const raw = await provider.systemOne({ state, questions, model: config.model }, { timeout: config.timeout_ms, retry: { maxRetries: 0 } })
     const result = validateTypesafeResult(raw, questions, config.model)
-    return {
+    const judgement = {
       available: true,
       model: result.model,
       answers: result.answers,
@@ -193,6 +221,8 @@ export async function askJev({ state, questions }, {
       latency_ms: Math.round((performance.now() - started) * 100) / 100,
       request,
     }
+    rememberJudgement(memo, key, judgement)
+    return judgement
   } catch (error) {
     return {
       available: false,
