@@ -153,7 +153,7 @@ try {
   assert(claudeHook.timeout === 5 && spawnSync('/bin/sh', ['-c', claudeHook.command], { encoding: 'utf8' }).stdout.trim() === 'hook:--format|claude', 'claude hook command broken')
   assert(readJson(path.join(home, '.codex/hooks.json')).hooks.UserPromptSubmit[0].hooks[0].command.endsWith('--format codex'), 'codex hook wrong')
   const cursorHooks = readJson(path.join(home, '.cursor/hooks.json'))
-  assert(cursorHooks.version === 1 && cursorHooks.hooks.beforeSubmitPrompt[0].command.endsWith('--format cursor'), 'cursor hook wrong')
+  assert(cursorHooks.version === 1 && cursorHooks.hooks.beforeSubmitPrompt[0].command.endsWith('--format cursor') && cursorHooks.hooks.beforeSubmitPrompt[0].timeout === 5, 'cursor hook wrong')
   assert(fs.readFileSync(path.join(home, '.pi/agent/extensions/alambic-context.ts'), 'utf8').includes(JSON.stringify(path.join(vault, '_meta/hooks/prompt-context.mjs'))), 'pi extension wrong')
   assert(fs.existsSync(path.join(home, '.config/opencode/plugins/alambic-context.js')), 'opencode plugin missing')
   assert(mode(path.join(home, '.claude/settings.json')) === 0o600, 'new config files must be 0600')
@@ -184,6 +184,10 @@ try {
   assert(status.items.find((item) => item.id === 'agents:skill').state === 'drifted', 'edited skill should be drifted')
   const statusRun = await setup(vault, ['--status'], env)
   assert(statusRun.code === 1 && statusRun.out.includes('drifted'), 'status must fail on drift')
+  fs.renameSync(shim, `${shim}.away`)
+  const missingRun = await setup(vault, ['--status', '--json'], env)
+  fs.renameSync(`${shim}.away`, shim)
+  assert(missingRun.code === 1 && missingRun.json.items.find((item) => item.id === 'cli:shim').state === 'missing', 'status must report a deleted target as missing')
 
   // 5. Owned update when the Node path changes: MCP remove then add, files backed up.
   resetLog()
@@ -261,6 +265,18 @@ try {
   assert(!foreign.out.includes(CANARY) && !foreignManifest.includes(CANARY), 'foreign secret leaked to output or manifest')
   const textRun = await setup(vault, ['--harness', 'all', '--prompt-hook'], env2)
   assert(!textRun.out.includes(CANARY) && textRun.out.includes('add manually to'), 'text dry-run must print snippets, never secrets')
+  // A foreign file on a selected target shows up as a collision in --status.
+  const foreignStatus = await setup(vault, ['--status', '--json', '--harness', 'claude'], env2)
+  const foreignSkill = foreignStatus.json.items.find((item) => item.id === 'claude:skill')
+  assert(foreignStatus.code === 1 && foreignSkill?.state === 'collision' && !foreignStatus.out.includes(CANARY), `status must report the foreign skill as a collision: ${JSON.stringify(foreignSkill)}`)
+
+  // Bare --yes installs for the detected harnesses only, prompt hook off.
+  const partialBin = path.join(temp, 'bin-partial')
+  for (const name of ['pi', 'opencode']) writeExec(path.join(partialBin, name), '#!/bin/sh\nexit 97\n')
+  const bareHome = freshHome('home-bare')
+  const bare = await setup(vault, ['--yes', '--json'], { ...envFor(bareHome), PATH: `${partialBin}:/usr/bin:/bin` })
+  assert(bare.code === 0 && bare.json.mode === 'apply' && bare.json.selection.harnesses.join() === 'pi,opencode', `bare --yes must select the detected harnesses: ${JSON.stringify(bare.json.selection)}`)
+  assert(!bare.json.selection.components.hook && !bare.json.actions.some((action) => action.id.endsWith(':hook')), 'bare --yes must leave the prompt hook off')
 
   // 8. Partial failure: journal holds exactly what was applied; CLI stderr never echoed.
   const home3 = freshHome('home3')

@@ -359,7 +359,7 @@ export function desiredItems(context, selection) {
         const target = harness === 'claude' ? path.join(paths.claudeDir, 'settings.json') : path.join(paths.codexDir, 'hooks.json')
         items.push({ id: `${harness}:hook`, harnesses: [harness], kind: 'hook', type: 'entry', container: 'array', target, entryPath: ['hooks', 'UserPromptSubmit'], value: { hooks: [{ type: 'command', command: hookCommand(context, harness), timeout: 5 }] }, base: {} })
       } else if (harness === 'cursor') {
-        items.push({ id: 'cursor:hook', harnesses: ['cursor'], kind: 'hook', type: 'entry', container: 'array', target: path.join(paths.cursorDir, 'hooks.json'), entryPath: ['hooks', 'beforeSubmitPrompt'], value: { command: hookCommand(context, 'cursor') }, base: { version: 1 } })
+        items.push({ id: 'cursor:hook', harnesses: ['cursor'], kind: 'hook', type: 'entry', container: 'array', target: path.join(paths.cursorDir, 'hooks.json'), entryPath: ['hooks', 'beforeSubmitPrompt'], value: { command: hookCommand(context, 'cursor'), timeout: 5 }, base: { version: 1 } })
       } else if (harness === 'pi') {
         items.push({ id: 'pi:hook', harnesses: ['pi'], kind: 'hook', type: 'file', target: path.join(paths.piDir, 'extensions/alambic-context.ts'), content: renderTemplate('pi/alambic-context.ts', values), mode: 0o644 })
       } else {
