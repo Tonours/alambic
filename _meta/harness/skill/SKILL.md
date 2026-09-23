@@ -1,9 +1,9 @@
 ---
-name: alambic
-description: Query the alambic vault (a compiled Markdown wiki of sourced notes) for past decisions, conventions, incidents and research before rediscovering them. Use when durable memory may matter; skip for trivial edits, live state, or secrets.
+name: {{NAME}}
+description: Query the {{LABEL}} (a compiled Markdown wiki of sourced notes) for past decisions, conventions, incidents and research before rediscovering them. Use when durable memory may matter; skip for trivial edits, live state, or secrets.
 ---
 
-# alambic vault
+# {{LABEL}}
 
 Vault: `{{VAULT}}`
 

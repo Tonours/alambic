@@ -11,7 +11,10 @@ const MCP_HARNESSES = ['claude', 'codex', 'opencode', 'cursor']
 const HOOK_SCRIPT = '_meta/hooks/prompt-context.mjs'
 const HOOK_MARKER = 'prompt-context.mjs'
 const TEMPLATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../harness')
-export const USAGE = 'usage: alambic setup [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor|all|detected] [--prompt-hook] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--yes]'
+export const USAGE = 'usage: alambic setup [--name <slug> [--vault <path>]] [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor|all|detected] [--prompt-hook] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--yes]'
+const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,30}$/
+const NAMED_MANIFEST = /^setup-([a-z0-9][a-z0-9-]{0,30})\.json$/
+export const handleFor = (name) => (name ? `alambic-${name}` : 'alambic')
 
 class Refusal extends Error {}
 const failureReason = (error) => (error instanceof Refusal ? error.message : `${error.code || error.name}`)
@@ -25,7 +28,7 @@ function canonical(value) {
 const fingerprint = (value) => sha256(canonical(value))
 export function shq(value) { return `'${String(value).replace(/'/g, `'\\''`)}'` }
 
-export function resolvePaths(env) {
+export function resolvePaths(env, name = null) {
   const home = env.HOME
   if (!home || !path.isAbsolute(home)) throw new Error('setup needs an absolute HOME')
   const abs = (value, fallback) => (value && path.isAbsolute(value) ? value : fallback)
@@ -43,7 +46,8 @@ export function resolvePaths(env) {
     cursorDir: path.join(home, '.cursor'),
     agentsSkills: path.join(home, '.agents/skills'),
     binDir: path.join(home, '.local/bin'),
-    manifest: path.join(xdgState, 'alambic', 'setup.json'),
+    xdgState,
+    manifest: path.join(xdgState, 'alambic', name ? `setup-${name}.json` : 'setup.json'),
   }
 }
 
@@ -68,7 +72,7 @@ export function detectHarnesses(env, paths = resolvePaths(env)) {
 }
 
 export function parseSetupArgs(argv) {
-  const options = { mode: 'install', yes: false, dryRun: false, json: false, harness: null, components: { skill: true, mcp: true, shim: true, hook: false } }
+  const options = { mode: 'install', yes: false, dryRun: false, json: false, harness: null, name: null, vault: null, components: { skill: true, mcp: true, shim: true, hook: false } }
   const rest = [...argv]
   while (rest.length) {
     const arg = rest.shift()
@@ -81,12 +85,19 @@ export function parseSetupArgs(argv) {
     else if (arg === '--no-shim') options.components.shim = false
     else if (arg === '--status') options.mode = 'status'
     else if (arg === '--uninstall') options.mode = 'uninstall'
-    else if (arg === '--harness' || arg.startsWith('--harness=')) {
+    else if (arg === '--name' || arg === '--vault') {
+      const value = rest.shift()
+      if (!value) throw new Error(`${arg} needs a value\n${USAGE}`)
+      options[arg.slice(2)] = value
+    } else if (arg === '--harness' || arg.startsWith('--harness=')) {
       const value = arg === '--harness' ? rest.shift() : arg.slice('--harness='.length)
       if (!value) throw new Error(`--harness needs a value\n${USAGE}`)
       options.harness = value
     } else throw new Error(`unknown setup argument: ${arg}\n${USAGE}`)
   }
+  if (options.name !== null && !NAME_PATTERN.test(options.name)) throw new Error(`--name must match ${NAME_PATTERN.source}\n${USAGE}`)
+  if (options.vault !== null && options.name === null) throw new Error(`--vault needs --name (one named setup per vault)\n${USAGE}`)
+  if (options.name !== null && options.components.hook) throw new Error('--prompt-hook is single-owner and stays with the default setup; drop --name or --prompt-hook')
   return options
 }
 
@@ -236,7 +247,7 @@ function recordItem(run, action, preState) {
     preState: previous?.preState || preState,
     installed_at: new Date().toISOString(),
   })
-  run.manifest = { ...run.manifest, vault: run.context.vault, node: run.context.node, items }
+  run.manifest = { ...run.manifest, ...(run.context.name ? { name: run.context.name, engine: run.context.engine } : {}), vault: run.context.vault, node: run.context.node, items }
   writeManifest(run.context.paths.manifest, run.manifest)
 }
 
@@ -265,19 +276,19 @@ function mcpAdapter(context, harness) {
       read() {
         const state = readTarget(context.paths.claudeJson)
         if (!state.exists) return undefined
-        const entry = parseStrictJson(state.bytes).mcpServers?.alambic
+        const entry = parseStrictJson(state.bytes).mcpServers?.[context.handle]
         return entry === undefined ? undefined : normalizeMcp(entry)
       },
       add(value) {
         const envArgs = Object.entries(value.env).flatMap(([key, item]) => ['-e', `${key}=${item}`])
-        runCli(context, 'claude', ['mcp', 'add', '-s', 'user', 'alambic', ...envArgs, '--', value.command, ...value.args])
+        runCli(context, 'claude', ['mcp', 'add', '-s', 'user', context.handle, ...envArgs, '--', value.command, ...value.args])
       },
-      remove() { runCli(context, 'claude', ['mcp', 'remove', '-s', 'user', 'alambic']) },
+      remove() { runCli(context, 'claude', ['mcp', 'remove', '-s', 'user', context.handle]) },
     }
   }
   return {
     read() {
-      const result = runCli(context, 'codex', ['mcp', 'get', 'alambic', '--json'], { allowFail: true })
+      const result = runCli(context, 'codex', ['mcp', 'get', context.handle, '--json'], { allowFail: true })
       if (result.status !== 0) {
         if (/No MCP server named/.test(result.stderr || '')) return undefined
         throw new Refusal(`codex mcp get failed (exit ${result.status ?? result.signal})`)
@@ -298,9 +309,9 @@ function mcpAdapter(context, harness) {
     },
     add(value) {
       const envArgs = Object.entries(value.env).flatMap(([key, item]) => ['--env', `${key}=${item}`])
-      runCli(context, 'codex', ['mcp', 'add', 'alambic', ...envArgs, '--', value.command, ...value.args])
+      runCli(context, 'codex', ['mcp', 'add', context.handle, ...envArgs, '--', value.command, ...value.args])
     },
-    remove() { runCli(context, 'codex', ['mcp', 'remove', 'alambic']) },
+    remove() { runCli(context, 'codex', ['mcp', 'remove', context.handle]) },
   }
 }
 
@@ -316,31 +327,33 @@ function hookCommand(context, format) {
 }
 
 export function desiredItems(context, selection) {
-  const { paths, vault, node } = context
+  const { paths, vault, engine, node, name, handle } = context
   const { harnesses, components } = selection
   const items = []
-  const server = path.join(vault, '_meta/mcp/server.mjs')
-  const mcpValue = { command: node, args: [server], env: { ALAMBIC_ROOT: vault } }
+  const server = path.join(engine, '_meta/mcp/server.mjs')
+  const runtimeEnv = { ALAMBIC_ROOT: vault, ...(name ? { ALAMBIC_STATE_DIR: path.join(paths.xdgState, handle) } : {}) }
+  const envPrefix = name ? `${Object.entries(runtimeEnv).map(([key, value]) => `${key}=${shq(value)}`).join(' ')} ` : ''
+  const mcpValue = { command: node, args: [server], env: runtimeEnv }
   if (components.skill) {
-    const content = renderTemplate('skill/SKILL.md', { VAULT: vault, CLI: shq(path.join(vault, '_meta/alambic')), VAULT_DOCS: path.join(vault, 'docs/inbox') + path.sep })
-    if (harnesses.includes('claude')) items.push({ id: 'claude:skill', harnesses: ['claude'], kind: 'skill', type: 'file', target: path.join(paths.claudeDir, 'skills/alambic/SKILL.md'), content, mode: 0o644 })
+    const content = renderTemplate('skill/SKILL.md', { NAME: handle, LABEL: name ? `${name} vault` : 'alambic vault', VAULT: vault, CLI: `${envPrefix}${shq(path.join(engine, '_meta/alambic'))}`, VAULT_DOCS: path.join(vault, 'docs/inbox') + path.sep })
+    if (harnesses.includes('claude')) items.push({ id: 'claude:skill', harnesses: ['claude'], kind: 'skill', type: 'file', target: path.join(paths.claudeDir, `skills/${handle}/SKILL.md`), content, mode: 0o644 })
     const shared = harnesses.filter((harness) => harness !== 'claude')
-    if (shared.length) items.push({ id: 'agents:skill', harnesses: shared, kind: 'skill', type: 'file', target: path.join(paths.agentsSkills, 'alambic/SKILL.md'), content, mode: 0o644 })
+    if (shared.length) items.push({ id: 'agents:skill', harnesses: shared, kind: 'skill', type: 'file', target: path.join(paths.agentsSkills, `${handle}/SKILL.md`), content, mode: 0o644 })
   }
   if (components.mcp) {
     for (const harness of harnesses.filter((item) => MCP_HARNESSES.includes(item))) {
       if (harness === 'claude' || harness === 'codex') {
-        items.push({ id: `${harness}:mcp`, harnesses: [harness], kind: 'mcp', type: 'mcp-cli', target: `${harness} mcp (user) alambic`, value: normalizeMcp(mcpValue) })
+        items.push({ id: `${harness}:mcp`, harnesses: [harness], kind: 'mcp', type: 'mcp-cli', target: `${harness} mcp (user) ${handle}`, value: normalizeMcp(mcpValue) })
       } else if (harness === 'opencode') {
-        items.push({ id: 'opencode:mcp', harnesses: ['opencode'], kind: 'mcp', type: 'entry', container: 'object', target: path.join(paths.opencodeDir, 'opencode.json'), jsoncSibling: path.join(paths.opencodeDir, 'opencode.jsonc'), entryPath: ['mcp', 'alambic'], value: { type: 'local', command: [node, server], environment: { ALAMBIC_ROOT: vault }, enabled: true }, base: { $schema: 'https://opencode.ai/config.json' } })
+        items.push({ id: 'opencode:mcp', harnesses: ['opencode'], kind: 'mcp', type: 'entry', container: 'object', target: path.join(paths.opencodeDir, 'opencode.json'), jsoncSibling: path.join(paths.opencodeDir, 'opencode.jsonc'), entryPath: ['mcp', handle], value: { type: 'local', command: [node, server], environment: runtimeEnv, enabled: true }, base: { $schema: 'https://opencode.ai/config.json' } })
       } else {
-        items.push({ id: 'cursor:mcp', harnesses: ['cursor'], kind: 'mcp', type: 'entry', container: 'object', target: path.join(paths.cursorDir, 'mcp.json'), entryPath: ['mcpServers', 'alambic'], value: mcpValue, base: {} })
+        items.push({ id: 'cursor:mcp', harnesses: ['cursor'], kind: 'mcp', type: 'entry', container: 'object', target: path.join(paths.cursorDir, 'mcp.json'), entryPath: ['mcpServers', handle], value: mcpValue, base: {} })
       }
     }
   }
   if (components.shim) {
-    const content = `#!/bin/sh\nexec ${shq(node)} ${shq(path.join(vault, '_meta/alambic.mjs'))} "$@"\n`
-    items.push({ id: 'cli:shim', harnesses: ['cli'], kind: 'shim', type: 'file', target: path.join(paths.binDir, 'alambic'), content, mode: 0o755 })
+    const content = `#!/bin/sh\nexec ${name ? `env ${envPrefix}` : ''}${shq(node)} ${shq(path.join(engine, '_meta/alambic.mjs'))} "$@"\n`
+    items.push({ id: 'cli:shim', harnesses: ['cli'], kind: 'shim', type: 'file', target: path.join(paths.binDir, handle), content, mode: 0o755 })
   }
   if (components.hook) {
     const values = { NODE: jsString(node), HOOK: jsString(path.join(vault, HOOK_SCRIPT)) }
@@ -411,22 +424,22 @@ function planItem(context, item, recorded) {
   return action
 }
 
-export function makeContext({ vault, env, node = process.execPath }) {
-  if (!path.isAbsolute(vault)) throw new Error('vault path must be absolute')
+export function makeContext({ vault, env, node = process.execPath, name = null, engine = vault }) {
+  if (!path.isAbsolute(vault) || !path.isAbsolute(engine)) throw new Error('vault path must be absolute')
   try {
     fs.accessSync(node, fs.constants.X_OK)
   } catch {
     throw new Error(`node binary is not executable: ${node}`)
   }
-  const paths = resolvePaths(env)
-  return { vault, env, node, paths, manifest: readManifest(paths.manifest) || { version: 1, items: [] } }
+  const paths = resolvePaths(env, name)
+  return { vault, engine, env, node, name, handle: handleFor(name), paths, manifest: readManifest(paths.manifest) || { version: 1, items: [] } }
 }
 
 export function planSetup(context, selection) {
   const recorded = new Map(context.manifest.items.map((item) => [item.id, item]))
   const actions = desiredItems(context, selection).map((item) => planItem(context, item, recorded.get(item.id)))
   const warnings = []
-  if (selection.components.shim && !String(context.env.PATH || '').split(path.delimiter).includes(context.paths.binDir)) warnings.push(`${context.paths.binDir} is not on PATH; add it to use the \`alambic\` command`)
+  if (selection.components.shim && !String(context.env.PATH || '').split(path.delimiter).includes(context.paths.binDir)) warnings.push(`${context.paths.binDir} is not on PATH; add it to use the \`${context.handle}\` command`)
   if (selection.components.hook && selection.harnesses.includes('codex')) {
     const codex = findBinary('codex', context.env)
     const features = codex ? spawnSync(codex, ['features', 'list'], { env: context.env, encoding: 'utf8', timeout: 30_000 }) : null
@@ -568,14 +581,38 @@ export function setupStatus(context, selection = null) {
   }
 }
 
+function namedManifestsFor(vault, env) {
+  const dir = path.dirname(resolvePaths(env).manifest)
+  let files
+  try {
+    files = fs.readdirSync(dir)
+  } catch (error) {
+    if (error.code === 'ENOENT') return []
+    throw error
+  }
+  return files.map((file) => NAMED_MANIFEST.exec(file)?.[1]).filter(Boolean).sort().filter((name) => readManifest(resolvePaths(env, name).manifest)?.vault === vault)
+}
+
+function doctorOne(context) {
+  const status = setupStatus(context)
+  const prefix = context.name ? `${context.handle}: ` : ''
+  const warnings = status.items.filter((item) => item.state !== 'installed').map((item) => `${prefix}${item.id}: ${item.state}${item.reason ? ` (${item.reason})` : ''}`)
+  if (status.otherVault) warnings.unshift(`${prefix}manifest points to another vault: ${status.otherVault}`)
+  return { warnings, items: status.items }
+}
+
 export function doctorSetup(vault, env = process.env) {
   try {
-    const context = makeContext({ vault, env })
-    if (!context.manifest.items.length) return { installed: false, warnings: [] }
-    const status = setupStatus(context)
-    const warnings = status.items.filter((item) => item.state !== 'installed').map((item) => `${item.id}: ${item.state}${item.reason ? ` (${item.reason})` : ''}`)
-    if (status.otherVault) warnings.unshift(`manifest points to another vault: ${status.otherVault}`)
-    return { installed: true, warnings, items: status.items }
+    const base = makeContext({ vault, env })
+    const contexts = base.manifest.items.length && (base.manifest.vault === vault || !namedManifestsFor(vault, env).length) ? [base] : []
+    for (const name of namedManifestsFor(vault, env)) {
+      const manifest = readManifest(resolvePaths(env, name).manifest)
+      contexts.push(makeContext({ vault, env, name, engine: manifest.engine || vault, node: manifest.node || process.execPath }))
+    }
+    const active = contexts.filter((context) => context.manifest.items.length)
+    if (!active.length) return { installed: false, warnings: [] }
+    const reports = active.map(doctorOne)
+    return { installed: true, warnings: reports.flatMap((report) => report.warnings), items: reports.flatMap((report) => report.items) }
   } catch (error) {
     return { installed: false, warnings: [`setup check failed: ${error.message}`] }
   }
@@ -600,7 +637,7 @@ function removeAction(run, recorded) {
     if (readTarget(recorded.target).hash !== found.preimage) return { result: 'changed-during-setup' }
     fs.rmSync(found.file.real)
     const dir = path.dirname(found.file.real)
-    if (recorded.kind === 'skill' && path.basename(dir) === 'alambic' && !fs.readdirSync(dir).length) fs.rmdirSync(dir)
+    if (recorded.kind === 'skill' && path.basename(dir) === context.handle && !fs.readdirSync(dir).length) fs.rmdirSync(dir)
   } else {
     const current = readTarget(recorded.target)
     if (current.hash !== found.preimage) return { result: 'changed-during-setup' }
@@ -656,19 +693,32 @@ function actionLine(action) {
 
 const publicAction = ({ content, value, base, jsoncSibling, fingerprint: _fp, preimage, mode, container, ...rest }) => rest
 
-function pickerRows(detection, options) {
+function pickerRows(detection, options, handle) {
   return [
     ...HARNESSES.map((harness) => ({ id: harness, group: 'Harnesses', label: harness, hint: detection[harness].detected ? 'detected' : 'not found', checked: options.harness ? selectHarnesses(options.harness, detection).includes(harness) : detection[harness].detected })),
-    { id: 'skill', group: 'Components', label: 'skill', hint: 'alambic skill in each harness', checked: options.components.skill },
+    { id: 'skill', group: 'Components', label: 'skill', hint: `${handle} skill in each harness`, checked: options.components.skill },
     { id: 'mcp', group: 'Components', label: 'MCP server', hint: 'vault_search/context/read tools (not pi)', checked: options.components.mcp },
-    { id: 'shim', group: 'Components', label: 'CLI shim', hint: '~/.local/bin/alambic', checked: options.components.shim },
-    { id: 'hook', group: 'Components', label: 'per-prompt context', hint: 'opt-in: inject matching vault notes on every prompt', checked: options.components.hook },
+    { id: 'shim', group: 'Components', label: 'CLI shim', hint: `~/.local/bin/${handle}`, checked: options.components.shim },
+    ...(options.name ? [] : [{ id: 'hook', group: 'Components', label: 'per-prompt context', hint: 'opt-in: inject matching vault notes on every prompt', checked: options.components.hook }]),
   ]
+}
+
+function resolveVault(engine, options, env) {
+  if (!options.name) return engine
+  if (options.vault === null) return readManifest(resolvePaths(env, options.name).manifest)?.vault || engine
+  let vault
+  try {
+    vault = fs.realpathSync(path.resolve(options.vault))
+  } catch {
+    throw new Error(`--vault ${options.vault}: not found`)
+  }
+  if (!fs.statSync(vault).isDirectory() || !fs.existsSync(path.join(vault, 'kb'))) throw new Error(`--vault ${options.vault}: not an alambic vault (no kb/)`)
+  return vault
 }
 
 export async function runSetup({ vault, args, env = process.env, stdin = process.stdin, stdout = process.stdout, node = process.execPath }) {
   const options = parseSetupArgs(args)
-  const context = makeContext({ vault, env, node })
+  const context = makeContext({ vault: resolveVault(vault, options, env), engine: vault, env, node, name: options.name })
   const print = (value) => stdout.write(options.json ? `${JSON.stringify(value, null, 2)}\n` : `${value}\n`)
   const tty = Boolean(stdin.isTTY && stdout.isTTY)
   const detection = detectHarnesses(env, context.paths)
@@ -677,7 +727,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
     const status = setupStatus(context, options.harness || !context.manifest.items.length ? { harnesses: selectHarnesses(options.harness, detection), components: options.components } : null)
     if (options.json) print(status)
     else {
-      const lines = [`alambic setup status: ${status.installed ? 'installed' : 'not installed'}`, `manifest: ${status.manifest}`]
+      const lines = [`${context.handle} setup status: ${status.installed ? 'installed' : 'not installed'}`, `manifest: ${status.manifest}`]
       if (status.otherVault) lines.push(`warning: manifest points to another vault: ${status.otherVault}`)
       for (const item of status.items) lines.push(`  ${item.state.padEnd(13)} ${item.id.padEnd(14)} ${where(item)}`)
       print(lines.join('\n'))
@@ -690,7 +740,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
     const report = uninstallSetup(context, { dryRun })
     if (options.json) print(report)
     else {
-      const lines = [`alambic setup uninstall${dryRun ? ' (dry-run; add --yes to apply)' : ''}: ${report.items.length} item(s)`]
+      const lines = [`${context.handle} setup uninstall${dryRun ? ' (dry-run; add --yes to apply)' : ''}: ${report.items.length} item(s)`]
       for (const item of report.items) lines.push(`  ${item.result.padEnd(15)} ${item.id.padEnd(14)} ${where(item)}`)
       print(lines.join('\n'))
     }
@@ -701,9 +751,9 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
   const interactive = tty && !options.yes && !options.dryRun && !options.json
   if (interactive) {
     const { runPicker } = await import('./checkbox.mjs')
-    const rows = await runPicker(pickerRows(detection, options), { input: stdin, output: stdout, title: `alambic setup: ${vault}` })
+    const rows = await runPicker(pickerRows(detection, options, context.handle), { input: stdin, output: stdout, title: `${context.handle} setup: ${context.vault}` })
     if (!rows) {
-      print('alambic setup: aborted, nothing written')
+      print(`${context.handle} setup: aborted, nothing written`)
       return 130
     }
     const checked = new Set(rows.filter((row) => row.checked).map((row) => row.id))
@@ -712,9 +762,9 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
   const dryRun = options.dryRun || (!interactive && !options.yes)
   const plan = planSetup(context, selection)
   const report = dryRun ? plan : applySetup(context, plan)
-  if (options.json) print({ mode: dryRun ? 'dry-run' : 'apply', vault, node: context.node, selection, warnings: report.warnings, actions: report.actions.map(publicAction), ...(report.backups ? { backups: report.backups } : {}) })
+  if (options.json) print({ mode: dryRun ? 'dry-run' : 'apply', vault: context.vault, ...(context.name ? { name: context.name, engine: context.engine } : {}), node: context.node, selection, warnings: report.warnings, actions: report.actions.map(publicAction), ...(report.backups ? { backups: report.backups } : {}) })
   else {
-    const lines = [`alambic setup: ${dryRun ? 'dry-run' : 'applied'}`, `vault: ${vault}`, `node: ${context.node}`, `harnesses: ${selection.harnesses.join(', ') || 'none'}`]
+    const lines = [`${context.handle} setup: ${dryRun ? 'dry-run' : 'applied'}`, `vault: ${context.vault}`, ...(context.name ? [`engine: ${context.engine}`] : []), `node: ${context.node}`, `harnesses: ${selection.harnesses.join(', ') || 'none'}`]
     if (!report.actions.length) lines.push('  nothing selected')
     lines.push(...report.actions.map(actionLine))
     for (const action of report.actions.filter((item) => item.snippet)) lines.push(`  add manually to ${action.snippet.file} at ${action.snippet.key}:`, `    ${JSON.stringify(action.snippet.value)}`)

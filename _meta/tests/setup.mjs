@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { applySetup, doctorSetup, makeContext, parseSetupArgs, planSetup, runSetup, selectHarnesses, detectHarnesses, setupStatus } from '../lib/setup.mjs'
+import { HARNESSES, applySetup, desiredItems, doctorSetup, makeContext, parseSetupArgs, planSetup, runSetup, selectHarnesses, detectHarnesses, setupStatus } from '../lib/setup.mjs'
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -21,17 +21,19 @@ fs.appendFileSync(process.env.STUB_LOG, JSON.stringify({ bin: 'claude', argv }) 
 const file = process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(process.env.HOME, '.claude.json')
 const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return {} } }
 const write = (json) => fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\\n')
-if (argv[0] === 'mcp' && argv[1] === 'add' && argv[2] === '-s' && argv[3] === 'user' && argv[4] === 'alambic') {
+const named = (value) => /^alambic(-[a-z0-9-]+)?$/.test(value || '')
+if (argv[0] === 'mcp' && argv[1] === 'add' && argv[2] === '-s' && argv[3] === 'user' && named(argv[4])) {
+  const name = argv[4]
   if (process.env.STUB_FAIL === 'claude:add' || process.env.STUB_FAIL === 'claude:add:' + argv[argv.indexOf('--') + 1]) { process.stderr.write('boom ' + process.env.STUB_CANARY); process.exit(5) }
   const sep = argv.indexOf('--')
   const env = {}
   for (let i = 5; i < sep; i += 2) { if (argv[i] !== '-e') process.exit(98); const [k, ...v] = argv[i + 1].split('='); env[k] = v.join('=') }
   const json = read()
-  if (json.mcpServers?.alambic) { process.stderr.write('already exists'); process.exit(1) }
-  json.mcpServers = { ...json.mcpServers, alambic: { type: 'stdio', command: argv[sep + 1], args: argv.slice(sep + 2), env } }
+  if (json.mcpServers?.[name]) { process.stderr.write('already exists'); process.exit(1) }
+  json.mcpServers = { ...json.mcpServers, [name]: { type: 'stdio', command: argv[sep + 1], args: argv.slice(sep + 2), env } }
   write(json)
-} else if (argv.join(' ') === 'mcp remove -s user alambic') {
-  const json = read(); delete json.mcpServers.alambic; write(json)
+} else if (argv.length === 5 && argv.slice(0, 4).join(' ') === 'mcp remove -s user' && named(argv[4])) {
+  const json = read(); delete json.mcpServers[argv[4]]; write(json)
 } else process.exit(97)
 `
 const CODEX_STUB = `#!${process.execPath}
@@ -42,18 +44,19 @@ const file = path.join(process.env.CODEX_HOME || path.join(process.env.HOME, '.c
 const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return {} } }
 const write = (json) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(json)) }
 const cmd = argv.join(' ')
+const named = (value) => /^alambic(-[a-z0-9-]+)?$/.test(value || '')
 if (cmd === 'features list') process.stdout.write('apply_patch  stable  true\\nhooks  stable  ' + (process.env.STUB_CODEX_HOOKS || 'true') + '\\n')
-else if (cmd === 'mcp get alambic --json') {
-  const entry = read().alambic
-  if (!entry) { process.stderr.write("Error: No MCP server named 'alambic' found."); process.exit(1) }
-  process.stdout.write(JSON.stringify({ name: 'alambic', enabled: true, transport: { type: 'stdio', ...entry } }))
-} else if (argv[0] === 'mcp' && argv[1] === 'add' && argv[2] === 'alambic') {
+else if (argv.length === 4 && argv[0] === 'mcp' && argv[1] === 'get' && named(argv[2]) && argv[3] === '--json') {
+  const entry = read()[argv[2]]
+  if (!entry) { process.stderr.write("Error: No MCP server named '" + argv[2] + "' found."); process.exit(1) }
+  process.stdout.write(JSON.stringify({ name: argv[2], enabled: true, transport: { type: 'stdio', ...entry } }))
+} else if (argv[0] === 'mcp' && argv[1] === 'add' && named(argv[2])) {
   const sep = argv.indexOf('--')
   const env = {}
   for (let i = 3; i < sep; i += 2) { if (argv[i] !== '--env') process.exit(98); const [k, ...v] = argv[i + 1].split('='); env[k] = v.join('=') }
-  write({ ...read(), alambic: { command: argv[sep + 1], args: argv.slice(sep + 2), env } })
-} else if (cmd === 'mcp remove alambic') {
-  const json = read(); delete json.alambic; write(json)
+  write({ ...read(), [argv[2]]: { command: argv[sep + 1], args: argv.slice(sep + 2), env } })
+} else if (argv.length === 3 && argv[0] === 'mcp' && argv[1] === 'remove' && named(argv[2])) {
+  const json = read(); delete json[argv[2]]; write(json)
 } else process.exit(97)
 `
 
@@ -340,6 +343,72 @@ try {
   const home9 = freshHome('home9')
   await setup(vault, ['--yes', '--harness', 'codex', '--prompt-hook', '--no-mcp', '--json'], envFor(home9))
   assert(doctorSetup(vault, envFor(home9)).warnings.join() === 'codex:hook: pending-trust', 'doctor must report pending-trust only')
+
+  const DEFAULT_ITEMS_SHA = 'a8026d9579695fd50de71172d8ad0b7be9c231e6d973481ae3ec38c06d41f1ea'
+  const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: process.execPath, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true } })
+  assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(process.execPath, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'default setup items drifted from their frozen fingerprint')
+  assert(claudeSkill.includes('\n# alambic vault\n') && claudeSkill.includes('description: Query the alambic vault (a compiled'), 'default skill must keep its alambic identity')
+  for (const args of [['--vault', vault], ['--name', 'Bad'], ['--name', 'x'.repeat(40)], ['--name', 'brain', '--prompt-hook'], ['--name']]) {
+    threw = false
+    try { parseSetupArgs(args) } catch { threw = true }
+    assert(threw, `setup must refuse ${args.join(' ')}`)
+  }
+  const engine = path.join(temp, 'engine')
+  writeExec(path.join(engine, '_meta/alambic.mjs'), "console.log([process.env.ALAMBIC_ROOT, process.env.ALAMBIC_STATE_DIR, ...process.argv.slice(2)].join('|'))\n")
+  writeExec(path.join(engine, '_meta/alambic'), `#!/bin/sh\nexec '${process.execPath}' "$(dirname "$0")/alambic.mjs" "$@"\n`)
+  const brain = path.join(temp, "br'ain")
+  fs.mkdirSync(path.join(brain, 'kb'), { recursive: true })
+  const homeN = freshHome('home-named')
+  const envN = envFor(homeN)
+  for (const bad of [path.join(temp, 'missing'), engine]) {
+    threw = false
+    try { await setup(engine, ['--yes', '--name', 'brain', '--vault', bad], envN) } catch { threw = true }
+    assert(threw, `--vault must refuse ${bad}`)
+  }
+  resetLog()
+  const namedRun = await setup(engine, ['--yes', '--harness', 'claude,codex,opencode,cursor', '--name', 'brain', '--vault', brain, '--json'], envN)
+  assert(namedRun.code === 0 && namedRun.json.vault === brain && namedRun.json.engine === engine && namedRun.json.name === 'brain', `named install failed: ${namedRun.out}`)
+  const pinned = { ALAMBIC_ROOT: brain, ALAMBIC_STATE_DIR: path.join(homeN, '.local/state/alambic-brain') }
+  const namedServer = path.join(engine, '_meta/mcp/server.mjs')
+  const namedAdd = calls('claude').find((entry) => entry.argv[1] === 'add').argv
+  assert(JSON.stringify(namedAdd) === JSON.stringify(['mcp', 'add', '-s', 'user', 'alambic-brain', '-e', `ALAMBIC_ROOT=${brain}`, '-e', `ALAMBIC_STATE_DIR=${pinned.ALAMBIC_STATE_DIR}`, '--', process.execPath, namedServer]), `named claude argv wrong: ${namedAdd}`)
+  assert(!readJson(path.join(homeN, '.claude.json')).mcpServers.alambic, 'named setup must not register the default MCP')
+  assert(JSON.stringify(readJson(path.join(homeN, '.codex/stub-mcp.json'))['alambic-brain'].env) === JSON.stringify(pinned), 'named codex env wrong')
+  const namedOpencode = readJson(path.join(homeN, '.config/opencode/opencode.json')).mcp['alambic-brain']
+  assert(namedOpencode.command[1] === namedServer && JSON.stringify(namedOpencode.environment) === JSON.stringify(pinned), 'named opencode entry wrong')
+  assert(JSON.stringify(readJson(path.join(homeN, '.cursor/mcp.json')).mcpServers['alambic-brain'].env) === JSON.stringify(pinned), 'named cursor entry wrong')
+  const namedSkill = fs.readFileSync(path.join(homeN, '.claude/skills/alambic-brain/SKILL.md'), 'utf8')
+  assert(namedSkill.startsWith('---\nname: alambic-brain\n') && namedSkill.includes('\n# brain vault\n') && namedSkill.includes(`Vault: \`${brain}\``), 'named skill identity wrong')
+  const namedCli = /^(.*) session --json/m.exec(namedSkill)?.[1]
+  assert(namedCli && spawnSync('/bin/sh', ['-c', `${namedCli} q`], { encoding: 'utf8' }).stdout.trim() === `${brain}|${pinned.ALAMBIC_STATE_DIR}|q`, `named skill CLI must pin root and state: ${namedCli}`)
+  assert(fs.readFileSync(path.join(homeN, '.agents/skills/alambic-brain/SKILL.md'), 'utf8') === namedSkill, 'named shared skill wrong')
+  const namedShim = path.join(homeN, '.local/bin/alambic-brain')
+  assert(mode(namedShim) === 0o755 && spawnSync(namedShim, ['a b'], { encoding: 'utf8' }).stdout.trim() === `${brain}|${pinned.ALAMBIC_STATE_DIR}|a b`, 'named shim must pin root and state')
+  assert(!fs.existsSync(path.join(homeN, '.local/bin/alambic')) && !fs.existsSync(path.join(homeN, '.local/state/alambic/setup.json')), 'named setup must not touch the default shim or manifest')
+  const namedManifest = readJson(path.join(homeN, '.local/state/alambic/setup-brain.json'))
+  assert(namedManifest.name === 'brain' && namedManifest.vault === brain && namedManifest.engine === engine, 'named manifest wrong')
+  const namedStatus = await setup(engine, ['--status', '--name', 'brain', '--json'], envN)
+  assert(namedStatus.code === 0 && namedStatus.json.installed && !namedStatus.json.otherVault, `named status must resolve the vault from its manifest: ${namedStatus.out}`)
+  assert(JSON.stringify(doctorSetup(brain, envN)) === JSON.stringify({ installed: true, warnings: [], items: namedStatus.json.items }), 'doctor must find the named manifest for its vault')
+  assert(JSON.stringify(doctorSetup(engine, envN)) === JSON.stringify({ installed: false, warnings: [] }), 'doctor must ignore named manifests of other vaults')
+
+  const defaultRun = await setup(engine, ['--yes', '--harness', 'claude', '--no-shim', '--json'], envN)
+  const selfRun = await setup(engine, ['--yes', '--harness', 'claude', '--no-shim', '--name', 'self', '--json'], envN)
+  assert(defaultRun.code === 0 && selfRun.code === 0 && selfRun.json.vault === engine, 'default and self-named setups must coexist')
+  assert(Object.keys(readJson(path.join(homeN, '.claude.json')).mcpServers).sort().join() === 'alambic,alambic-brain,alambic-self', 'handles must stay separate')
+  assert(doctorSetup(brain, envN).warnings.length === 0, 'default manifest of another vault must not warn when a named one matches')
+  const both = doctorSetup(engine, envN)
+  assert(both.installed && both.warnings.length === 0 && both.items.length === 4, `doctor must aggregate default and named setups: ${JSON.stringify(both)}`)
+  const namedSkillFile = path.join(homeN, '.claude/skills/alambic-brain/SKILL.md')
+  fs.writeFileSync(namedSkillFile, 'edited\n')
+  assert(doctorSetup(brain, envN).warnings.includes('alambic-brain: claude:skill: drifted'), 'doctor must prefix named warnings with the handle')
+  fs.writeFileSync(namedSkillFile, namedSkill)
+
+  const namedGone = await setup(engine, ['--uninstall', '--yes', '--name', 'brain', '--json'], envN)
+  assert(namedGone.code === 0, `named uninstall failed: ${namedGone.out}`)
+  assert(!fs.existsSync(path.join(homeN, '.claude/skills/alambic-brain')) && !fs.existsSync(path.join(homeN, '.agents/skills/alambic-brain')) && !fs.existsSync(namedShim), 'named uninstall must remove its skill dirs and shim')
+  assert(Object.keys(readJson(path.join(homeN, '.claude.json')).mcpServers).sort().join() === 'alambic,alambic-self' && !readJson(path.join(homeN, '.codex/stub-mcp.json'))['alambic-brain'], 'named uninstall must remove only its MCP entries')
+  assert(fs.existsSync(path.join(homeN, '.claude/skills/alambic/SKILL.md')) && fs.existsSync(path.join(homeN, '.claude/skills/alambic-self/SKILL.md')), 'named uninstall must keep sibling setups')
 
   console.log('setup: ok')
 } finally {

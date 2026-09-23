@@ -107,6 +107,22 @@ hooks only after you approve them in `/hooks`; `setup --status` shows
 Setup bakes in the absolute Node path. After a Node upgrade that moves the
 binary, `doctor` reports items as `outdated`; rerun `_meta/alambic setup --yes`.
 
+### Several vaults
+
+```bash
+_meta/alambic setup --yes --name work                        # this vault as alambic-work
+_meta/alambic setup --yes --name brain --vault ~/work/brain  # this engine, another vault
+_meta/alambic setup --status --name brain
+```
+
+`--name <slug>` installs a separate set: skill, MCP entry and shim are named
+`alambic-<slug>`, the manifest is `$XDG_STATE_HOME/alambic/setup-<slug>.json`,
+and runtime state is pinned to `$XDG_STATE_HOME/alambic-<slug>` through
+`ALAMBIC_STATE_DIR`. `--vault` points it at another vault's content (it needs
+a `kb/`) while running this checkout's engine. Named sets never touch the
+default `alambic` one. `--prompt-hook` stays with the default set only.
+`doctor` checks every set recorded for the vault it runs in.
+
 ## Commands
 
 ```bash
