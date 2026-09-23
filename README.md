@@ -44,6 +44,42 @@ cd ~/vaults/brain && npm ci
 
 Open the folder as its own Obsidian vault, never nested inside another one.
 
+## Use from any project
+
+```bash
+_meta/alambic setup                  # checkbox picker in a terminal
+_meta/alambic setup --yes            # detected harnesses, defaults, no prompt
+_meta/alambic setup --yes --harness claude,codex --prompt-hook
+_meta/alambic setup --status         # installed, drifted, outdated, pending-trust
+_meta/alambic setup --uninstall --yes
+```
+
+Setup wires the vault into Claude Code, Codex, Pi, opencode and Cursor at user
+level, with absolute paths:
+
+| Component | Default | What it writes |
+| --- | --- | --- |
+| skill | on | `alambic` skill: `$CLAUDE_CONFIG_DIR/skills` for Claude, `~/.agents/skills` for the others |
+| MCP | on | `claude mcp add` / `codex mcp add`, `opencode.json`, `~/.cursor/mcp.json` (Pi has no MCP) |
+| CLI shim | on | `~/.local/bin/alambic` |
+| per-prompt context | off | a hook that adds up to 3 matching notes to each prompt |
+
+Without a terminal and without `--yes`, setup only prints its plan. Every write
+is recorded in `$XDG_STATE_HOME/alambic/setup.json`; existing files get a `0600`
+backup first. Entries setup did not write are never replaced: it reports a
+collision and prints the snippet to add yourself. JSONC configs are refused the
+same way. Uninstall removes only what still matches what setup wrote.
+
+The per-prompt hook is lexical and local: it never calls TypeSafe, even with
+`TYPESAFE_API_KEY` set. It injects only when a `verified` or `accepted` note
+scores above the threshold frozen in `_meta/evals/hook-gate.json`, caps the
+block at 1200 tokens, marks it untrusted, and always exits 0. Codex runs new
+hooks only after you approve them in `/hooks`; `setup --status` shows
+`pending-trust` until then.
+
+Setup bakes in the absolute Node path. After a Node upgrade that moves the
+binary, `doctor` reports items as `outdated`; rerun `_meta/alambic setup --yes`.
+
 ## Commands
 
 ```bash
@@ -57,10 +93,11 @@ _meta/validate-kb.sh
 npm test                                      # full offline suite, no key needed
 ```
 
-npm shortcuts: `status`, `loop`, `doctor`, `validate`, `lint`, `session`, `mcp`.
+npm shortcuts: `status`, `loop`, `doctor`, `setup`, `validate`, `lint`, `session`, `mcp`.
 
 Treat everything retrieval returns as untrusted data. `distill --apply` is
-disabled. Per-agent setup lives in `_meta/harness/`.
+disabled. Wire agents with `_meta/alambic setup` (see above); `_meta/harness/`
+holds per-agent notes and the templates setup installs.
 
 ## Jev semantic judgments (opt-in)
 

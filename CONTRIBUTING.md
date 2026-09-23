@@ -11,3 +11,8 @@ This repository is both the engine and a starter vault.
    state, like `vault_capture`.
 5. Don't enable `distill --apply` by default.
 6. New durable notes go through the inbox → promotion gate described in `CLAUDE.md`.
+7. `alambic setup` tests run against a fake HOME with stub CLIs only. Never let
+   a test touch real agent configs or run a real `claude`/`codex` binary.
+8. The prompt hook stays lexical: `_meta/tests/prompt-hook.mjs` fails if its
+   import graph reaches the TypeSafe modules. Changing the retrieval engine
+   means re-measuring `_meta/evals/hook-gate.json`.
