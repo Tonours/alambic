@@ -1,6 +1,7 @@
 // Managed by alambic setup; remove with: alambic setup --uninstall --yes
-// Adds lexical vault context to the first model call of a matching prompt.
-// State is keyed by session and message; no sessionID means no-op.
+// Adds lexical vault context to every model call of a matching prompt's turn
+// (opencode may run a title call before the main one). State is per session,
+// replaced by the next prompt; no sessionID means no-op.
 import { spawn } from 'node:child_process'
 
 const NODE = "{{NODE}}"
@@ -49,7 +50,6 @@ export const AlambicContext = async () => {
         const sessionID = input?.sessionID
         if (!sessionID) return
         const entry = pending.get(sessionID)
-        pending.delete(sessionID)
         if (entry && Array.isArray(output?.system)) output.system.push(entry.text)
       } catch {}
     },

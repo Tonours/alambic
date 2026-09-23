@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Pi extension and opencode plugin rendered by setup: guarded, time-limited,
 // Pi keeps only the latest alambic block, opencode state is per session and
-// consumed by the first model call only.
+// lasts for every model call of the prompt's turn.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -60,7 +60,7 @@ try {
   assert(filtered.length === 3 && filtered.filter((m) => m.customType === 'alambic-context').map((m) => m.content).join() === 'c2', 'Pi context filter must keep only the latest block')
   assert(await handlers.context({}) === undefined, 'Pi context filter must survive a malformed event')
 
-  // opencode: per-session state, first model call only, no sessionID means no-op.
+  // opencode: per-session state, every model call of the turn, no sessionID means no-op.
   const hooks = await oc.AlambicContext({})
   const message = (sessionID, text) => hooks['chat.message']({ sessionID, messageID: `m-${sessionID}` }, { message: {}, parts: [{ type: 'text', text }] })
   const system = async (sessionID) => { const output = { system: ['base'] }; await hooks['experimental.chat.system.transform']({ sessionID, model: {} }, output); return output.system }
@@ -70,8 +70,12 @@ try {
   await message('s2', 'unrelated')
   assert((await system('s2')).length === 1, 'abstaining session must get nothing')
   assert((await system('s1')).at(-1) === 'ctx:about the vault', 'matching session must get context on the first call')
-  assert((await system('s1')).length === 1, 'context must be consumed by the first model call only')
+  assert((await system('s1')).at(-1) === 'ctx:about the vault', 'a second model call of the same turn (title, then main) must get context too')
+  assert((await system('s2')).length === 1, 'context must not leak to another session')
+  await message('s1', 'unrelated follow-up')
+  assert((await system('s1')).length === 1, 'an abstaining next prompt must clear the session context')
   await message('s1', 'about the vault again')
+  assert((await system('s1')).at(-1) === 'ctx:about the vault again', 'a new matching prompt must replace the context')
   await message('s1', 'crash it')
   assert((await system('s1')).length === 1, 'a failing hook must clear stale session state')
   await hooks['chat.message'](null, null)
