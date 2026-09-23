@@ -28,9 +28,13 @@ cd "${ALAMBIC_ROOT:-.}"   # repo root
 ./_meta/alambic attention promote-suggest --json     # suggestions only
 ```
 
-1. Open `docs/inbox/ai/attention-synthesis-YYYYMMDD.md` if present; else digest.
-2. List ≤7 claims; drop noise; for keepers note update vs create.
-3. Attention is a reading queue: write a durable, sourced claim to `docs/inbox/manual/` for the normal gate instead of materializing drafts.
+1. Open `docs/inbox/ai/attention-synthesis-YYYYMMDD.md`, or the digest when
+   there is no synthesis.
+2. List at most 7 claims and drop the noise. For each keeper, note whether it
+   updates an existing note or needs a new one.
+3. Attention is a reading queue. Write each durable, sourced claim to
+   `docs/inbox/manual/` so it goes through the normal gate; don't materialize
+   drafts.
 4. Human files durable notes into `kb/` with full frontmatter + sources.
 5. Log feedback: `_meta/alambic feedback --status hit|miss|stale|wrong` if useful.
 

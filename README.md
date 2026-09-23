@@ -12,8 +12,9 @@ docs/inbox/  ──►  review / promote  ──►  kb/ + ref/  ──►  alam
 ```
 
 The repo ships a small starter wiki. Replace it with your own notes and keep
-that clone private. Everything retrieval returns is untrusted data, and
-`distill --apply` is disabled.
+your vault private. Agents treat everything retrieval returns as untrusted
+data, and nothing distills captures into `kb/` automatically: `distill --apply`
+is disabled.
 
 ## Layout
 
@@ -28,19 +29,28 @@ Obsidian is optional: it gives humans a UI over the same files. Agents use the C
 
 ## Setup
 
-One command creates a fresh vault, installs its dependencies and Obsidian
-config, wires your agents, and runs `doctor`:
+One command creates a vault and wires your agents to it:
 
 ```bash
-npx github:<owner>/alambic init ~/vaults/brain --install
+npx github:Tonours/alambic init ~/vaults/brain --install
 ```
 
-`<owner>` is the GitHub account that hosts alambic. Options after `--install`
-go to `setup`, for example `--harness claude,codex --prompt-hook`. If a step
-fails, the command stops and names it; fix it and rerun the remaining steps
-from the vault.
+`init` copies the
+publishable files into the new folder. `--install` then runs these steps
+inside it:
 
-To work on a clone instead:
+```bash
+npm ci
+_meta/bootstrap-obsidian.sh
+_meta/alambic setup --yes    # options after --install land here
+_meta/alambic doctor
+```
+
+For example, `--install --harness claude,codex --prompt-hook`. If a step
+fails, the command stops and names it. Fix the cause, then run the remaining
+steps yourself from the vault.
+
+To work on alambic itself, clone it:
 
 ```bash
 git clone <this-repo> my-brain   # keep this clone private
@@ -50,8 +60,8 @@ _meta/bootstrap-obsidian.sh      # optional, but doctor fails until you run it
 _meta/alambic doctor
 ```
 
-From a clone, `_meta/alambic init <dir> [--install]` does the same as the
-`npx` command. It copies only the publishable files.
+From a clone, `_meta/alambic init <dir> [--install]` works the same way.
+Private patterns, inbox captures, and caches never get copied.
 
 Open the folder as its own Obsidian vault, never nested inside another one.
 
@@ -75,13 +85,17 @@ level, with absolute paths:
 | CLI shim | on | `~/.local/bin/alambic` |
 | per-prompt context | off | a hook that adds up to 3 matching notes to each prompt |
 
-Without a terminal and without `--yes`, setup only prints its plan. Every write
-is recorded in `$XDG_STATE_HOME/alambic/setup.json`; existing files get a `0600`
-backup first. Entries setup did not write are never replaced: setup reports a
-collision and leaves them alone. JSONC configs are refused, and setup prints the
-snippet to add yourself. Uninstall removes only what still matches what setup
-wrote; an identical entry that was already there before setup stays in place,
-and config files setup created stay behind, emptied.
+Without a terminal and without `--yes`, setup only prints its plan. Rerunning
+it is safe: unchanged items stay untouched.
+
+- Every write is recorded in `$XDG_STATE_HOME/alambic/setup.json`. Existing
+  files get a `0600` backup first.
+- Setup never replaces an entry it did not write. It reports a collision and
+  leaves it alone.
+- JSONC configs are refused. Setup prints the snippet to add yourself.
+- Uninstall removes only what still matches what setup wrote. An identical
+  entry that existed before setup stays, and config files setup created stay
+  behind, emptied.
 
 The per-prompt hook is lexical and local: it never calls TypeSafe, even with
 `TYPESAFE_API_KEY` set. It injects only when a `verified` or `accepted` note
@@ -160,8 +174,9 @@ _meta/alambic attention status --json   # optional technical attention intake
 ```
 
 `.github/workflows/alambic-sidekick-daily.yml` is the only automation that
-writes to `kb/`; humans promote inbox notes by hand. Its daily schedule stays off until you set the repo variable
-`ALAMBIC_SIDEKICK_SCHEDULE=true`; manual dispatch works either way. Optional
+writes to `kb/`; humans promote inbox notes by hand. Its daily schedule stays
+off until you set the repo variable `ALAMBIC_SIDEKICK_SCHEDULE=true`; manual
+dispatch works either way. Optional
 secrets: `TYPESAFE_API_KEY` for Jev, `ALAMBIC_YOUTUBE_*` for attention collect.
 Laptops stay on dry-run and `git pull`. Details in
 `kb/alambic-self-improvement-loop.md` and `ref/technical-attention-intake.md`.
@@ -191,6 +206,8 @@ one per line, in a gitignored `.leak-patterns` file and in the
 `ALAMBIC_LEAK_PATTERNS` repo secret, then run `_meta/tests/leak-scan.sh`. On
 your own repo, CI and the sidekick fail when the secret is missing; forks only
 get a warning. Set the repo variable `ALAMBIC_LEAK_OPTIONAL=true` to opt out.
+A public string that contains a marker, like the `npx` slug above, goes in
+`.leak-allow`, one exact string per line; any other occurrence still fails.
 
 ## License
 

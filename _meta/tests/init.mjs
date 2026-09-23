@@ -23,7 +23,7 @@ try {
   // No-git fallback (zip/tarball copy): staging and private markers still stay out.
   fs.writeFileSync(path.join(dest, 'docs/inbox/ai/attention-digest-test.md'), 'personal\n')
   fs.writeFileSync(path.join(dest, '.leak-patterns'), 'x\n')
-  fs.rmSync(path.join(dest, '.gitignore')) // npm pack drops it
+  fs.rmSync(path.join(dest, '.gitignore'))
   const copy = `${dest}-copy`
   const fallback = spawnSync(process.execPath, [path.join(dest, '_meta/alambic.mjs'), 'init', copy], { encoding: 'utf8', env: { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(dest) } })
   assert(fallback.status === 0, `fallback init failed: ${fallback.stderr}`)
@@ -32,7 +32,6 @@ try {
   const again = spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), 'init', dest], { encoding: 'utf8' })
   assert(again.status !== 0, 'init must refuse a non-empty destination without --force')
 
-  // npx runs the package bin through a node_modules/.bin symlink.
   const bin = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).bin.alambic
   const binDir = path.join(path.dirname(dest), 'node_modules/.bin')
   fs.mkdirSync(binDir, { recursive: true })
@@ -40,7 +39,6 @@ try {
   const viaBin = spawnSync(path.join(binDir, 'alambic'), ['init', `${dest}-bin`], { encoding: 'utf8' })
   assert(viaBin.status === 0 && fs.existsSync(path.join(`${dest}-bin`, 'kb/_index.md')), `init via bin symlink failed: ${viaBin.stderr}`)
 
-  // --install chains npm ci, Obsidian bootstrap, setup, doctor in the new vault.
   const home = path.join(path.dirname(dest), 'home')
   const stubs = path.join(path.dirname(dest), 'stubs')
   fs.mkdirSync(stubs)

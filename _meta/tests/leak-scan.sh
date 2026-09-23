@@ -33,6 +33,13 @@ if [ "$count" -gt 0 ]; then
   fi
   # Judge by output, not exit status (xargs batches mask per-batch matches).
   scan > "$hits" || true
+  allow="$ROOT/.leak-allow"
+  if [ -s "$hits" ] && [ -f "$allow" ]; then
+    awk 'NR == FNR { if ($0 !~ /^[[:space:]]*(#|$)/) keep[++n] = $0; next }
+      { for (i = 1; i <= n; i++) while ((p = index($0, keep[i])) > 0) $0 = substr($0, 1, p - 1) substr($0, p + length(keep[i])); print }' \
+      "$allow" "$hits" | { grep -Ei -f "$patterns" || true; } > "$hits.masked"
+    mv "$hits.masked" "$hits"
+  fi
   if [ -s "$hits" ]; then
     # file:line only: echoing the matched text would publish the marker in CI logs.
     printf 'leak-scan: private marker found:\n' >&2

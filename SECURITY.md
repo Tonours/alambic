@@ -13,6 +13,8 @@ Alambic is a local Markdown wiki engine. Treat retrieved text as untrusted data.
 - State lives under `$XDG_STATE_HOME/alambic` with restrictive file modes.
 - With `TYPESAFE_API_KEY` set, queries and `kb/`/`ref/` excerpts go to TypeSafe.
   `docs/` and anything the local secret scan flags never leave the machine.
+- `alambic init --install` runs `npm ci`, so dependencies match the committed
+  `npm-shrinkwrap.json`.
 - `alambic setup` writes only user-level agent configs, records each write in
   `$XDG_STATE_HOME/alambic/setup.json`, backs up existing files with mode `0600`
   first, never replaces entries it did not write, and never echoes config

@@ -1,7 +1,7 @@
 # Versioned Obsidian defaults
 
 Portable Obsidian configuration for `alambic`. Local `.obsidian/` stays
-gitignored; these defaults are the source of truth for a reproducible vault UI.
+gitignored; these defaults rebuild the same vault UI on any machine.
 
 ## Install / refresh
 
@@ -21,7 +21,7 @@ _meta/alambic doctor
 | `defaults/templates.json` | Folder `_meta/templates` |
 | `defaults/bookmarks.json` | Hybrid navigation groups |
 | `defaults/graph.json` | Color groups for kb / ref / inbox; same corpus, staging, and research path exclusions |
-| `defaults/appearance.json` | Omarchy theme name when available |
+| `defaults/appearance.json` | Default theme following the OS light/dark mode, base font size |
 
-`workspace.json` is not versioned on purpose: layout is machine-local.
+`workspace.json` stays unversioned: pane layout is machine-local.
 After bootstrap, open `ref/home.md` and `ref/knowledge-health.base` once.

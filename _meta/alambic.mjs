@@ -108,7 +108,6 @@ function initVault(dest, { force = false } = {}) {
     const names = fs.readdirSync(target).filter((name) => name !== '.git' && name !== '.DS_Store')
     if (names.length && !force) throw new Error(`init refuses non-empty directory ${target} (pass --force to overwrite missing files only)`)
   } else fs.mkdirSync(target, { recursive: true })
-  // Physical path, like _meta/alambic (pwd -P): setup reruns from the vault must see the same root.
   target = fs.realpathSync(target)
   for (const rel of scaffoldFiles(ROOT)) {
     const dest = path.join(target, rel)
@@ -116,14 +115,11 @@ function initVault(dest, { force = false } = {}) {
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     fs.copyFileSync(path.join(ROOT, rel), dest)
   }
-  // npm pack (npx github:...) always drops .gitignore; restore it from the template.
   const gitignore = path.join(target, '.gitignore')
   if (!fs.existsSync(gitignore)) fs.copyFileSync(path.join(ROOT, '_meta/templates/gitignore'), gitignore)
   return target
 }
 
-// One-shot install for `npx github:<owner>/alambic init <dir> --install`: the
-// npx copy is throwaway, so every step runs against the new vault.
 function installVault(target, setupArgs) {
   const cli = path.join(target, '_meta/alambic.mjs')
   const steps = [

@@ -10,6 +10,7 @@
 - Optional MCP: `npm run mcp` (four read tools, plus `vault_capture` and
   `vault_feedback`, which stage locally and never write to `kb/`).
 - Jev semantic rerank runs only when `TYPESAFE_API_KEY` is set; otherwise
-  lexical. Never type secrets into queries (queries egress to TypeSafe).
+  retrieval is lexical. With the key set, queries go to TypeSafe: never put
+  secrets in them.
 - After a retrieval, record `_meta/alambic feedback --status hit|miss|stale|wrong`.
 - Automated `kb/` writes belong to the sidekick workflow; local sidekick stays dry-run.

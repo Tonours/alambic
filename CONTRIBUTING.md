@@ -13,6 +13,10 @@ This repository is both the engine and a starter vault.
 6. New durable notes go through the inbox → promotion gate described in `CLAUDE.md`.
 7. `alambic setup` tests run against a fake HOME with stub CLIs only. Never let
    a test touch real agent configs or run a real `claude`/`codex` binary.
-8. The prompt hook stays lexical: `_meta/tests/prompt-hook.mjs` fails if its
+8. Keep the lockfile as `npm-shrinkwrap.json`: `npm pack`, and therefore
+   `npx github:...`, drops `package-lock.json`. It also drops `.gitignore`, so
+   edit `_meta/templates/gitignore` with it; `_meta/tests/init.mjs` fails when
+   they differ.
+9. The prompt hook stays lexical: `_meta/tests/prompt-hook.mjs` fails if its
    import graph reaches the TypeSafe modules. Changing the retrieval engine
    means re-measuring `_meta/evals/hook-gate.json`.
