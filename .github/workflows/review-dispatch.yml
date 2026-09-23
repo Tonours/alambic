@@ -23,7 +23,7 @@ jobs:
           ssh -i ~/.ssh/review_dispatch -o UserKnownHostsFile=~/.ssh/review_known_hosts \
             -o ConnectTimeout=15 -o BatchMode=yes \
             "${{ vars.REVIEW_SSH_TARGET }}" \
-            "review Tonours/${{ github.event.repository.name }} ${{ github.event.number }} ${{ github.event.pull_request.head.sha }} ${{ github.event.action }} ${{ github.event.pull_request.user.login }}"
+            "review ${{ github.repository }} ${{ github.event.number }} ${{ github.event.pull_request.head.sha }} ${{ github.event.action }} ${{ github.event.pull_request.user.login }}"
           code=$?
           set -e
           if [ "$code" -eq 75 ]; then
