@@ -17,4 +17,12 @@ printf 'hello acme\n' > "$T/vault/b.md"
 scan && fail 'marker in another file passed'
 rm "$T/vault/b.md" "$T/vault/.leak-allow"
 scan && fail 'allowed string passed without .leak-allow'
+rm "$T/vault/a.md"
+tail=$(printf 'a%.0s' {1..24})
+printf 'task-%s desk-%s\n' "$tail" "$tail" > "$T/vault/c.md"
+scan || fail 'word ending in sk- was flagged as a secret'
+printf 'key sk-%s\n' "$tail" > "$T/vault/c.md"
+scan && fail 'standalone sk- token passed'
+printf 'key=gh''p_%s\n' "$tail" > "$T/vault/c.md"
+scan && fail 'gh token after = passed'
 printf 'leak-allow: ok\n'

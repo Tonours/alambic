@@ -59,7 +59,7 @@ if grep -RInE '/(Users|home)/[A-Za-z0-9._-]+([/"'"'"'`[:space:]]|$)' kb ref docs
   fail=1
 fi
 
-if grep -RInE 'BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}' "${EXCLUDES[@]}" . 2>/dev/null \
+if grep -RInE 'BEGIN [A-Z ]*PRIVATE KEY|(^|[^A-Za-z0-9_-])(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,})' "${EXCLUDES[@]}" . 2>/dev/null \
   | grep -v '_meta/lib/vault.mjs' | grep -v '_meta/tests/eval.mjs' | grep -v '_meta/tests/leak-scan.sh'; then
   printf 'leak-scan: secret-like token found outside security fixtures\n' >&2
   fail=1

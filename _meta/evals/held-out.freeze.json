@@ -3,5 +3,6 @@
   "cases": 70,
   "frozen_at": "2026-09-23",
   "capability_sha256": "31172511be6455096ab0f3f56534121c97caf43ef13d4fb92b4b8dab26d1c353",
-  "regression_sha256": "03d1030ee3f8ec03d2df6725ea8fe6e45aeb88d1211169f8640e269c06028458"
+  "regression_sha256": "03d1030ee3f8ec03d2df6725ea8fe6e45aeb88d1211169f8640e269c06028458",
+  "hook_gate_sha256": "0f795ba64e47b0ea20d85a2e4ff33d1e87f1c6b6061e3ecc4de2de0bbf3bdba2"
 }

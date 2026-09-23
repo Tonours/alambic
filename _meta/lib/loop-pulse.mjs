@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
+import { alambicStateDir } from './state-dir.mjs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { buildGraph } from './graph-builder.mjs'
@@ -15,7 +15,7 @@ function sha256(value) {
 }
 
 function stateDir() {
-  return path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local/state'), 'alambic')
+  return alambicStateDir()
 }
 
 function ensureDir(dir) {

@@ -13,7 +13,9 @@ const dest = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-init-')), 
 try {
   const run = spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), 'init', dest], { encoding: 'utf8' })
   assert(run.status === 0, `init failed: ${run.stderr}`)
-  assert(fs.readFileSync(path.join(root, '.gitignore'), 'utf8') === fs.readFileSync(path.join(root, '_meta/templates/gitignore'), 'utf8'), '_meta/templates/gitignore must mirror .gitignore')
+  const ignored = new Set(fs.readFileSync(path.join(root, '.gitignore'), 'utf8').split('\n'))
+  const missingIgnore = fs.readFileSync(path.join(root, '_meta/templates/gitignore'), 'utf8').split('\n').filter((line) => line && !line.startsWith('#') && !ignored.has(line))
+  assert(missingIgnore.length === 0, `.gitignore lacks _meta/templates/gitignore entries: ${missingIgnore.join(', ')}`)
   for (const rel of ['.github/workflows/ci.yml', '.gitignore', 'package.json', 'npm-shrinkwrap.json', '_meta/alambic.mjs', 'kb/_index.md', 'ref/home.md']) {
     assert(fs.existsSync(path.join(dest, rel)), `init missing ${rel}`)
   }

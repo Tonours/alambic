@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
+import { alambicStateDir } from './lib/state-dir.mjs'
 import path from 'node:path'
 import process from 'node:process'
 // Cold-path speed: attention/sidekick/loop-pulse modules load only on the
@@ -36,7 +36,7 @@ const PROPOSAL_FIELDS = ['version', 'action', 'target', 'source_refs', 'trust', 
 function has(flag) { const i = args.indexOf(flag); if (i >= 0) { args.splice(i, 1); return true } return false }
 function option(flag, fallback) { const i = args.indexOf(flag); if (i < 0) return fallback; const value = args[i + 1]; args.splice(i, 2); return value }
 function output(value, json = false) { process.stdout.write(json ? `${JSON.stringify(value, null, 2)}\n` : `${value}\n`) }
-function stateDir() { return path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local/state'), 'alambic') }
+function stateDir() { return alambicStateDir() }
 function ensureState() {
   const dir = stateDir()
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
+import { alambicStateDir } from './state-dir.mjs'
 import path from 'node:path'
 import { buildGraph } from './graph-builder.mjs'
 import { checkGraphLint } from './graph-linter.mjs'
@@ -23,7 +23,7 @@ import { askJev, noul } from './typesafe-judge.mjs'
 import { buildManifest, listStagedMarkdown, queryVault, validateVault } from './vault.mjs'
 
 function stateDir() {
-  return path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local/state'), 'alambic')
+  return alambicStateDir()
 }
 
 function ensureDir(dir) {

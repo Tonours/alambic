@@ -60,7 +60,7 @@
     }
   ],
   "runtime_state": {
-    "directory": "$XDG_STATE_HOME/alambic",
+    "directory": "${ALAMBIC_STATE_DIR:-$XDG_STATE_HOME/alambic}",
     "directory_mode": "0700",
     "file_mode": "0600"
   }

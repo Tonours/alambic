@@ -55,7 +55,7 @@ if [ ! -f "$SOURCES" ]; then
   exit 1
 fi
 
-STATE_ROOT=${XDG_STATE_HOME:-$HOME/.local/state}/alambic/youtube-weekly
+STATE_ROOT=${ALAMBIC_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/alambic}/youtube-weekly
 umask 077
 mkdir -p "$STATE_ROOT"
 chmod 700 "$STATE_ROOT" 2>/dev/null || true

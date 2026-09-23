@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
+import { alambicStateDir } from '../state-dir.mjs'
 import path from 'node:path'
 import { decryptJson, encryptJson, hmac, keyHandle } from './crypto.mjs'
 import { isUnsafeText } from './privacy.mjs'
@@ -11,7 +11,7 @@ const CAPABILITY_STATUSES = new Set(['fixture-green', 'live-green', 'blocked-aut
 const RECEIPT_DECISIONS = new Set(['accept', 'reject'])
 
 function resolveStateHome(value) {
-  return path.resolve(value || process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'alambic', 'attention')
+  return path.join(alambicStateDir(value), 'attention')
 }
 
 function isWithin(child, parent) {

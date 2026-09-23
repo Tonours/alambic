@@ -11,6 +11,7 @@ cd "$ROOT"
 
 export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 export XDG_STATE_HOME="${XDG_STATE_HOME:-${HOME}/.local/state}"
+export ALAMBIC_STATE_DIR="${ALAMBIC_STATE_DIR:-${XDG_STATE_HOME}/alambic}"
 
 LOG_PREFIX="[sidekick]"
 MAX_ACTIONS="${ALAMBIC_SIDEKICK_MAX:-8}"
@@ -29,14 +30,14 @@ obv_attention() {
   "${ROOT}/_meta/alambic" attention "$@"
 }
 
-mkdir -p "${XDG_STATE_HOME}/alambic/sidekick"
+mkdir -p "${ALAMBIC_STATE_DIR}/sidekick"
 
 echo "${LOG_PREFIX} start $(date -u +%Y-%m-%dT%H:%M:%SZ) root=${ROOT} mode=${MODE}"
 
 # 1) Health first — refuse apply when red
 if ! obv validate --mode strict >/dev/null; then
   echo "${LOG_PREFIX} validate red — abort apply; writing dry-run report only"
-  obv sidekick run --dry-run --json --max "${MAX_ACTIONS}" >"${XDG_STATE_HOME}/alambic/sidekick/last-dry.json" 2>/dev/null || true
+  obv sidekick run --dry-run --json --max "${MAX_ACTIONS}" >"${ALAMBIC_STATE_DIR}/sidekick/last-dry.json" 2>/dev/null || true
   exit 1
 fi
 
@@ -59,19 +60,19 @@ fi
 if [[ "${APPLY}" != "1" ]]; then
   echo "${LOG_PREFIX} dry-run only (ALAMBIC_SIDEKICK_APPLY=0)"
   obv sidekick run --dry-run --max "${MAX_ACTIONS}" --json \
-    | tee "${XDG_STATE_HOME}/alambic/sidekick/last-run.json" \
+    | tee "${ALAMBIC_STATE_DIR}/sidekick/last-run.json" \
     | head -c 4000
   echo
 elif [[ "${MODE}" == "structural" ]]; then
   echo "${LOG_PREFIX} apply-structural max=${MAX_ACTIONS}"
   obv sidekick run --apply-structural --max "${MAX_ACTIONS}" --json \
-    | tee "${XDG_STATE_HOME}/alambic/sidekick/last-run.json" \
+    | tee "${ALAMBIC_STATE_DIR}/sidekick/last-run.json" \
     | head -c 4000
   echo
 else
   echo "${LOG_PREFIX} apply-all (structural+freeform) max=${MAX_ACTIONS} freeform=${MAX_FREEFORM}"
   obv sidekick run --apply-all --max "${MAX_ACTIONS}" --max-freeform "${MAX_FREEFORM}" --json \
-    | tee "${XDG_STATE_HOME}/alambic/sidekick/last-run.json" \
+    | tee "${ALAMBIC_STATE_DIR}/sidekick/last-run.json" \
     | head -c 4000
   echo
 fi

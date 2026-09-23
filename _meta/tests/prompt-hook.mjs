@@ -13,7 +13,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 const root = path.resolve(process.argv[2] || '.')
-const GATE_SHA = '0f795ba64e47b0ea20d85a2e4ff33d1e87f1c6b6061e3ecc4de2de0bbf3bdba2'
+const GATE_SHA = JSON.parse(fs.readFileSync(path.join(root, '_meta/evals/held-out.freeze.json'), 'utf8')).hook_gate_sha256
 const FORBIDDEN = ['retrieval-cli.mjs', 'semantic-vault.mjs', 'typesafe-judge.mjs']
 const gateFile = path.join(root, '_meta/evals/hook-gate.json')
 const gateSet = JSON.parse(fs.readFileSync(gateFile, 'utf8'))
@@ -50,7 +50,7 @@ function importGraph(entry) {
 }
 
 try {
-  assert(crypto.createHash('sha256').update(fs.readFileSync(gateFile)).digest('hex') === GATE_SHA, 'hook-gate.json changed: re-measure the gate and update GATE_SHA')
+  assert(crypto.createHash('sha256').update(fs.readFileSync(gateFile)).digest('hex') === GATE_SHA, 'hook-gate.json changed: re-measure the gate, then run `npm run eval:freeze`')
   assert(gateSet.positives.length >= 8 && gateSet.negatives.length >= 8, 'gate set needs at least 8 positives and 8 negatives')
 
   const init = spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), 'init', vault], { encoding: 'utf8' })
@@ -75,9 +75,13 @@ try {
   process.env.TYPESAFE_API_KEY = 'dummy-key-for-egress-test'
   let positives = 0
   let negatives = 0
+  let quietNegative = null
   try {
     for (const prompt of gateSet.positives) if (await hook.buildContext(prompt, { root: vault })) positives += 1
-    for (const prompt of gateSet.negatives) if (await hook.buildContext(prompt, { root: vault })) negatives += 1
+    for (const prompt of gateSet.negatives) {
+      if (await hook.buildContext(prompt, { root: vault })) negatives += 1
+      else quietNegative ??= prompt
+    }
   } finally {
     delete process.env.TYPESAFE_API_KEY
     globalThis.fetch = originalFetch
@@ -87,6 +91,7 @@ try {
   const rate = positives / gateSet.positives.length
   assert(rate >= gateSet.targets.min_positive_rate, `gate hit ${positives}/${gateSet.positives.length} positives`)
   assert(negatives <= gateSet.targets.max_negative_hits, `gate hit ${negatives}/${gateSet.negatives.length} negatives`)
+  assert(quietNegative !== null, 'every gate negative fired: the silent-path check needs one quiet negative')
 
   assert(hook.shouldSkip('/review this') && hook.shouldSkip('too short') && !hook.shouldSkip('how should agents treat tools?'), 'skip rule wrong')
   assert(hook.promptFrom('not json') === '' && hook.promptFrom('{"prompt":42}') === '', 'garbage stdin must yield no prompt')
@@ -106,7 +111,7 @@ try {
   assert(cursor.continue === true && cursor.additional_context.startsWith(hook.HEADER), 'cursor format wrong')
   const text = await runHook(hookPath, positive, { format: 'text' })
   assert(text.stdout.startsWith(hook.HEADER), 'text format wrong')
-  const negative = await runHook(hookPath, JSON.stringify({ prompt: gateSet.negatives[0] }))
+  const negative = await runHook(hookPath, JSON.stringify({ prompt: quietNegative }))
   assert(negative.code === 0 && negative.stdout === '', 'negative prompt must print nothing')
 
   for (const [input, format] of [['garbage', 'claude'], ['', 'claude'], [positive, 'bogus']]) {

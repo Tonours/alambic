@@ -542,56 +542,17 @@ if (suite === 'retrieval') {
   }
 } else if (suite === 'probes-v2') {
   const crypto = await import('node:crypto')
-  const casesPath = path.join(root, '_meta/evals/probes-v2.jsonl')
-  const freeze = JSON.parse(fs.readFileSync(path.join(root, '_meta/evals/probes-v2.freeze.json'), 'utf8'))
-  const raw = fs.readFileSync(casesPath)
-  if (crypto.createHash('sha256').update(raw).digest('hex') !== freeze.probes_sha256) fail('probes-v2 hash drift: the probe set is frozen; never edit it to green a change')
-  const probes = raw.toString('utf8').trim().split('\n').map((line) => JSON.parse(line))
-  const libSources = fs.readdirSync(path.join(root, '_meta/lib'), { recursive: true })
-    .filter((name) => String(name).endsWith('.mjs'))
-    .map((name) => fs.readFileSync(path.join(root, '_meta/lib', String(name)), 'utf8').toLowerCase())
-  const leaked = probes.filter((probe) => libSources.some((source) => source.includes(probe.id) || source.includes(probe.query.toLowerCase())))
-  if (leaked.length) fail(`probe ids or queries leaked into _meta/lib: ${leaked.map((probe) => probe.id).join(', ')}`)
-  // The regression floor is frozen alongside the probe set (measured baseline).
+  const { runProbeEval } = await import('../lib/probe-eval.mjs')
+  const freezePath = path.join(root, '_meta/evals/probes-v2.freeze.json')
+  const probesPath = path.join(root, '_meta/evals/probes-v2.jsonl')
+  const freeze = JSON.parse(fs.readFileSync(freezePath, 'utf8'))
   const floor = freeze.floor
-  if (!Number.isFinite(floor?.hit_at_5) || !Number.isFinite(floor?.abstain_rate)) fail('probes-v2.freeze.json must record floor.hit_at_5 and floor.abstain_rate')
-  else if (crypto.createHash('sha256').update(JSON.stringify({ hit_at_5: floor.hit_at_5, abstain_rate: floor.abstain_rate })).digest('hex') !== freeze.floor_sha256) fail('probes-v2 floor drift: the floor is frozen with the probe set; re-measure it with `npm run eval:freeze`, never hand-lower it')
-  const vanished = missingNotes(root, probes)
+  if (Number.isFinite(floor?.hit_at_5) && Number.isFinite(floor?.abstain_rate) && crypto.createHash('sha256').update(JSON.stringify({ hit_at_5: floor.hit_at_5, abstain_rate: floor.abstain_rate })).digest('hex') !== freeze.floor_sha256) fail('probes-v2 floor drift: the floor is frozen with the probe set; re-measure it with `npm run eval:freeze`, never hand-lower it')
+  const vanished = missingNotes(root, fs.readFileSync(probesPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line)))
   if (vanished.length) fail(`probes-v2 labels point at missing notes (${vanished.join(', ')}): ${REFREEZE_HINT}`)
-  let hits = 0
-  let reciprocal = 0
-  let abstained = 0
-  const misses = []
-  const falseAnswers = []
-  const semanticReasons = {}
-  for (const probe of probes) {
-    const { results, semantic } = await queryVaultWithJev(root, probe.query, { limit: 5 })
-    const key = semantic.available ? `jev:${semantic.decision}` : semantic.reason
-    semanticReasons[key] = (semanticReasons[key] || 0) + 1
-    if (probe.abstain) {
-      if (results.length === 0) abstained += 1
-      else falseAnswers.push(probe.id)
-      continue
-    }
-    const rank = results.findIndex((result) => probe.expected.includes(result.path))
-    if (rank >= 0) { hits += 1; reciprocal += 1 / (rank + 1) } else misses.push(probe.id)
-  }
-  const answerCases = probes.filter((probe) => !probe.abstain).length
-  const abstainCases = probes.length - answerCases
-  const report = {
-    suite,
-    cases: probes.length,
-    provider: process.env.TYPESAFE_API_KEY ? 'credential-present' : 'credential-absent',
-    hit_at_5: Math.round((hits / answerCases) * 1000) / 1000,
-    mrr_at_5: Math.round((reciprocal / answerCases) * 1000) / 1000,
-    abstain_rate: Math.round((abstained / abstainCases) * 1000) / 1000,
-    misses,
-    false_answers: falseAnswers,
-    semantic: semanticReasons,
-    floor,
-  }
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-  if (report.hit_at_5 < floor.hit_at_5 || report.abstain_rate < floor.abstain_rate) fail(`probes-v2 regressed below the frozen baseline (${freeze.frozen_at})`)
+  const { report, failures } = await runProbeEval({ root, probesPath, freezePath })
+  process.stdout.write(`${JSON.stringify({ suite, ...report }, null, 2)}\n`)
+  for (const failure of failures) fail(`probes-v2 ${failure} (${freeze.frozen_at})`)
 } else if (suite === 'lint') {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-lint-'))
   const note = ({ type = 'finding', status = 'verified', title, claims = [], reviewAfter = '', body = '' }) => `---

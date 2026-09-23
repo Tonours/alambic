@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
+import { alambicStateDir } from './state-dir.mjs'
 import path from 'node:path'
 import { parseMarkdownText } from './frontmatter.mjs'
 import { buildManifest, invalidateManifest, queryVault, scanUnsafe, validateVault } from './vault.mjs'
@@ -287,12 +287,8 @@ export function judgeFreeformContent(root, filePath, text, { freeformBudgetRemai
   }
 }
 
-export function freeformDailyBudget(stateHome = process.env.XDG_STATE_HOME) {
-  const dir = path.join(
-    stateHome || path.join(os.homedir(), '.local/state'),
-    'alambic',
-    'sidekick',
-  )
+export function freeformDailyBudget(stateHome) {
+  const dir = path.join(alambicStateDir(stateHome), 'sidekick')
   const file = path.join(dir, 'freeform-budget.json')
   const today = new Date().toISOString().slice(0, 10)
   let data = { date: today, count: 0, max: FREEFORM_DAILY_MAX }
@@ -313,7 +309,7 @@ export function freeformDailyBudget(stateHome = process.env.XDG_STATE_HOME) {
   }
 }
 
-export function consumeFreeformBudget(stateHome = process.env.XDG_STATE_HOME) {
+export function consumeFreeformBudget(stateHome) {
   const budget = freeformDailyBudget(stateHome)
   fs.mkdirSync(path.dirname(budget.file), { recursive: true, mode: 0o700 })
   const next = { date: budget.date, count: budget.count + 1, max: budget.max }

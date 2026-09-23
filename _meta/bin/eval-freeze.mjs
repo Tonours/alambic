@@ -23,6 +23,7 @@ write('held-out.freeze.json', {
   frozen_at: today,
   capability_sha256: sha('capability.jsonl'),
   regression_sha256: sha('regression.jsonl'),
+  hook_gate_sha256: sha('hook-gate.json'),
 })
 
 // Freeze the probe hash first (floor unchanged), then measure against it.
