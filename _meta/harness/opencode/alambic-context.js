@@ -1,7 +1,3 @@
-// Managed by alambic setup; remove with: alambic setup --uninstall --yes
-// Adds lexical vault context to every model call of a matching prompt's turn
-// (opencode may run a title call before the main one). State is per session,
-// replaced by the next prompt; no sessionID means no-op.
 import { spawn } from 'node:child_process'
 
 const NODE = "{{NODE}}"
@@ -32,7 +28,7 @@ const promptText = (parts) => (Array.isArray(parts) ? parts : [])
   .join('\n')
 
 export const AlambicContext = async () => {
-  const pending = new Map() // sessionID -> { messageID, text }
+  const pending = new Map()
   return {
     'chat.message': async (input, output) => {
       try {

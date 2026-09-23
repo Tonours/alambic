@@ -1,6 +1,3 @@
-// Dependency-free checkbox picker. `reduce` is pure; `runPicker` owns the
-// terminal and always restores raw mode and the cursor, even on throw/signal.
-
 export function initialState(rows) {
   return { rows: rows.map((row) => ({ ...row })), cursor: 0, done: false, aborted: false }
 }

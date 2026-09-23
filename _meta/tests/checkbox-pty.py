@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Checkbox picker under a real pty: Ctrl-C and a throwing draw both restore
-the terminal mode, and an aborted setup writes nothing."""
 import os
 import select
 import shutil
@@ -11,7 +9,6 @@ import termios
 import time
 
 ROOT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else '.')
-# Resolve through version-manager shims once, with the real env; the test env is minimal.
 NODE = subprocess.run(['node', '-p', 'process.execPath'], capture_output=True, text=True, check=True).stdout.strip()
 MODE_FLAGS = termios.ICANON | termios.ECHO | termios.ISIG
 
@@ -21,10 +18,6 @@ def lflags(fd):
 
 
 def run_in_pty(argv, env, keys, wait_for, probe=None):
-    """Run argv on a pty, send keys once wait_for shows up. When probe is set,
-    record the terminal mode as soon as probe shows up (child still alive:
-    libuv resets the tty at exit, which would hide a missing restore), then
-    send a newline to let the child exit."""
     master, slave = os.openpty()
     before = lflags(slave)
     proc = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave, env=env, close_fds=True)

@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// `alambic setup` against a fake HOME: allowlisted env, stub CLIs only (they
-// record argv and fail on anything unexpected), every path under the temp root.
 import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -69,7 +67,6 @@ function freshHome(name) {
   return home
 }
 function envFor(home, extra = {}) {
-  // Allowlist: nothing from the real environment leaks in.
   return { HOME: home, PATH: `${stubBin}:/usr/bin:/bin`, STUB_LOG: log, STUB_CANARY: CANARY, ...extra }
 }
 function calls(bin) {
@@ -104,12 +101,10 @@ try {
   writeExec(path.join(stubBin, 'codex'), CODEX_STUB)
   for (const name of ['pi', 'opencode', 'cursor-agent']) writeExec(path.join(stubBin, name), '#!/bin/sh\nexit 97\n')
 
-  // A vault path with a space and a quote, with stub entrypoints to exercise quoting.
   const vault = path.join(temp, "my va'ult")
   writeExec(path.join(vault, '_meta/alambic.mjs'), "console.log('cli:' + process.argv.slice(2).join('|'))\n")
   writeExec(path.join(vault, '_meta/hooks/prompt-context.mjs'), "console.log('hook:' + process.argv.slice(2).join('|'))\n")
 
-  // Argument parsing and selection.
   assert(parseSetupArgs(['--yes']).harness === null && parseSetupArgs(['--harness=pi,codex']).harness === 'pi,codex', 'arg parsing')
   let threw = false
   try { parseSetupArgs(['--bogus']) } catch { threw = true }
@@ -118,7 +113,6 @@ try {
   try { selectHarnesses('claude,nope', {}) } catch { threw = true }
   assert(threw, 'unknown harness must throw')
 
-  // 1. Non-TTY without --yes is a dry-run: nothing written, no mutating CLI call.
   const home = freshHome('home')
   const env = envFor(home)
   const detection = detectHarnesses(env)
@@ -131,7 +125,6 @@ try {
   for (const action of dry.json.actions) assert(action.type === 'mcp-cli' || action.target.startsWith(temp), `target escapes the temp root: ${action.target}`)
   assert(dry.json.actions.every((action) => !('content' in action) && !('value' in action)), 'json output leaks internals')
 
-  // 2. Full install.
   resetLog()
   const installed = await setup(vault, ['--yes', '--harness', 'all', '--prompt-hook', '--json'], env)
   assert(installed.code === 0 && installed.json.actions.every((action) => action.result === 'applied'), `install failed: ${JSON.stringify(installed.json.actions.filter((a) => a.result !== 'applied'))}`)
@@ -163,7 +156,6 @@ try {
   assert(manifest.vault === vault && manifest.items.length === installed.json.actions.length, 'manifest incomplete')
   assert(installed.json.warnings.some((warning) => warning.includes('pending-trust')) && installed.json.warnings.some((warning) => warning.includes('not on PATH')), 'expected warnings missing')
 
-  // 3. Idempotent: second run is all unchanged, no bytes change, no mutating call.
   resetLog()
   const stable = snapshot(home)
   const again = await setup(vault, ['--yes', '--harness', 'all', '--prompt-hook', '--json'], env)
@@ -171,7 +163,6 @@ try {
   assert(JSON.stringify(snapshot(home)) === JSON.stringify(stable), 'second run changed bytes')
   assert(!calls().some((entry) => /add|remove/.test(entry.argv[1])), 'second run called a mutating CLI')
 
-  // 4. Status: codex hook pending-trust until trusted; drift detected.
   let status = setupStatus(makeContext({ vault, env }))
   assert(status.items.find((item) => item.id === 'codex:hook').state === 'pending-trust', 'codex hook should be pending-trust')
   assert(status.items.filter((item) => item.id !== 'codex:hook').every((item) => item.state === 'installed'), 'items should be installed')
@@ -182,7 +173,6 @@ try {
   fs.appendFileSync(path.join(home, '.agents/skills/alambic/SKILL.md'), '\nuser edit\n')
   status = setupStatus(makeContext({ vault, env }))
   assert(status.items.find((item) => item.id === 'agents:skill').state === 'drifted', 'edited skill should be drifted')
-  // A codex setting edited after add (codex reports it next to the transport) is drift.
   const codexMcp = path.join(home, '.codex/stub-mcp.json')
   const codexBefore = fs.readFileSync(codexMcp, 'utf8')
   fs.writeFileSync(codexMcp, JSON.stringify({ alambic: { ...readJson(codexMcp).alambic, cwd: '/somewhere' } }))
@@ -196,8 +186,6 @@ try {
   fs.renameSync(`${shim}.away`, shim)
   assert(missingRun.code === 1 && missingRun.json.items.find((item) => item.id === 'cli:shim').state === 'missing', 'status must report a deleted target as missing')
 
-  // 5. Owned update when the Node path changes: a failed add restores the working
-  // entry; then MCP remove then add, files backed up.
   const node3 = path.join(temp, 'node-bad/node')
   fs.mkdirSync(path.dirname(node3))
   fs.symlinkSync(process.execPath, node3)
@@ -217,13 +205,11 @@ try {
   assert(fs.readFileSync(shim, 'utf8').includes(node2) && moved.json.backups.some((file) => file.startsWith(`${shim}.bak.`)), 'shim should update with a backup')
   for (const file of moved.json.backups) assert(mode(file) === 0o600, 'backups must be 0600')
 
-  // 6. Uninstall: dry-run by default; --yes removes owned items, keeps drifted, preserves foreign keys.
   const settingsFile = path.join(home, '.claude/settings.json')
   const settings = readJson(settingsFile)
   settings.theme = 'dark'
   settings.hooks.Stop = [{ hooks: [{ type: 'command', command: 'echo stop' }] }]
   fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2))
-  // The Pi extension replaced by a symlink to an identical copy elsewhere.
   const piExtension = path.join(home, '.pi/agent/extensions/alambic-context.ts')
   const piCopy = path.join(temp, 'pi-copy.ts')
   fs.copyFileSync(piExtension, piCopy)
@@ -245,7 +231,6 @@ try {
   assert(removedById['pi:hook'].result === 'kept' && fs.existsSync(piCopy), 'a symlinked file must be kept, its target untouched')
   assert(readJson(manifestFile).items.map((item) => item.id).join() === 'agents:skill,pi:hook', 'manifest keeps only the kept items')
 
-  // 7. Foreign content: preserved, never overwritten, secrets never echoed.
   const home2 = freshHome('home2')
   const env2 = envFor(home2)
   const dotfiles = path.join(temp, 'dotfiles')
@@ -284,12 +269,10 @@ try {
   assert(!foreign.out.includes(CANARY) && !foreignManifest.includes(CANARY), 'foreign secret leaked to output or manifest')
   const textRun = await setup(vault, ['--harness', 'all', '--prompt-hook'], env2)
   assert(!textRun.out.includes(CANARY) && textRun.out.includes('add manually to'), 'text dry-run must print snippets, never secrets')
-  // A foreign file on a selected target shows up as a collision in --status.
   const foreignStatus = await setup(vault, ['--status', '--json', '--harness', 'claude'], env2)
   const foreignSkill = foreignStatus.json.items.find((item) => item.id === 'claude:skill')
   assert(foreignStatus.code === 1 && foreignSkill?.state === 'collision' && !foreignStatus.out.includes(CANARY), `status must report the foreign skill as a collision: ${JSON.stringify(foreignSkill)}`)
 
-  // Bare --yes installs for the detected harnesses only, prompt hook off.
   const partialBin = path.join(temp, 'bin-partial')
   for (const name of ['pi', 'opencode']) writeExec(path.join(partialBin, name), '#!/bin/sh\nexit 97\n')
   const bareHome = freshHome('home-bare')
@@ -297,7 +280,6 @@ try {
   assert(bare.code === 0 && bare.json.mode === 'apply' && bare.json.selection.harnesses.join() === 'pi,opencode', `bare --yes must select the detected harnesses: ${JSON.stringify(bare.json.selection)}`)
   assert(!bare.json.selection.components.hook && !bare.json.actions.some((action) => action.id.endsWith(':hook')), 'bare --yes must leave the prompt hook off')
 
-  // An identical entry that setup did not write is left in place on uninstall.
   const adoptHome = freshHome('home-adopt')
   const adoptEnv = envFor(adoptHome)
   await setup(vault, ['--yes', '--harness', 'cursor', '--no-skill', '--no-shim', '--json'], adoptEnv)
@@ -309,7 +291,6 @@ try {
   assert(unAdoptDry.json.items[0].result === 'would-leave' && unAdopt.code === 0 && unAdopt.json.items[0].result === 'left', `preexisting entry must be left: ${JSON.stringify(unAdopt.json.items)}`)
   assert(readJson(path.join(adoptHome, '.cursor/mcp.json')).mcpServers.alambic, 'preexisting entry must survive uninstall')
 
-  // 8. Partial failure: journal holds exactly what was applied; CLI stderr never echoed.
   const home3 = freshHome('home3')
   const env3 = envFor(home3, { STUB_FAIL: 'claude:add' })
   const partial = await setup(vault, ['--yes', '--harness', 'claude,codex', '--json'], env3)
@@ -319,7 +300,6 @@ try {
   const journal = readJson(path.join(home3, '.local/state/alambic/setup.json')).items.map((item) => item.id).sort()
   assert(journal.join() === ['agents:skill', 'claude:skill', 'cli:shim', 'codex:mcp'].sort().join(), `journal mismatch: ${journal}`)
 
-  // 9. Concurrent edit between plan and apply: changed-during-setup, user bytes win.
   const home4 = freshHome('home4')
   const env4 = envFor(home4)
   fs.mkdirSync(path.join(home4, '.cursor'), { recursive: true })
@@ -330,7 +310,6 @@ try {
   const raced = applySetup(context4, plan)
   assert(raced.actions[0].result === 'changed-during-setup' && fs.readFileSync(path.join(home4, '.cursor/mcp.json'), 'utf8') === '{"mcpServers":{"late":{}}}', 'concurrent edit must win')
 
-  // Another vault's hook entry is a collision, never a second injection.
   fs.mkdirSync(path.join(home4, '.codex'), { recursive: true })
   const otherHook = JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [{ type: 'command', command: "node '/other/vault/_meta/hooks/prompt-context.mjs' --format codex" }] }] } })
   fs.writeFileSync(path.join(home4, '.codex/hooks.json'), otherHook)
@@ -338,18 +317,15 @@ try {
   assert(twin.code === 1 && byId(twin.json)['codex:hook'].status === 'collision' && /another alambic hook/.test(byId(twin.json)['codex:hook'].reason), 'second alambic hook must collide')
   assert(fs.readFileSync(path.join(home4, '.codex/hooks.json'), 'utf8') === otherHook, 'colliding hooks.json must be untouched')
 
-  // 10. Custom CLAUDE_CONFIG_DIR and CODEX_HOME are honored; codex hooks disabled is reported.
   const home5 = freshHome('home5')
   const env5 = envFor(home5, { CLAUDE_CONFIG_DIR: path.join(temp, 'claude-cfg'), CODEX_HOME: path.join(temp, 'codex-cfg'), STUB_CODEX_HOOKS: 'false' })
   const custom = await setup(vault, ['--yes', '--harness', 'claude,codex', '--prompt-hook', '--no-shim', '--json'], env5)
   assert(fs.existsSync(path.join(temp, 'claude-cfg/skills/alambic/SKILL.md')) && fs.existsSync(path.join(temp, 'claude-cfg/.claude.json')) && fs.existsSync(path.join(temp, 'codex-cfg/hooks.json')), 'custom config dirs ignored')
   assert(custom.json.warnings.some((warning) => warning.includes('codex hooks are disabled')), 'disabled codex hooks must be reported')
 
-  // Pi only: skill via ~/.agents, no MCP, warning says so.
   const pi = await setup(vault, ['--harness', 'pi', '--json'], envFor(freshHome('home6')))
   assert(pi.json.actions.every((action) => action.kind !== 'mcp') && pi.json.warnings.some((warning) => warning.includes('pi has no MCP')), 'pi must not get MCP')
 
-  // Doctor: not installed is info; drift, pending-trust, outdated and another vault warn.
   assert(JSON.stringify(doctorSetup(vault, envFor(freshHome('home7')))) === JSON.stringify({ installed: false, warnings: [] }), 'fresh home: not installed, no warning')
   const drift = doctorSetup(vault, env)
   assert(drift.installed && drift.warnings.some((warning) => warning.startsWith('agents:skill: drifted')), 'doctor must warn on drift')
@@ -358,7 +334,6 @@ try {
   await setup(vault, ['--yes', '--harness', 'codex', '--prompt-hook', '--no-mcp', '--json'], envFor(home8), node2)
   const stale = doctorSetup(vault, envFor(home8)).warnings
   assert(stale.includes('cli:shim: outdated') && stale.includes('codex:hook: outdated') && !stale.some((warning) => warning.startsWith('agents:skill')), `doctor must flag Node-path drift: ${stale}`)
-  // `setup --status` without --harness agrees with doctor, pending-trust included.
   const staleStatus = await setup(vault, ['--status', '--json'], envFor(home8))
   const staleState = Object.fromEntries(staleStatus.json.items.map((item) => [item.id, item.state]))
   assert(staleStatus.code === 1 && staleState['cli:shim'] === 'outdated' && staleState['codex:hook'] === 'outdated' && staleState['agents:skill'] === 'installed', `status must flag Node-path drift: ${JSON.stringify(staleState)}`)

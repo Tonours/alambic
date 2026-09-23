@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Prompt hook: frozen lexical gate, output formats, exit-0 guarantee, privacy
-// (static import graph, no egress with a key set, canary never persisted), latency.
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -52,7 +50,6 @@ function importGraph(entry) {
 }
 
 try {
-  // Frozen set: re-author and re-measure deliberately, never to turn a red run green.
   assert(crypto.createHash('sha256').update(fs.readFileSync(gateFile)).digest('hex') === GATE_SHA, 'hook-gate.json changed: re-measure the gate and update GATE_SHA')
   assert(gateSet.positives.length >= 8 && gateSet.negatives.length >= 8, 'gate set needs at least 8 positives and 8 negatives')
 
@@ -63,12 +60,10 @@ try {
   assert(hook.MIN_TOP_SCORE === gateSet.threshold.min_top_score, 'hook threshold drifted from the frozen gate set')
   assert([...hook.DURABLE_STATUS].join() === gateSet.threshold.durable_status.join(), 'hook durable statuses drifted from the gate set')
 
-  // Static import graph stays lexical.
   const graph = importGraph(hookPath).map((file) => path.basename(file))
   for (const name of FORBIDDEN) assert(!graph.includes(name), `hook import graph reaches ${name}`)
   assert(graph.includes('vault.mjs'), 'hook must use vault.mjs')
 
-  // Gate with a dummy key: zero transport calls.
   let transport = 0
   const originalFetch = globalThis.fetch
   const patched = [[http, 'request'], [http, 'get'], [https, 'request'], [https, 'get'], [net, 'connect'], [net, 'createConnection']].map(([mod, key]) => {
@@ -93,7 +88,6 @@ try {
   assert(rate >= gateSet.targets.min_positive_rate, `gate hit ${positives}/${gateSet.positives.length} positives`)
   assert(negatives <= gateSet.targets.max_negative_hits, `gate hit ${negatives}/${gateSet.negatives.length} negatives`)
 
-  // Pure helpers.
   assert(hook.shouldSkip('/review this') && hook.shouldSkip('too short') && !hook.shouldSkip('how should agents treat tools?'), 'skip rule wrong')
   assert(hook.promptFrom('not json') === '' && hook.promptFrom('{"prompt":42}') === '', 'garbage stdin must yield no prompt')
   assert(hook.gate({ abstained: false, results: [{ status: 'draft', score: 99 }] }).length === 0, 'non-durable top must not inject')
@@ -102,7 +96,6 @@ try {
   assert(Buffer.byteLength(big) <= hook.HARD_BYTES && big.endsWith('alambic-canary: CANARY'), 'context cap or canary tail wrong')
   assert(big.startsWith(hook.HEADER), 'untrusted header missing')
 
-  // Formats through the real process.
   const positive = JSON.stringify({ prompt: gateSet.positives[0] })
   const claude = await runHook(hookPath, positive, { format: 'claude' })
   const additional = JSON.parse(claude.stdout).hookSpecificOutput
@@ -116,7 +109,6 @@ try {
   const negative = await runHook(hookPath, JSON.stringify({ prompt: gateSet.negatives[0] }))
   assert(negative.code === 0 && negative.stdout === '', 'negative prompt must print nothing')
 
-  // Exit 0 on garbage, unknown format, broken engine, and a stdin that never closes.
   for (const [input, format] of [['garbage', 'claude'], ['', 'claude'], [positive, 'bogus']]) {
     const result = await runHook(hookPath, input, { format })
     assert(result.code === 0 && result.stdout === '', `hook must exit 0 silently on ${format}/${input.slice(0, 8)}`)
@@ -130,7 +122,6 @@ try {
   const broken = await runHook(path.join(brokenVault, '_meta/hooks/prompt-context.mjs'), positive)
   assert(broken.code === 0 && broken.stdout === '' && !broken.stderr.includes('broken engine'), 'engine failure must exit 0 silently')
 
-  // Canary prompt: never in stderr or any file under the temp root.
   const canary = `alambic-canary-${crypto.randomBytes(8).toString('hex')}`
   const canaryRun = await runHook(hookPath, JSON.stringify({ prompt: `${gateSet.positives[0]} ${canary}` }), { format: 'claude' })
   assert(canaryRun.code === 0 && !canaryRun.stderr.includes(canary), 'canary prompt leaked to stderr')
@@ -142,7 +133,6 @@ try {
   const leaks = scan(temp)
   assert(!leaks.length, `canary prompt persisted in ${leaks.map((file) => path.relative(temp, file)).join(', ')}`)
 
-  // Latency: cold run on a fresh cache, then warm p95 over 20 runs.
   fs.rmSync(path.join(vault, '_meta/.cache'), { recursive: true, force: true })
   const cold = await runHook(hookPath, positive)
   const warm = []

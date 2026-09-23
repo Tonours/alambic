@@ -1,6 +1,3 @@
-// `alambic setup`: user-level wiring of the vault into coding agents.
-// Every path derives from an injected env; every write is owned (fingerprint),
-// re-checked against its preimage, backed up once (0600) and journaled.
 import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -102,9 +99,6 @@ export function selectHarnesses(spec, detection) {
   return HARNESSES.filter((harness) => list.includes(harness))
 }
 
-// ---------------------------------------------------------------- disk state
-
-// Deepest existing ancestor resolved through symlinks, plus the missing tail.
 function realTarget(file) {
   let dir = path.dirname(file)
   const tail = [path.basename(file)]
@@ -137,7 +131,6 @@ function readTarget(file) {
   return { exists: true, symlink: link.isSymbolicLink(), real, bytes, hash: sha256(bytes), mode: stat.mode & 0o7777 }
 }
 
-// JSON.parse errors quote file content; never surface them (secrets).
 function parseStrictJson(bytes) {
   let value
   try {
@@ -205,8 +198,6 @@ function backupOnce(run, real) {
   run.backups.push(file)
 }
 
-// ------------------------------------------------------------------ manifest
-
 export function readManifest(file) {
   let raw
   try {
@@ -254,13 +245,10 @@ function dropItem(run, id) {
   writeManifest(run.context.paths.manifest, run.manifest)
 }
 
-// ----------------------------------------------------------------------- MCP
-
 function runCli(context, name, argv, { allowFail = false } = {}) {
   const binary = findBinary(name, context.env)
   if (!binary) throw new Refusal(`${name} not found on PATH`)
   const result = spawnSync(binary, argv, { env: context.env, encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] })
-  // CLI stderr may quote config content; report the exit code only.
   if (!allowFail && result.status !== 0) throw new Refusal(`${name} ${argv.slice(0, 2).join(' ')} failed (exit ${result.status ?? result.signal})`)
   return result
 }
@@ -300,8 +288,6 @@ function mcpAdapter(context, harness) {
       } catch {
         throw new Refusal('codex mcp get returned non-JSON output')
       }
-      // Settings edited after `add` (codex defaults: enabled, the rest null or
-      // empty) join the fingerprint, so a customised entry is no longer ours.
       const transport = parsed?.transport || parsed
       const custom = Object.fromEntries(['enabled_tools', 'disabled_tools', 'startup_timeout_sec', 'tool_timeout_sec'].filter((key) => parsed?.[key] != null).map((key) => [key, parsed[key]]))
       if (parsed?.enabled === false) custom.enabled = false
@@ -318,21 +304,17 @@ function mcpAdapter(context, harness) {
   }
 }
 
-// ------------------------------------------------------------------ planning
-
 function renderTemplate(relative, values) {
   let text = fs.readFileSync(path.join(TEMPLATES, relative), 'utf8')
   for (const [key, value] of Object.entries(values)) text = text.replaceAll(`{{${key}}}`, () => value)
   return text
 }
-// Placeholders inside JS/TS string literals get JSON escaping.
 const jsString = (value) => JSON.stringify(String(value)).slice(1, -1)
 
 function hookCommand(context, format) {
   return `${shq(context.node)} ${shq(path.join(context.vault, HOOK_SCRIPT))} --format ${format}`
 }
 
-// Desired state for a selection. Pure except for template reads.
 export function desiredItems(context, selection) {
   const { paths, vault, node } = context
   const { harnesses, components } = selection
@@ -357,7 +339,7 @@ export function desiredItems(context, selection) {
     }
   }
   if (components.shim) {
-    const content = `#!/bin/sh\n# Managed by alambic setup; remove with: alambic setup --uninstall --yes\nexec ${shq(node)} ${shq(path.join(vault, '_meta/alambic.mjs'))} "$@"\n`
+    const content = `#!/bin/sh\nexec ${shq(node)} ${shq(path.join(vault, '_meta/alambic.mjs'))} "$@"\n`
     items.push({ id: 'cli:shim', harnesses: ['cli'], kind: 'shim', type: 'file', target: path.join(paths.binDir, 'alambic'), content, mode: 0o755 })
   }
   if (components.hook) {
@@ -382,8 +364,6 @@ export function desiredItems(context, selection) {
 const claimsHook = (entry) => JSON.stringify(entry ?? null).includes(HOOK_MARKER)
 const classify = (found, item, recorded) => (found === item.fingerprint ? 'match' : found === recorded?.fingerprint ? 'owned' : 'foreign')
 
-// Current state of one item: { preimage, current } where current is
-// 'absent' | 'match' | 'owned' | 'foreign' (+ reason).
 function inspect(context, item, recorded) {
   if (item.type === 'mcp-cli') {
     if (!findBinary(BINARIES[item.harnesses[0]], context.env)) throw new Refusal(`${BINARIES[item.harnesses[0]]} not found on PATH`)
@@ -457,8 +437,6 @@ export function planSetup(context, selection) {
   return { vault: context.vault, node: context.node, selection, actions, warnings }
 }
 
-// ------------------------------------------------------------------- applying
-
 function applyAction(run, action) {
   const context = run.context
   const recorded = run.manifest.items.find((item) => item.id === action.id)
@@ -471,7 +449,6 @@ function applyAction(run, action) {
     try {
       adapter.add(action.value)
     } catch (error) {
-      // Put the working entry back; the add failure is what gets reported.
       if (previous) try { adapter.add(previous) } catch {}
       throw error
     }
@@ -516,14 +493,11 @@ export function applySetup(context, plan) {
       action.result = 'skipped'
       continue
     }
-    // An identical entry found without a manifest record was not written by setup:
-    // it is recorded as preexisting and uninstall leaves it in place.
     const known = run.manifest.items.some((item) => item.id === action.id)
     const preState = action.status === 'create' ? 'absent' : action.status === 'unchanged' && !known ? 'preexisting' : 'existing-owned'
     const journaled = run.manifest.items.some((item) => item.id === action.id && item.fingerprint === action.fingerprint)
     try {
       action.result = action.status === 'unchanged' ? 'unchanged' : applyAction(run, action)
-      // An unchanged, already journaled item leaves the manifest bytes alone (AC10).
       if (action.result === 'applied' || (action.result === 'unchanged' && !journaled)) recordItem(run, action, preState)
     } catch (error) {
       action.result = 'failed'
@@ -534,9 +508,6 @@ export function applySetup(context, plan) {
   return { ...plan, applied: true, backups: run.backups }
 }
 
-// --------------------------------------------------------- status/uninstall
-
-// Codex keys hook trust as "<hooks.json>:user_prompt_submit:<group>:<hook>".
 function codexTrusted(context, recorded) {
   try {
     const target = readTarget(recorded.target)
@@ -568,9 +539,6 @@ function itemState(context, recorded) {
   }
 }
 
-// Outdated = the recorded value differs from what setup would write now (e.g.
-// the Node binary moved after an upgrade). Without a selection, the recorded
-// harnesses and components are re-rendered; collisions need an explicit one.
 export function setupStatus(context, selection = null) {
   const recorded = context.manifest.items
   const items = recorded.map((entry) => {
@@ -600,7 +568,6 @@ export function setupStatus(context, selection = null) {
   }
 }
 
-// Doctor view: never fails, only warns.
 export function doctorSetup(vault, env = process.env) {
   try {
     const context = makeContext({ vault, env })
@@ -626,7 +593,6 @@ function removeAction(run, recorded) {
     dropItem(run, recorded.id)
     return { result: 'left', reason: 'existed before setup' }
   }
-  // A file replaced by a symlink points at something setup never wrote.
   if (recorded.type === 'file' && fs.lstatSync(recorded.target).isSymbolicLink()) return { result: 'kept', reason: 'now a symlink' }
   if (recorded.type === 'mcp-cli') {
     mcpAdapter(context, recorded.harnesses[0]).remove()
@@ -648,7 +614,6 @@ function removeAction(run, recorded) {
       parent[key] = parent[key].filter((entry) => fingerprint(entry) !== recorded.fingerprint)
       if (!parent[key].length) delete parent[key]
     } else delete parent[key]
-    // Prune containers emptied on our own path only.
     for (let depth = recorded.entryPath.length - 1; depth >= 1; depth -= 1) {
       const holder = parents[depth - 1]
       const name = recorded.entryPath[depth - 1]
@@ -681,8 +646,6 @@ export function uninstallSetup(context, { dryRun = false } = {}) {
   context.manifest = run.manifest
   return { dryRun, items: results, backups: run.backups }
 }
-
-// ------------------------------------------------------------------------ CLI
 
 const where = (item) => `${item.target}${item.entryPath ? ` #${item.entryPath.join('.')}` : ''}${item.reason ? ` (${item.reason})` : ''}`
 

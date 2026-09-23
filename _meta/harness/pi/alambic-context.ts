@@ -1,5 +1,3 @@
-// Managed by alambic setup; remove with: alambic setup --uninstall --yes
-// Adds lexical vault context before each prompt. Guarded: any failure means no context.
 import { spawn } from 'node:child_process'
 
 const NODE = "{{NODE}}"
@@ -25,7 +23,6 @@ export function runHook(prompt: string, timeoutMs = 3000): Promise<string> {
   })
 }
 
-// Keep only the latest alambic block so injected context does not pile up.
 export function keepLatest(messages: any[]): any[] {
   let last = -1
   messages.forEach((message, index) => { if (message?.role === 'custom' && message.customType === TYPE) last = index })

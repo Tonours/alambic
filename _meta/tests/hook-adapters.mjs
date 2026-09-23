@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Pi extension and opencode plugin rendered by setup: guarded, time-limited,
-// Pi keeps only the latest alambic block, opencode state is per session and
-// lasts for every model call of the prompt's turn.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,12 +9,9 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-adapters-')))
-// `$&` and `$'` would be expanded by a string replacement in the template renderer.
 const vault = path.join(temp, "va'ult $& $' dir")
 const stub = path.join(vault, '_meta/hooks/prompt-context.mjs')
 
-// Stub hook: echoes context for prompts containing "vault", nothing otherwise,
-// hangs on "hang", crashes on "crash".
 fs.mkdirSync(path.dirname(stub), { recursive: true })
 fs.writeFileSync(stub, `let raw = ''
 process.stdin.on('data', (c) => { raw += c })
@@ -41,7 +35,6 @@ try {
   const pi = await import(pathToFileURL(path.join(temp, 'pi.ts')).href)
   const oc = await import(pathToFileURL(path.join(temp, 'opencode.mjs')).href)
 
-  // Time limit and failure paths (shared runner shape).
   for (const mod of [pi, oc]) {
     const started = Date.now()
     assert(await mod.runHook('please hang', 300) === '' && Date.now() - started < 1500, 'slow hook must time out to empty')
@@ -49,7 +42,6 @@ try {
     assert(await mod.runHook('about the vault') === 'ctx:about the vault', 'matching prompt must return context')
   }
 
-  // Pi: before_agent_start message, context filter.
   const handlers = {}
   pi.default({ on: (event, handler) => { handlers[event] = handler } })
   const injected = await handlers.before_agent_start({ prompt: 'about the vault' })
@@ -61,7 +53,6 @@ try {
   assert(filtered.length === 3 && filtered.filter((m) => m.customType === 'alambic-context').map((m) => m.content).join() === 'c2', 'Pi context filter must keep only the latest block')
   assert(await handlers.context({}) === undefined, 'Pi context filter must survive a malformed event')
 
-  // opencode: per-session state, every model call of the turn, no sessionID means no-op.
   const hooks = await oc.AlambicContext({})
   const message = (sessionID, text) => hooks['chat.message']({ sessionID, messageID: `m-${sessionID}` }, { message: {}, parts: [{ type: 'text', text }] })
   const system = async (sessionID) => { const output = { system: ['base'] }; await hooks['experimental.chat.system.transform']({ sessionID, model: {} }, output); return output.system }
