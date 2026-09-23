@@ -25,7 +25,7 @@ setup (`alambic-obvault`, `alambic-brain`) with isolated runtime state.
 - Context reset threshold: after slice 2 if context is tight; PLAN.md Handoff State is the restart point
 - Escalation: force-push, history rewrite, deleting remote data, or any change to repo visibility/secrets values → stop and ask
 - Planner output: this file
-- Challenger focus: backward compatibility of default `setup`, state isolation, etabli consumers of `_meta/obvault`, remote divergence on brain
+- Challenger focus: backward compatibility of default `setup`, state isolation, harness-config consumers of `_meta/obvault`, remote divergence on brain
 - Implementer boundaries: no edits to `ref/review-effectiveness-log.md` in the local brain checkout; brain work happens in a fresh clone; no secrets printed or committed; no code comments
 - Verifier checks: see Validation Plan
 - Reporter artifact: final French answer + archived plan
@@ -39,7 +39,7 @@ setup (`alambic-obvault`, `alambic-brain`) with isolated runtime state.
 - [x] alambic: `ALAMBIC_STATE_DIR` overrides the state dir everywhere the engine writes state (CLI, loop-pulse, sidekick, promotion-judge, attention state, shell collectors); named setups pin `$XDG_STATE_HOME/alambic-<slug>`
 - [x] alambic: `doctor` finds the manifest whose `vault` matches the current root (default or named)
 - [x] alambic: leak-scan secret regex has a word boundary (regression test), init test accepts a gitignore superset, hook-gate hash lives in a freeze file refreshed by `eval:freeze`, prompt-hook test uses a measured quiet negative, `lib/probe-eval.mjs` shipped and used by `tests/eval.mjs`
-- [x] obvault: engine = alambic `_meta` verbatim except vault data; `npm test` green; `_meta/obvault` compat shim keeps etabli resolver and herdr plugin working
+- [x] obvault: engine = alambic `_meta` verbatim except vault data; `npm test` green; `_meta/obvault` compat shim keeps harness-config resolver and terminal plugin working
 - [ ] brain: engine-sync pulls from alambic (`ALAMBIC_ENGINE_SOURCE`, lock `source: "alambic"`), `note.schema.json` vendored; `npm test` green — met except `note.schema.json` (see Decision Log)
 - [x] this Mac: `alambic-obvault` and `alambic-brain` installed for detected harnesses, status clean, obvault state migrated, LaunchAgent env renamed and still loads
 - [x] macbook-work: alambic cloned + `npm ci`, obvault/brain pulled (brain divergence resolved without force-push), both named setups installed, status clean, brain cron/consolidate scripts still run
@@ -54,7 +54,7 @@ setup (`alambic-obvault`, `alambic-brain`) with isolated runtime state.
 - Satellite: obvault — engine swap, docs, workflows, repo variables
 - Satellite: brain — engine-sync source switch
 - Satellite: machine config (this Mac, macbook-work) — harness skills/MCP/shims, LaunchAgent, state dirs
-- Not changed: etabli (resolver keeps `_meta/obvault`; MCP templates point at brain's own light server)
+- Not changed: harness-config (resolver keeps `_meta/obvault`; MCP templates point at brain's own light server)
 
 ## Scope
 ### In scope
@@ -62,9 +62,9 @@ setup (`alambic-obvault`, `alambic-brain`) with isolated runtime state.
 
 ### Out of scope / Non-goals
 - Enabling the prompt hook on any vault (gate fails on obvault, see Facts).
-- Renaming the obvault/brain repos or the etabli `obvault-*` resolver/skill names.
+- Renaming the obvault/brain repos or the harness-config `obvault-*` resolver/skill names.
 - Merging brain onto the full engine.
-- etabli CLI topic-resolver routing to brain: it needs `<brain>/_meta/obvault`, present on origin but missing in the stale local checkout; unchanged by this plan (brain stays MCP/skill-reachable through `alambic-brain`).
+- harness-config CLI topic-resolver routing to brain: it needs `<brain>/_meta/obvault`, present on origin but missing in the stale local checkout; unchanged by this plan (brain stays MCP/skill-reachable through `alambic-brain`).
 - Rewriting obvault notes beyond engine path/name references.
 
 ## Facts And Assumptions
@@ -77,9 +77,9 @@ setup (`alambic-obvault`, `alambic-brain`) with isolated runtime state.
 - Prototype `/tmp/mig/ov-try` (obvault + alambic engine + fixes a-c) passes `npm test`; brain with `ALAMBIC_ENGINE_SOURCE=/tmp/mig/al` (alambic + probe-eval) passes `npm test`.
 - obvault hook-gate on its own notes: 3 negatives fire, 1/12 positives missed → `max_negative_hits: 3` baseline, hook stays off.
 - probes-v2 on obvault after re-freeze: hit@5 0.905, abstain 0.833.
-- etabli `workflow/runtime/obvault-topic-resolver.mjs:85` requires `<root>/_meta/obvault`; spawns with `OBVAULT_ROOT` (l. 265, 308). herdr plugin `etabli-obvault/scripts/obvault.mjs:15` same.
-- etabli MCP templates point at `~/work/brain/_meta/mcp/server.mjs` with `OBVAULT_ROOT` (brain-local server, not vendored).
-- Local LaunchAgent `com.tonours.obvault.attention-daily` runs `obvault/_meta/bin/attention-daily-grok.sh` with `OBVAULT_ATTENTION_*` env.
+- harness-config `workflow/runtime/obvault-topic-resolver.mjs:85` requires `<root>/_meta/obvault`; spawns with `OBVAULT_ROOT` (l. 265, 308). terminal plugin `harness-config-obvault/scripts/obvault.mjs:15` same.
+- harness-config MCP templates point at `~/work/brain/_meta/mcp/server.mjs` with `OBVAULT_ROOT` (brain-local server, not vendored).
+- A local LaunchAgent runs the vault attention script with `OBVAULT_ATTENTION_*` env.
 - State: this Mac `~/.local/state/obvault` 5.1 MB, `~/.local/state/alambic` 16 KB (empty-ish scaffolding); macbook-work `~/.local/state/obvault` 116 KB.
 - macbook-work brain: local commit 4f20c4f not on origin, origin has 53defb0 not local.
 - obvault and brain repos are private; obvault secrets exist, no repo variables.
@@ -108,8 +108,8 @@ setup (`alambic-obvault`, `alambic-brain`) with isolated runtime state.
 ## Approach
 - Engine upstream fixes first (S1), then setup features (S2), then consumers.
 - Default `setup` stays byte-identical; named setups are additive (handle `alambic-<slug>`).
-- State: `ALAMBIC_STATE_DIR` wins over `$XDG_STATE_HOME/alambic`; named setups inject it into MCP env, shim, and skill CLI. obvault's `_meta/obvault` compat shim and LaunchAgent inject `alambic-obvault` too, so direct vault calls and harness calls share one state dir. obvault docs keep `_meta/obvault` as the vault-local entry point (it is the shim), which avoids a 20+ occurrence rename and keeps etabli working.
-- brain content is served by the alambic checkout (`--vault ~/work/brain`), brain's own light CLI/MCP stay for etabli and cron.
+- State: `ALAMBIC_STATE_DIR` wins over `$XDG_STATE_HOME/alambic`; named setups inject it into MCP env, shim, and skill CLI. obvault's `_meta/obvault` compat shim and LaunchAgent inject `alambic-obvault` too, so direct vault calls and harness calls share one state dir. obvault docs keep `_meta/obvault` as the vault-local entry point (it is the shim), which avoids a 20+ occurrence rename and keeps harness-config working.
+- brain content is served by the alambic checkout (`--vault ~/work/brain`), brain's own light CLI/MCP stay for harness-config and cron.
 - Rejected: state dir derived from vault basename (moves existing default users' state, generic names collide).
 
 ## Execution Slices
@@ -133,7 +133,7 @@ setup (`alambic-obvault`, `alambic-brain`) with isolated runtime state.
 - Steps: pull obvault; `git rm` old engine/skills; copy alambic `_meta` tracked files except vault data regex; package.json + shrinkwrap; rename 2 kb notes + refs; workflow swap; `.gitignore`; `hook-gate.json` baseline; `_meta/obvault` compat shim (maps `OBVAULT_ROOT`→`ALAMBIC_ROOT`, defaults `ALAMBIC_STATE_DIR` to `alambic-obvault`); docs: old engine command names (`obvault.mjs`, `OBVAULT_*` env) updated; `npm run eval:freeze`; `npm test`.
 - Machine: move `~/.local/state/obvault` → `~/.local/state/alambic-obvault` after layout check; LaunchAgent plist env → `ALAMBIC_*` + `ALAMBIC_STATE_DIR`, reload, `launchctl print` ok.
 - Repo vars: `ALAMBIC_SIDEKICK_SCHEDULE=true`, `ALAMBIC_LEAK_OPTIONAL=true`.
-- Checks: `npm test`; etabli resolver smoke (`_meta/obvault query --json test`); review + adversary; commit; push.
+- Checks: `npm test`; harness-config resolver smoke (`_meta/obvault query --json test`); review + adversary; commit; push.
 - Rollback point: obvault origin HEAD before push.
 
 ### Slice 4 — brain engine source
@@ -146,13 +146,13 @@ setup (`alambic-obvault`, `alambic-brain`) with isolated runtime state.
 - Rollback: `setup --uninstall --yes --name <slug>`.
 
 ### Slice 6 — macbook-work
-- Steps: check `git status` in brain/obvault/etabli; clone `~/work/alambic` + `npm ci`; brain `pull --rebase` then push 4f20c4f; obvault pull + `npm ci`; move `~/.local/state/obvault` → `alambic-obvault`; back up `~/.claude.json` and `~/.codex/config.toml`; both named setups; remove old `brain`/`obvault` MCP entries only after the new ones are verified; run brain `cron-run.sh`/`consolidate-run.sh` dry path or their tests; doctor/status.
+- Steps: check `git status` in brain/obvault/harness-config; clone `~/work/alambic` + `npm ci`; brain `pull --rebase` then push 4f20c4f; obvault pull + `npm ci`; move `~/.local/state/obvault` → `alambic-obvault`; back up `~/.claude.json` and `~/.codex/config.toml`; both named setups; remove old `brain`/`obvault` MCP entries only after the new ones are verified; run brain `cron-run.sh`/`consolidate-run.sh` dry path or their tests; doctor/status.
 - Rollback: restore config backups, `setup --uninstall`.
 
 ## Validation Plan
 - Automated: `npm test` in alambic, obvault, brain (clean clones); CI on push for alambic and obvault.
 - Manual: setup status output both machines; resolver smoke; LaunchAgent loaded.
-- Regression risks: default setup fingerprint drift (snapshot test), etabli resolver (`_meta/obvault` shim), brain cron env, CI secrets/vars on obvault.
+- Regression risks: default setup fingerprint drift (snapshot test), harness-config resolver (`_meta/obvault` shim), brain cron env, CI secrets/vars on obvault.
 - Evidence for done: test tails, status outputs, SHAs.
 
 ## Progress Log
