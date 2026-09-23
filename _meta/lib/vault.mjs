@@ -31,7 +31,7 @@ export function isIndexPath(relativePath) {
   return INDEX_PATH_RE.test(relativePath)
 }
 const MANIFEST_CACHE_MAX_AGE_MS = 1_000
-const LEXICAL_CACHE_VERSION = 1
+const LEXICAL_CACHE_VERSION = 2
 
 export function lexicalCachePath(root) {
   return path.join(root, '_meta', '.cache', 'lexical-index.json')
@@ -42,7 +42,7 @@ function readLexicalCache(root) {
     const raw = fs.readFileSync(lexicalCachePath(root), 'utf8')
     const parsed = JSON.parse(raw)
     if (parsed?.version !== LEXICAL_CACHE_VERSION || !Array.isArray(parsed.entries)) return null
-    return parsed
+    return { ...parsed, entries: parsed.entries.filter((entry) => entry && typeof entry.key === 'string') }
   } catch {
     return null
   }
@@ -63,8 +63,12 @@ function writeLexicalCache(root, entries) {
 function manifestItemShapeOk(item) {
   // Self-heal against hand-edited/corrupt cache entries: anything without the
   // fields readers destructure falls back to re-parse. Review finding.
-  return Boolean(item && typeof item.path === 'string' && item.search && typeof item.search === 'object'
-    && typeof item.title === 'string' && Array.isArray(item.tags) && typeof item.status === 'string')
+  const search = item?.search
+  return Boolean(item && typeof item.path === 'string' && typeof item.raw === 'string' && typeof item.text === 'string'
+    && typeof item.sha256 === 'string' && Array.isArray(item.aliases) && Array.isArray(item.claims) && Array.isArray(item.sources)
+    && typeof item.title === 'string' && Array.isArray(item.tags) && typeof item.status === 'string'
+    && search && typeof search.title === 'string' && Array.isArray(search.aliases) && Array.isArray(search.tags)
+    && typeof search.summary === 'string' && typeof search.body === 'string')
 }
 
 function parseManifestEntry(root, file) {
@@ -94,16 +98,16 @@ function parseManifestEntry(root, file) {
     review_after: metadata.review_after || null,
     confidence: metadata.confidence || null,
     tags: metadata.tags || [],
-    aliases: metadata.aliases || [],
+    aliases: Array.isArray(metadata.aliases) ? metadata.aliases : [],
     claims: Array.isArray(metadata.claims) ? metadata.claims : [],
-    sources: metadata.sources || [],
+    sources: Array.isArray(metadata.sources) ? metadata.sources : [],
     bytes: Buffer.byteLength(text),
     sha256: crypto.createHash('sha256').update(text).digest('hex'),
     raw: text,
     text: searchableText,
     search: {
       title: searchablePhrase(title),
-      aliases: (metadata.aliases || []).map(searchablePhrase),
+      aliases: (Array.isArray(metadata.aliases) ? metadata.aliases : []).map(searchablePhrase),
       tags: (metadata.tags || []).map(searchablePhrase),
       summary: normalize(metadata.summary || ''),
       body: normalize(searchableText),
