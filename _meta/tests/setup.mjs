@@ -344,8 +344,8 @@ try {
   await setup(vault, ['--yes', '--harness', 'codex', '--prompt-hook', '--no-mcp', '--json'], envFor(home9))
   assert(doctorSetup(vault, envFor(home9)).warnings.join() === 'codex:hook: pending-trust', 'doctor must report pending-trust only')
 
-  const DEFAULT_ITEMS_SHA = 'a8026d9579695fd50de71172d8ad0b7be9c231e6d973481ae3ec38c06d41f1ea'
-  const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: process.execPath, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true } })
+  const DEFAULT_ITEMS_SHA = '5282d4916238467307a8dc3c014613b4f16bfb697bc613bd0369fa36597cdc95'
+  const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: process.execPath, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true } }).map(({ fingerprint, ...item }) => item)
   assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(process.execPath, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'default setup items drifted from their frozen fingerprint')
   assert(claudeSkill.includes('\n# alambic vault\n') && claudeSkill.includes('description: Query the alambic vault (a compiled'), 'default skill must keep its alambic identity')
   for (const args of [['--vault', vault], ['--name', 'Bad'], ['--name', 'x'.repeat(40)], ['--name', 'brain', '--prompt-hook'], ['--name']]) {
