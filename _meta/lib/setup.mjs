@@ -17,14 +17,15 @@ const TEMPLATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 export const USAGE = 'usage: alambic setup [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor|all|detected] [--prompt-hook] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--yes]'
 
 class Refusal extends Error {}
+const failureReason = (error) => (error instanceof Refusal ? error.message : `${error.code || error.name}`)
 
-const sha = (value) => crypto.createHash('sha256').update(value).digest('hex')
+const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex')
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`
   return JSON.stringify(value)
 }
-const fingerprint = (value) => sha(canonical(value))
+const fingerprint = (value) => sha256(canonical(value))
 export function shq(value) { return `'${String(value).replace(/'/g, `'\\''`)}'` }
 
 export function resolvePaths(env) {
@@ -133,7 +134,7 @@ function readTarget(file) {
   const stat = fs.statSync(real)
   if (!stat.isFile()) throw new Refusal('not a regular file')
   const bytes = fs.readFileSync(real)
-  return { exists: true, symlink: link.isSymbolicLink(), real, bytes, hash: sha(bytes), mode: stat.mode & 0o7777 }
+  return { exists: true, symlink: link.isSymbolicLink(), real, bytes, hash: sha256(bytes), mode: stat.mode & 0o7777 }
 }
 
 // JSON.parse errors quote file content; never surface them (secrets).
@@ -244,13 +245,13 @@ function recordItem(run, action, preState) {
     preState: previous?.preState || preState,
     installed_at: new Date().toISOString(),
   })
-  run.manifest = { ...run.manifest, vault: run.vault, node: run.node, items }
-  writeManifest(run.paths.manifest, run.manifest)
+  run.manifest = { ...run.manifest, vault: run.context.vault, node: run.context.node, items }
+  writeManifest(run.context.paths.manifest, run.manifest)
 }
 
 function dropItem(run, id) {
   run.manifest = { ...run.manifest, items: run.manifest.items.filter((item) => item.id !== id) }
-  writeManifest(run.paths.manifest, run.manifest)
+  writeManifest(run.context.paths.manifest, run.manifest)
 }
 
 // ----------------------------------------------------------------------- MCP
@@ -326,8 +327,7 @@ function hookCommand(context, format) {
 // Desired state for a selection. Pure except for template reads.
 export function desiredItems(context, selection) {
   const { paths, vault, node } = context
-  const harnesses = selection.harnesses
-  const { components } = selection
+  const { harnesses, components } = selection
   const items = []
   const server = path.join(vault, '_meta/mcp/server.mjs')
   const mcpValue = { command: node, args: [server], env: { ALAMBIC_ROOT: vault } }
@@ -367,11 +367,12 @@ export function desiredItems(context, selection) {
       }
     }
   }
-  for (const item of items) item.fingerprint = item.type === 'file' ? sha(item.content) : fingerprint(item.value)
+  for (const item of items) item.fingerprint = item.type === 'file' ? sha256(item.content) : fingerprint(item.value)
   return items
 }
 
 const claimsHook = (entry) => JSON.stringify(entry ?? null).includes(HOOK_MARKER)
+const classify = (found, item, recorded) => (found === item.fingerprint ? 'match' : found === recorded?.fingerprint ? 'owned' : 'foreign')
 
 // Current state of one item: { preimage, current } where current is
 // 'absent' | 'match' | 'owned' | 'foreign' (+ reason).
@@ -381,12 +382,12 @@ function inspect(context, item, recorded) {
     const current = mcpAdapter(context, item.harnesses[0]).read()
     if (current === undefined) return { preimage: 'absent', state: 'absent' }
     const found = fingerprint(current)
-    return { preimage: found, state: found === item.fingerprint ? 'match' : found === recorded?.fingerprint ? 'owned' : 'foreign' }
+    return { preimage: found, state: classify(found, item, recorded) }
   }
   const file = readTarget(item.target)
   if (item.type === 'file') {
     if (!file.exists) return { preimage: 'absent', state: 'absent', file }
-    return { preimage: file.hash, file, state: file.hash === item.fingerprint ? 'match' : file.hash === recorded?.fingerprint ? 'owned' : 'foreign' }
+    return { preimage: file.hash, file, state: classify(file.hash, item, recorded) }
   }
   if (!file.exists) {
     if (item.jsoncSibling && fs.existsSync(item.jsoncSibling)) throw new Refusal('config is JSONC (opencode.jsonc)')
@@ -396,8 +397,7 @@ function inspect(context, item, recorded) {
   const node = walk(json, item.entryPath)
   if (node === undefined) return { preimage: file.hash, state: 'absent', file, json }
   if (item.container === 'object') {
-    const found = fingerprint(node)
-    return { preimage: file.hash, file, json, state: found === item.fingerprint ? 'match' : found === recorded?.fingerprint ? 'owned' : 'foreign' }
+    return { preimage: file.hash, file, json, state: classify(fingerprint(node), item, recorded) }
   }
   if (!Array.isArray(node)) throw new Refusal(`${item.entryPath.join('.')} is not an array`)
   const fingerprints = node.map(fingerprint)
@@ -491,7 +491,7 @@ function applyAction(run, action) {
 }
 
 function newRun(context) {
-  return { context, paths: context.paths, vault: context.vault, node: context.node, manifest: context.manifest, stamp: new Date().toISOString().replace(/[:.]/g, '-'), backedUp: new Set(), backups: [] }
+  return { context, manifest: context.manifest, stamp: new Date().toISOString().replace(/[:.]/g, '-'), backedUp: new Set(), backups: [] }
 }
 
 export function applySetup(context, plan) {
@@ -509,7 +509,7 @@ export function applySetup(context, plan) {
       if (action.result === 'applied' || (action.result === 'unchanged' && !journaled)) recordItem(run, action, preState)
     } catch (error) {
       action.result = 'failed'
-      action.reason = error instanceof Refusal ? error.message : `${error.code || error.name}`
+      action.reason = failureReason(error)
     }
   }
   context.manifest = run.manifest
@@ -653,7 +653,7 @@ export function uninstallSetup(context, { dryRun = false } = {}) {
     try {
       results.push({ ...base, ...removeAction(run, recorded) })
     } catch (error) {
-      results.push({ ...base, result: 'failed', reason: error instanceof Refusal ? error.message : `${error.code || error.name}` })
+      results.push({ ...base, result: 'failed', reason: failureReason(error) })
     }
   }
   context.manifest = run.manifest
@@ -662,10 +662,11 @@ export function uninstallSetup(context, { dryRun = false } = {}) {
 
 // ------------------------------------------------------------------------ CLI
 
+const where = (item) => `${item.target}${item.entryPath ? ` #${item.entryPath.join('.')}` : ''}${item.reason ? ` (${item.reason})` : ''}`
+
 function actionLine(action) {
-  const where = `${action.target}${action.entryPath ? ` #${action.entryPath.join('.')}` : ''}`
   const status = action.result && action.result !== action.status ? `${action.status} -> ${action.result}` : action.status
-  return `  ${status.padEnd(12)} ${action.harnesses.join(',').padEnd(18)} ${action.kind.padEnd(6)} ${where}${action.reason ? ` (${action.reason})` : ''}`
+  return `  ${status.padEnd(12)} ${action.harnesses.join(',').padEnd(18)} ${action.kind.padEnd(6)} ${where(action)}`
 }
 
 const publicAction = ({ content, value, base, jsoncSibling, fingerprint: _fp, preimage, mode, container, ...rest }) => rest
@@ -693,7 +694,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
     else {
       const lines = [`alambic setup status: ${status.installed ? 'installed' : 'not installed'}`, `manifest: ${status.manifest}`]
       if (status.otherVault) lines.push(`warning: manifest points to another vault: ${status.otherVault}`)
-      for (const item of status.items) lines.push(`  ${item.state.padEnd(13)} ${item.id.padEnd(14)} ${item.target}${item.entryPath ? ` #${item.entryPath.join('.')}` : ''}${item.reason ? ` (${item.reason})` : ''}`)
+      for (const item of status.items) lines.push(`  ${item.state.padEnd(13)} ${item.id.padEnd(14)} ${where(item)}`)
       print(lines.join('\n'))
     }
     return status.items.some((item) => item.state !== 'installed') || status.otherVault ? 1 : 0
@@ -705,7 +706,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
     if (options.json) print(report)
     else {
       const lines = [`alambic setup uninstall${dryRun ? ' (dry-run; add --yes to apply)' : ''}: ${report.items.length} item(s)`]
-      for (const item of report.items) lines.push(`  ${item.result.padEnd(15)} ${item.id.padEnd(14)} ${item.target}${item.entryPath ? ` #${item.entryPath.join('.')}` : ''}${item.reason ? ` (${item.reason})` : ''}`)
+      for (const item of report.items) lines.push(`  ${item.result.padEnd(15)} ${item.id.padEnd(14)} ${where(item)}`)
       print(lines.join('\n'))
     }
     return report.items.some((item) => ['kept', 'failed', 'changed-during-setup'].includes(item.result)) ? 1 : 0
