@@ -1,0 +1,223 @@
+# Implemented: session harvest pipeline, review gate and local nightly scheduling
+
+## Meta
+- Subject: capture durable knowledge from agent sessions (Claude, Codex, Pi) into the inbox with scoring, an ADD/UPDATE/NOOP judge, a human review gate for session-origin notes, write-precision metrics, and a local nightly run per machine; brain-cron consumes the same harvest
+- Type: feature
+- Status: IMPLEMENTED
+- Source plan: `PLAN.md`
+- Source plan SHA-256: `1205bd06af3444417dbed225a9accdd0475eccece4199137b752dfea6212092b`
+- Source: user request "implemente toute la suite fais les review avec gpt6 astra xhigh"; constraints "les crons doivent etre locale a la machine ou alambic est installe pas sur une pipeline github", each vault scheduled on the machine that owns it
+- Last revised: 2026-09-24
+- Archive: docs/plan/20260924-session-harvest.md
+
+## Goal
+Sessions on each machine feed that machine's vault without a human copy-paste
+step, while nothing session-derived reaches `kb/` without a human accept
+receipt (obvault) or brain's grounded `file:line` gate (brain). The daily
+sidekick moves off GitHub Actions to a LaunchAgent installed by `alambic setup`
+on the machine that owns the vault.
+
+## Workflow Contract
+- Router decision: plan-implement, high risk (security gate on kb writes, installer touching user LaunchAgents and harness hooks, 3 repos, 2 machines)
+- Role: single writer (this session); reviewer Logic + Spec; cross-model adversary = `command codex exec -m gpt-6-astra -c model_reasoning_effort=xhigh --sandbox read-only` (user choice) for plan and code diff
+- Pattern: sequential slices, each ends green before the next
+- Goal verifier: alambic `npm test` green; obvault `npm test` green; brain `npm test` + `_meta/validate-kb.sh` green; Mac mini LaunchAgent `dev.alambic.alambic-obvault.nightly` loaded and a `nightly --dry-run` report ok; macbook-work brain-cron dry path runs on the harvest digest
+- Operational budget: 6 slices, one repair loop per failing check, then stop and report
+- Context reset threshold: after slice 3 if context is tight; Handoff State is the restart point
+- Escalation: force-push, history rewrite, deleting remote data or repo variables, printing secrets → stop
+- Planner output: this file
+- Challenger focus: can any path put session text into `kb/` or a pushed commit without a receipt; hook recursion and hook latency; LaunchAgent env without secrets in the plist; brain regression and rollback
+- Implementer boundaries: no code comments; no secrets printed or committed; brain work in a fresh clone on macbook-work (`~/work/brain` there is the live checkout used by the cron; update it only by `git pull --ff-only` after push); do not touch the local Mac mini `~/work/brain` stale checkout
+- Verifier checks: see Validation Plan
+- Reporter artifact: final French answer + archived plan
+- Stop conditions: all AC checked, or a blocked step reported with evidence
+- Required evidence: test tails, `harvest status --json`, `nightly --dry-run --json` summary, `launchctl print` state, commit SHAs
+
+## Acceptance Criteria
+- [x] `alambic harvest scan` reads Claude, Codex and Pi session files (honoring `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `PI_CODING_AGENT_DIR`), skips meta/sidechain/tool records, keeps a cursor, scores each new session 0-77 without reading the vault and queues sessions ≥ `--min-score` (default 40) as `untrusted-session-data` entries in `$STATE/harvest/queue/` (0600); it never writes inside the vault; `--session` accepts only a regular, non-symlink `.jsonl` whose realpath is under a harness root
+- [x] Excerpts drop any message flagged by `scanUnsafe`; queued excerpt ≤ 6000 chars
+- [x] `alambic harvest distill` turns queued entries into `docs/inbox/ai/harvest-<date>-<harness>-<short>.md` through an external distiller command (JSON contract), forces `status: draft`, `origin: session-harvest`, `trust: untrusted-session-data`, a `<harness>:<session-id>` source, strips `reviewed_by`/`reviewed_at`, rejects unsafe or refused output; `SKIP` answers are counted, not written
+- [x] `harvest-*.md` is gitignored in alambic, the init template and obvault
+- [x] Session-origin inbox notes (origin/trust marker, `harvest-` basename or any `claude:|codex:|pi:` source) never get `auto_apply` without an accept receipt matching the file's current sha256; the judge, the post-Jev re-gate and `applyFreeformPromote` each enforce it; Jev is never called for a `review_required` note; pending notes do not consume the 30-file sidekick window; sidekick reports them as `review_required`
+- [x] Judge returns `noop` only when the update target already contains the note's whole normalized body (≥ 80 chars); partial overlap stays in the normal path; apply mode archives it as `processed/noop-*` without touching `kb/`
+- [x] `alambic review --inbox <file> --decision accept|reject --reason <text>` writes an immutable receipt (accept needs an interactive TTY) or archives the file as `processed/rejected-*` (reject); a note promoted after a receipt carries `reviewed_by: human:alambic-review` and the receipt date
+- [x] `alambic harvest status --json` reports scanned/queued/distilled/acked/skipped/accepted/rejected/promoted/noop and `review_acceptance_rate = accepted / (accepted + rejected)` (null when no reviews), plus the pending harvest inbox list
+- [x] `alambic nightly [--push] [--dry-run] [--json]` holds the harvest lock and runs preflight (clean tracked tree and index, HEAD equal to the fetched upstream, default branch) → harvest scan → distill (if a distiller is available) → enrich (if `TYPESAFE_API_KEY`) → sidekick apply-all → validate + lint + leak-scan → commit only `kb/`, `ref/`, `_meta/enrich-ledger.json` (checked on the staged tree) → push exactly one outgoing commit with green gates; any red gate means no commit; an end-to-end test covers session → distill → review_required → accept → promote → commit → push to a local bare remote → replay without duplicate
+- [x] `alambic setup --schedule [HH:MM]` installs/refreshes/uninstalls a per-handle LaunchAgent (`dev.alambic.<handle>.nightly`) running `nightly --push` through `/bin/zsh -lc` with an absolute node path, `ALAMBIC_ROOT`/`ALAMBIC_STATE_DIR`/PATH and the session-dir variables present at setup, no secret values; a failed bootstrap restores the previous plist; refused on non-macOS
+- [x] `alambic setup --harvest-hook` installs a Claude `SessionEnd` hook per handle that queues the ended transcript only, exits 0 on every error, and is a no-op when `ALAMBIC_HARVEST_CHILD=1`; allowed with `--name`; uninstall removes only its own entry
+- [x] Default `setup` without the new flags keeps byte-identical items and fingerprints
+- [x] alambic and obvault `alambic-sidekick-daily.yml` lose the `schedule:` trigger (manual dispatch kept)
+- [x] Mac mini: obvault engine synced, `alambic-obvault` setup has `--schedule 05:15 --harvest-hook`, LaunchAgent loaded, one `nightly --dry-run` report ok
+- [x] macbook-work: brain `cron-run.sh` feeds the agent a harvest digest (Claude + Codex + Pi) instead of raw transcript paths, acks only the digest manifest after a successful push, runs its writer with `--no-session-persistence`, keeps `BRAIN_CAPTURE_ENGINE=legacy` rollback, all existing gates unchanged; `alambic-brain` SessionEnd hook installed
+- [x] ADR note `kb/adr-alambic-local-session-harvest.md` + index entry; README, CLAUDE.md write path, AGENTS.md if needed and `automation-contract.json` updated
+
+## Problem
+- Current behavior: `capture` exists but nothing calls it; `distill --apply` disabled; sessions never reach the vault except through brain-cron's raw-transcript agent (Claude only). The freeform judge treats `claude:`/`codex:`/`pi:` sources as inspectable, so a session-derived inbox note would auto-apply today. The daily sidekick runs on GitHub Actions, away from the machine holding the sessions.
+- Expected behavior: scored session capture per machine, human-gated promotion for session-origin notes, NOOP instead of duplicate appends, measured write precision, local scheduling.
+- User impact: knowledge from daily sessions lands in the vault; bad writes are measurable and blocked.
+
+## Repos
+- Owner: alambic (engine, setup, tests, docs)
+- Satellite: obvault — engine sync, gitignore, workflow schedule removal, Mac mini setup
+- Satellite: brain — `cron-run.sh` + `cron-prompt.md` switch to harvest digest (macbook-work)
+- Satellite: machine config — Mac mini LaunchAgent + Claude SessionEnd hook (obvault); macbook-work Claude SessionEnd hook (brain)
+
+## Scope
+### In scope
+- Slices 1-6 below.
+
+### Out of scope / Non-goals
+- Brain writing through the alambic sidekick (alambic validate fails on brain: missing `_meta/note.schema.json`).
+- Codex/Pi end-of-session hooks (nightly scan covers them).
+- Linux systemd/cron installer (refuse with a snippet).
+- `distill --apply` (stays disabled).
+- LLM "adds a new fact" question in Jev dedupe (lexical NOOP first; revisit with metrics).
+- Moving obvault attention-daily LaunchAgent.
+
+## Facts And Assumptions
+### Observed Facts
+- `_meta/lib/promotion-judge.mjs:426-437` `sourceLooksInspectable` accepts `^(codex|claude|pi|obsidian|repo):`.
+- `judgeFreeformContent` (`promotion-judge.mjs:218-288`) returns `auto_apply|quarantine_ready|reject`; `applyFreeformPromote` (l.323) writes `reviewed_by: oracle:sidekick-freeform-v2` on create and appends `## Sidekick promote` on update; `archiveInboxSource` moves to `docs/inbox/ai/processed/<mode>-<base>`.
+- `lib/sidekick.mjs:208-249` freeform loop reads `listStagedMarkdown` inbox files (last 30), refuses to run when strict pre-validate is red (l.107).
+- `alambic.mjs` `capture` l.328-340, `distill` l.341-352 (`--apply` throws), `review` l.353-387 (proposal receipts in `$STATE/reviews/`), usage l.667.
+- `lib/setup.mjs` components skill/mcp/shim/hook, `claimsHook` marker, named handles `alambic-<name>`, prompt hook refused with `--name`.
+- GitHub workflow `.github/workflows/alambic-sidekick-daily.yml`: `schedule 15 5 * * *` gated by `vars.ALAMBIC_SIDEKICK_SCHEDULE`, steps test/validate/lint/attention collect/enrich/sidekick apply-all/validate/lint/leak-scan/commit-push (`kb/`, `_meta/enrich-ledger.json`, promote-ready).
+- Mac mini: `TYPESAFE_API_KEY` present in the zsh login env (value not printed); the existing attention-daily LaunchAgent uses `/bin/zsh -c exec …`, `ALAMBIC_STATE_DIR`, PATH, logs in `~/Library/Logs`.
+- `claude --help` exposes `--tools`, `--strict-mcp-config`, `--no-session-persistence`, `--model`, `--bare` (skips hooks).
+- macbook-work brain `_meta/cron-run.sh`: marker `_meta/last-run`, lock `_meta/.writer.lock`, dirty kb/ref skip, `claude -p "$(cat cron-prompt.md)"` with deny list and timeout, gates: agent rc, `validate-kb.sh`, diff only kb|ref, leak grep, branch master, push, `cursor-repair.sh`.
+
+### Assumptions To Verify
+- Claude `SessionEnd` hook stdin carries `transcript_path` and `session_id` → check hooks docs / a captured payload in tests.
+- `--tools ""` disables every built-in tool in `claude -p` → verify with a local smoke before making it the default distiller.
+- `listStagedMarkdown` includes gitignored `harvest-*.md` → verify in a sidekick test.
+- brain `cron-prompt.md` reads the session list from a file or env → read on macbook-work before editing.
+
+## Context Map
+- Product areas: capture pipeline, promotion judge, sidekick, setup installer, CI workflow, brain cron
+- Likely files: new `_meta/lib/harvest.mjs`, `_meta/lib/nightly.mjs`, `_meta/hooks/harvest-hook.mjs`, `_meta/prompts/harvest-distill.md`, `_meta/tests/harvest.mjs`, `_meta/tests/nightly.mjs`; edits `_meta/alambic.mjs`, `_meta/lib/promotion-judge.mjs`, `_meta/lib/sidekick.mjs`, `_meta/lib/setup.mjs`, `_meta/tests/{sidekick,setup,run.sh}`, `.gitignore`, `_meta/templates/gitignore`, `.github/workflows/alambic-sidekick-daily.yml`, `_meta/automation-contract.json`, README, CLAUDE.md, `kb/adr-alambic-local-session-harvest.md`, `kb/_index.md`
+- Existing docs: README, `automation-contract.json`, `kb/capture-quarantine-before-kb.md`, `kb/adr-alambic-autonomous-oracle-sidekick.md`
+- Commands: `npm test`, `npm run validate`, `npm run lint`, `_meta/tests/leak-scan.sh`
+
+## Requirement Trace
+| Requirement / source | Observed state | Gap / ambiguity | Decision | Step / expected evidence |
+| --- | --- | --- | --- | --- |
+| session capture hook | nothing calls `capture` | 3 formats, recursion | `harvest scan` + Claude SessionEnd hook, nightly for Codex/Pi | S1, S3 tests |
+| scored candidates | none | thresholds | deterministic score, default 40 | S1 test fixtures |
+| ADD/UPDATE/NOOP | create/update only | NOOP rule | lexical containment NOOP | S2 sidekick tests |
+| session review gate | session refs auto-apply | receipt identity | sha256-keyed accept receipt | S2 tests |
+| write precision | none | definition | accepted/(accepted+rejected) | S2 status test |
+| brain-cron migration | raw transcripts, Claude only | brain validator ≠ alambic | digest + ack, brain agent keeps writing | S5 dry run |
+| local crons (user) | GH Actions schedule | secrets in plist | LaunchAgent via `zsh -lc`, schedule removed from GH | S3, S4 `launchctl print` |
+| obvault on Mac mini, brain on macbook-work (user) | both setups installed on both | which machine harvests | obvault nightly on Mac mini; brain harvest on macbook-work | S4, S5 |
+
+## Approach
+- Harvest keeps raw session data in XDG state only; the vault only sees distilled drafts in a gitignored inbox file, and `kb/` only sees them after the judge plus a human receipt.
+- Distiller is an external command (`--distiller` or `ALAMBIC_HARVEST_DISTILLER`, default `claude -p --setting-sources "" --disable-slash-commands --tools "" --strict-mcp-config --no-session-persistence --model sonnet`, so user hooks and settings are not loaded; `--bare` rejected because it drops OAuth), prompt on stdin, JSON answer `{"skip":bool,"type","title","summary","tags":[],"body","sources":[]}`; alambic renders the frontmatter, so the model cannot set review fields. Child env `ALAMBIC_HARVEST_CHILD=1`.
+- Score (0-77): file:line refs (≤30), decision words FR/EN (≤21), resolution words (≤14), user turns (≤12); no vault query in the scan (keeps the hook fast and write-free).
+- Cursor `$STATE/harvest/cursor.json` path → `{size, mtimeMs}`; skip files modified <10 min ago unless `--session` (hook); first run looks back 7 days.
+- Gate: `isSessionOrigin(data)` in promotion-judge; decision `review_required` unless `$STATE/reviews/inbox-<sha256>.json` with `decision: accept` exists. NOOP check runs before the gate so duplicates never wait for review.
+- Nightly lives in `_meta/lib/nightly.mjs`, spawns the CLI subcommands so each step keeps its current behavior; commit uses explicit paths and a staged-tree allowlist check; push `git push origin HEAD:<default>` only when on the default branch with exactly one outgoing commit.
+- LaunchAgent plist: `ProgramArguments = [/bin/zsh, -lc, exec node <engine>/_meta/alambic.mjs nightly --push --json]`, `EnvironmentVariables` = ALAMBIC_ROOT, ALAMBIC_STATE_DIR, PATH; secrets come from the login env, never the plist. Install = write plist + `launchctl bootout` (ignore) + `launchctl bootstrap gui/<uid>`; uninstall = bootout + remove.
+- Rejected: running the sidekick from the SessionEnd hook (latency, concurrent writers); writing drafts straight to `kb/` with `status: draft` (pollutes retrieval, bypasses review).
+
+## Execution Slices
+### Slice 1 — `alambic harvest`
+- Goal: scan/queue/distill/digest/ack/status.
+- Files: `_meta/lib/harvest.mjs`, `_meta/prompts/harvest-distill.md`, `_meta/alambic.mjs` (dispatch + usage), `.gitignore`, `_meta/templates/gitignore`, `_meta/tests/harvest.mjs`, `_meta/tests/run.sh`.
+- Checks: `node _meta/tests/harvest.mjs .` (3 format fixtures, score, unsafe drop, cursor idempotence, fake distiller incl. forbidden keys and SKIP, digest/ack), `npm test`.
+- Rollback point: alambic 0c934f1.
+
+### Slice 2 — judge gate, NOOP, review, metrics
+- Files: `_meta/lib/promotion-judge.mjs`, `_meta/lib/sidekick.mjs`, `_meta/alambic.mjs` (`review --inbox`), `_meta/tests/sidekick.mjs`.
+- Checks: session-origin → review_required; receipt for old sha does not unlock edited file; receipt → promote with `human:alambic-review`; NOOP archive; reject archive; metrics counters; existing sidekick tests unchanged.
+
+### Slice 3 — nightly, setup `--schedule`, `--harvest-hook`
+- Files: `_meta/lib/nightly.mjs`, `_meta/hooks/harvest-hook.mjs`, `_meta/lib/setup.mjs`, `_meta/alambic.mjs`, `_meta/tests/{nightly,setup}.mjs`, `.github/workflows/alambic-sidekick-daily.yml`.
+- Checks: nightly `--dry-run` on a temp git vault (no commit), red gate → no commit, commit only allowed paths; setup schedule/hook items with `--name`, status, uninstall, default fingerprints unchanged; `launchctl` stubbed through `ALAMBIC_LAUNCHCTL` in tests.
+- Then: 12b simplify, 12c quality, Logic + Spec review, gpt-6-astra xhigh code-diff adversary on S1-S3, fix, commit, push alambic.
+
+### Slice 4 — obvault on the Mac mini
+- Steps: sync engine files verbatim into obvault, gitignore, drop workflow schedule, `npm test`, commit, push; `alambic setup --yes --name obvault --vault <obvault checkout> --schedule 05:15 --harvest-hook` from the obvault checkout (named obvault setup already uses its own engine); `launchctl print`; `nightly --dry-run --json`; `harvest scan --dry-run`.
+- Rollback: `setup --uninstall --yes --name obvault` then re-run the previous `setup --yes --name obvault`; obvault revert commit.
+
+### Slice 5 — brain on macbook-work
+- Steps: pull alambic on macbook-work (`~/work/alambic`); read `cron-run.sh` + `cron-prompt.md`; in a fresh clone: `cron-run.sh` runs `harvest scan` + `harvest digest --out <tmp>` with `ALAMBIC_ROOT=~/work/brain ALAMBIC_STATE_DIR=~/.local/state/alambic-brain`, exits early on an empty digest, passes the digest path to the agent, `harvest ack --digest` after push; `BRAIN_CAPTURE_ENGINE=legacy` keeps the old path; prompt treats the digest as untrusted data; brain `npm test` + `validate-kb.sh`; commit, push; `git pull --ff-only` in `~/work/brain`; `alambic setup --yes --name brain --vault ~/work/brain --harvest-hook`; digest dry run.
+- Rollback: `BRAIN_CAPTURE_ENGINE=legacy` in the LaunchAgent env; brain revert commit.
+
+### Slice 6 — docs and ADR
+- Files: README, CLAUDE.md (write path), `automation-contract.json`, `kb/adr-alambic-local-session-harvest.md`, `kb/_index.md`.
+- Checks: `npm test`, validate, lint, leak-scan.
+
+## Validation Plan
+- Automated: alambic `npm test`, `npm run validate`, `npm run lint`, `_meta/tests/leak-scan.sh`, `env -u TYPESAFE_API_KEY npm test`; obvault `npm test`; brain `npm test` + `validate-kb.sh`.
+- Manual: `launchctl print gui/$UID/dev.alambic.alambic-obvault.nightly`; `nightly --dry-run --json`; `harvest status --json` on both machines; `setup --status --name obvault|brain`.
+- Regression risks: default setup fingerprints; existing freeform promotion for non-session inbox notes; brain cron gates; hook latency on every Claude session end.
+- Evidence for done: test tails, status JSON, SHAs.
+
+## Progress Log
+- 2026-09-23: recon done (session formats, judge, setup, brain cron, GH workflow).
+- 2026-09-24: plan adversary gpt-6-astra xhigh: BLOCK, 20 findings; 16 folded into AC/Approach, 4 kept as documented residual risk (Decision Log). Slice 1 green (`harvest: ok`); missing `parseMarkdown` import in `applyFreeformPromote` fixed (freeform apply always threw).
+- 2026-09-24: slice 2 green (`review-gate: ok`). Slice 3 green: `nightly: ok` (e2e on a temp git vault + bare remote), `setup: ok` (schedule + harvest hook, stubbed launchctl, default fingerprint unchanged), workflow schedule dropped; full suite `alambic tests: ok`.
+- 2026-09-24: simplify: removed 1 (nightly step helpers merged). Quality: compared with setup item siblings and sidekick step pattern. Code review fixes applied; `alambic tests: ok`, `env -u TYPESAFE_API_KEY npm test` rc 0. Plan redaction pushed as feadb5b.
+- 2026-09-24: code-diff adversary fixes; `alambic tests: ok`, keyless `npm test` rc 0; alambic e1ea0e8, 4d5344e, 57f4afc, ab15a80 pushed, CI green.
+- 2026-09-24: slice 4: obvault ca48bf3 (engine sync, gitignore, workflow schedule dropped), `npm test` ok; `setup --name obvault --schedule 05:15 --harvest-hook` applied; `dev.alambic.alambic-obvault.nightly` loaded (05:15, env keys ALAMBIC_ROOT, ALAMBIC_STATE_DIR, PATH, session dirs); `nightly --dry-run` ok, all steps green, 85 sessions queued in dry-run; `harvest scan --dry-run` ok (265 scanned).
+- 2026-09-24: slice 5: brain 969f2dc (cron-run harvest digest + ack, `--no-session-persistence`, `ALAMBIC_HARVEST_CHILD=1`, `BRAIN_CAPTURE_ENGINE=legacy` rollback); smoke with fake HOME + stub claude: digest passed, env child=1, ack empties queue, empty digest skips, legacy path intact; brain `npm test` rc 0, `validate-kb: ok (147 notes)`; `~/work/brain` fast-forwarded; `alambic-brain` SessionEnd hook installed; brain `harvest scan --dry-run` ok (83 scanned, 35 queued).
+- 2026-09-24: slice 6: alambic 2cef67f (README, CLAUDE.md, ADR + index, self-improvement note, dev-workflow skill, attention ref); obvault 13f2c07 skill sync; validate/lint/leak-scan ok, `alambic tests: ok`.
+- 2026-09-24: round 2 (review FIX, code-diff adversary FIX, plan adversary BLOCK) fixed below; brain 48bc898 (max 6 per run, no-commit ack only with nothing unpushed); `harvest: ok`, `nightly: ok`, `setup: ok`, `alambic tests: ok`, keyless `npm test` rc 0, validate/lint/leak-scan ok. Real distiller smoke: synthetic session, `scan` queued 1, `distill` with `claude -p` wrote one `harvest-*.md` draft (`status: draft`, `origin: session-harvest`, score 57), no session file created in the Claude projects dir.
+
+## Decision Log
+- 2026-09-23: crons local per machine (user); GH schedule removed, dispatch kept.
+- 2026-09-23: brain keeps its own writer agent; it consumes the alambic harvest digest only.
+- 2026-09-23: model output is JSON rendered by alambic, not raw frontmatter.
+- 2026-09-24: adversary #1 (brain writes kb without a human receipt) accepted as a deviation: brain-cron already writes kb from raw Claude transcripts behind its `file:line` + `validate-kb.sh` gates; the digest narrows that input (unsafe-filtered, capped, marked untrusted). A brain-side receipt is a follow-up.
+- 2026-09-24: adversary #3 (a same-user process can forge a receipt) accepted: the threat model is prompt-injected session text and non-interactive agents; accept needs a TTY and the receipt binds the exact bytes, which stops the CLI path, not a hostile local process.
+- 2026-09-24: adversary #4 partly adopted: the receipt is checked against the bytes read at apply time; binding to the create vs update target is not done.
+- 2026-09-24: adversary #12: ack already uses the digest manifest (names + excerpt sha); a crash between push and ack replays the batch and the brain writer's update-before-create rule absorbs it.
+- 2026-09-24: digest/ack serve brain only; obvault uses scan + distill + review gate.
+- 2026-09-24: nightly allowlist also accepts deletions under `docs/inbox/` (staged with `git add -u -- docs/inbox`), so a promoted or archived tracked inbox note does not leave a dirty tree; additions and edits there stay refused.
+- 2026-09-24: `applyFreeformPromote` linked `[[adr-alambic-autonomous-oracle-sidekick]]` unconditionally, which breaks validate in any vault without that note; Related links are now emitted only for notes that exist.
+- 2026-09-24: sidekick now judges notes that wait for review, so a replayed session that matches a promoted note is archived as `noop-*` instead of waiting forever; non-noop pending notes stay `review_required`.
+- 2026-09-24: residual (superseded by the code review below): the harvest lock goes stale after 30 min; `git add -A kb ref` also stages untracked files there.
+- 2026-09-24: code review gpt-6-astra xhigh (logic FIX 9, spec FIX 7, overlapping). Fixed: promote parses and checks the receipt on one read; accepted updates write `reviewed_by`/`reviewed_at`; NOOP coverage normalizes whitespace only; distill failures stay queued (3 attempts) and report `ok: false`, so nightly holds the push; queue names carry the message offset, so a resumed session does not overwrite a pending excerpt; the lock records an owner pid + token, is taken over only when the owner is dead and released only by its owner; preflight checks the index separately, refuses untracked files under kb/ref/ledger, and checks the branch on any committing run (fetch and HEAD == origin only with `--push`); `--session` needs `.jsonl`; `harvest digest --out` refuses paths inside the vault (adversary probe exported excerpts to `kb/`); harvest args validate before any side effect; uninstall keeps preexisting agents untouched and keeps the plist tracked when bootout fails and the job is still loaded; restore message says when the old agent stays unloaded; the default-handle hook and plist follow `ALAMBIC_STATE_DIR` like the CLI. Regressions added in harvest, review-gate, nightly and setup tests.
+- 2026-09-24: code-diff adversary gpt-6-astra xhigh: FIX, 7 findings. Fixed: #1 a state dir inside the vault is refused before any write (CLI harvest, scan, distill, nightly preflight, symlinked parents resolved); #2 nightly re-checks the committed tree with diff-tree and undoes a commit that left the allowlist; #4 a failed push is resumed when HEAD is the nightly's own allowlisted commit on top of the upstream; #6 actions on the same settings file chain their preimage, so prompt and harvest hooks install together; #7 the SessionEnd hook spawns a detached scan and returns at once. #5 was already fixed by the code review. Residual #3: a red gate leaves the sidekick mutations and a dirty tree, and the next preflight refuses to run; this is fail-closed and a human resolves it (isolated worktree apply is a follow-up).
+- 2026-09-24: the nightly test assumed a fresh `init` vault converges in one run; obvault ships 240 notes and the sidekick adds a few Related links per run (converges in 4). The test now warms up to ten runs before the idempotence check.
+- 2026-09-24: brain's harvest hook runs the `~/work/alambic` engine (brain's engine has no harvest), so the `setup-brain` manifest now records that engine; the pre-existing `claude:mcp`/`codex:mcp` drift on macbook-work is left untouched (setup ran with `--no-skill --no-mcp --no-shim`).
+- 2026-09-24: brain cron in harvest mode acks the digest after a push, or when the agent exits 0 with no commit and no leftover; a gate failure, a crash or a stash keeps the batch for the next run. The first run replays sessions from the last 7 days that legacy already saw; the writer's update-before-create rule absorbs them.
+- 2026-09-24: residual: setup records `process.execPath`, which is a versioned Homebrew Cellar path on macbook-work; a node upgrade breaks the SessionEnd hook until `setup` is re-run (the nightly scan still covers the sessions).
+- 2026-09-24: `TYPESAFE_API_KEY` is exported in `~/.zshrc` on the Mac mini, which `zsh -lc` does not read; nightly then reports `enrich` as skipped and dedupe stays lexical. The plist stays secret-free; moving the export to `~/.zprofile` enables it.
+- 2026-09-24: the writer contract (`_meta/automation-contract.json`) and the sidekick `next` hint move to the local LaunchAgent in slice 3, next to the workflow change, instead of slice 6.
+- 2026-09-24: check_freeze_demote: plan adversary BLOCK; AC rewritten to fold findings 2, 5-11, 13-20 (score without vault read and default 40, symlink-safe `--session`, gate at three points, NOOP on whole body only, TTY accept, `review_acceptance_rate`, nightly preflight + allowlist + no promote-ready, absolute node and plist restore, brain writer without session persistence). The NOOP narrowing and the metric rename are deliberate weakenings of the earlier wording; the commit scope loses `promote-ready` on purpose.
+- 2026-09-24: round 2 gpt-6-astra xhigh. Fixed: nightly snapshots the publishable tree after sidekick and commits it with `commit-tree` only when the staged tree still equals the snapshot; `harvest digest --out` refuses a target whose real path (or nearest existing ancestor) is inside the vault; stale lock takeover renames the lock to a tombstone and backs off when the owner changed; `ack --dry-run` keeps the queue and metrics; uninstall with a missing plist keeps the item when bootout fails; metrics updates hold a file lock (6 processes x 20 bumps = 120); excerpts stay within 6000 chars with separators; state subdirs (`reviews`, `harvest/{queue,processed,lock}`) symlinked into the vault are refused; brain acks a no-commit run only when nothing is unpushed and caps a run at 6 sessions.
+- 2026-09-24: round 2 documented, no code: the TTY accept is procedural (ADR Consequences, README); nightly commits `docs/inbox/` deletions (ADR, README).
+- 2026-09-24: round 2 residuals: brain bypasses the receipt (deviation #1 stands); an UPDATE keeps 600 chars of the draft, so a NOOP replay is guaranteed only for bodies that fit; a red gate leaves the tree dirty (fail-closed, residual #3).
+- 2026-09-24: AC alignment: the harvest default threshold is 40 (trace fixed); the nightly allowlist includes `docs/inbox/` deletions; the brain no-commit ack also requires no commit ahead of origin.
+
+## Handoff State
+- Current state: IMPLEMENTED, slices 1-6 done
+- Last validated state: alambic round 2 fixes, obvault engine sync, brain 48bc898
+- Known failures: none
+- Next action: none
+
+## Risks
+- Session text leaks into a pushed commit.
+  - Impact: private data in git history. Mitigation: raw data in XDG only, harvest inbox gitignored, receipt gate, nightly commits explicit paths, leak-scan before push.
+- SessionEnd hook slows or breaks Claude exits.
+  - Impact: UX. Mitigation: single-file scan, no LLM, 10 s timeout, always exit 0, child guard.
+- Nightly concurrent with a human edit.
+  - Impact: conflicting commits. Mitigation: clean tracked tree + index and HEAD == upstream preflight, harvest lock over the whole run, staged-tree allowlist.
+- brain regression.
+  - Impact: nightly brain capture stops. Mitigation: legacy switch, unchanged gates, dry run before enabling.
+- Existing obvault inbox notes citing `claude:` sources now wait for review.
+  - Impact: fewer auto-promotions. Mitigation: intended; listed in `harvest status` pending list.
+
+## Open Questions
+- None
+
+## Ready Gate
+- [x] Goal and acceptance criteria are concrete
+- [x] Scope and non-goals are bounded
+- [x] Observed facts are separated from assumptions
+- [x] Steps/slices are executable in order
+- [x] Checks are named and proportionate
+- [x] Risks are identified or explicitly none
+- [x] No blocking open questions remain
