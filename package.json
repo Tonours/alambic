@@ -12,6 +12,7 @@
     "test": "_meta/tests/run.sh",
     "mcp": "node _meta/mcp/server.mjs",
     "doctor": "node _meta/alambic.mjs doctor",
+    "setup": "node _meta/alambic.mjs setup",
     "status": "node _meta/alambic.mjs status --json",
     "loop": "node _meta/alambic.mjs loop --json",
     "loop:ci": "node _meta/alambic.mjs loop --ci --json",

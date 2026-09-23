@@ -17,6 +17,9 @@ node "$ROOT/_meta/tests/sidekick.mjs" "$ROOT"
 node "$ROOT/_meta/tests/l0-fresh.mjs" "$ROOT"
 node "$ROOT/_meta/tests/typesafe.mjs" "$ROOT"
 node "$ROOT/_meta/tests/init.mjs" "$ROOT"
+node "$ROOT/_meta/tests/setup.mjs" "$ROOT"
+node "$ROOT/_meta/tests/hook-adapters.mjs" "$ROOT"
+python3 "$ROOT/_meta/tests/checkbox-pty.py" "$ROOT"
 "$ROOT/_meta/alambic" eval --suite attention-ranking
 "$ROOT/_meta/alambic" eval --suite attention-compile
 "$ROOT/_meta/alambic" eval --suite lint

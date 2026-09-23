@@ -184,6 +184,9 @@ try {
   if (RETRIEVAL_COMMANDS.has(command) && !(command === 'session' && args.includes('--attention'))) {
     const { runRetrievalCommand } = await import('./lib/retrieval-cli.mjs')
     await runRetrievalCommand({ root: ROOT, command, args })
+  } else if (command === 'setup') {
+    const { runSetup } = await import('./lib/setup.mjs')
+    process.exitCode = await runSetup({ vault: ROOT, args })
   } else if (command === 'init') {
     const force = has('--force')
     const dest = args.shift()
@@ -266,6 +269,8 @@ try {
     const validation = validateVault(ROOT, { strict: true })
     const sources = checkSources(ROOT)
     const obsidian = checkObsidianBootstrap(ROOT)
+    const { doctorSetup } = await import('./lib/setup.mjs')
+    const setup = doctorSetup(ROOT)
     const report = {
       ok: validation.ok && sources.ok && obsidian.ok,
       root: ROOT,
@@ -273,6 +278,7 @@ try {
       validation,
       sources,
       obsidian,
+      setup,
     }
     if (json) output(report, true)
     else {
@@ -285,6 +291,8 @@ try {
         `obsidian: ${obsidian.installed ? (obsidian.ok ? 'ok' : 'misconfigured') : 'not installed'}`,
       ]
       if (obsidian.issues.length) lines.push(...obsidian.issues.map((issue) => `  - ${issue}`))
+      lines.push(`setup: ${setup.installed ? (setup.warnings.length ? 'warnings' : 'ok') : 'not installed (run _meta/alambic setup)'}`)
+      lines.push(...setup.warnings.map((warning) => `  - warning: ${warning}`))
       output(lines.join('\n'))
     }
     if (!report.ok) process.exitCode = 1
@@ -630,7 +638,7 @@ try {
       output(AGENT_PROMPT)
     } else throw new Error('usage: alambic refresh status|query|staged|agent-prompt')
   } else {
-    output('usage: alambic init|attention|validate|graph|graph-lint|manifest|routing-catalog|route|sources|lint|doctor|query|context|read|health|status|loop|sidekick|session|enrich|eval|state|capture|distill|review|feedback|refresh')
+    output('usage: alambic init|setup|attention|validate|graph|graph-lint|manifest|routing-catalog|route|sources|lint|doctor|query|context|read|health|status|loop|sidekick|session|enrich|eval|state|capture|distill|review|feedback|refresh')
   }
 } catch (error) {
   process.stderr.write(`alambic: ${error.message}\n`)
