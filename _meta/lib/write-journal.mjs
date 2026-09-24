@@ -13,14 +13,21 @@ export function journalRecord(file, before, after, env = process.env) {
   fs.appendFileSync(env.ALAMBIC_WRITE_JOURNAL, `${JSON.stringify({ path: path.resolve(file), before, after })}\n`)
 }
 
-function swapChecked(file, temporary, expected, dir) {
+function reserve(file, expected, dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const displaced = path.join(dir, `${expected}-${crypto.randomUUID()}-${path.basename(file)}`)
-  try { fs.renameSync(file, displaced) } catch (error) { if (error.code === 'ENOENT') return false; throw error }
-  if (fileSha(displaced) !== expected) {
-    try { fs.linkSync(displaced, file); fs.unlinkSync(displaced) } catch (error) { if (error.code !== 'EEXIST') throw error }
-    return false
-  }
+  const reserved = path.join(dir, `${expected}-${crypto.randomUUID()}-${path.basename(file)}`)
+  try { fs.renameSync(file, reserved) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
+  if (fileSha(reserved) === expected) return reserved
+  restore(reserved, file)
+  return null
+}
+
+function restore(reserved, file) {
+  try { fs.linkSync(reserved, file); fs.unlinkSync(reserved) } catch (error) { if (error.code !== 'EEXIST') throw error }
+}
+
+function swapChecked(file, temporary, expected, dir) {
+  if (!reserve(file, expected, dir)) return false
   fs.linkSync(temporary, file)
   return true
 }
@@ -44,30 +51,24 @@ export function writeChecked(file, before, after, env = process.env) {
   return true
 }
 
-export function displacedEdits(dir, { prune = false } = {}) {
+export function displacedEdits(dir) {
   let names = []
   try { names = fs.readdirSync(dir) } catch { return [] }
-  const kept = []
-  for (const name of names) {
-    const file = path.join(dir, name)
-    if (fileSha(file) !== name.slice(0, 64)) kept.push(file)
-    else if (prune) fs.rmSync(file, { force: true })
-  }
-  return kept
+  return names.map((name) => path.join(dir, name)).filter((file) => fileSha(file) !== path.basename(file).slice(0, 64))
 }
 
-export function moveChecked(file, dest, env = process.env) {
-  const before = fileSha(file)
-  if (before === null) return false
-  try {
-    fs.linkSync(file, dest)
-  } catch (error) {
-    if (error.code !== 'EXDEV') throw error
-    fs.copyFileSync(file, dest, fs.constants.COPYFILE_EXCL)
+export function moveChecked(file, dests, expected = fileSha(file), env = process.env) {
+  if (expected === null) return null
+  const reserved = reserve(file, expected, path.dirname(dests[0]))
+  if (!reserved) return null
+  for (const dest of dests) {
+    try { fs.linkSync(reserved, dest) } catch (error) { if (error.code === 'EEXIST') continue; throw error }
+    fs.unlinkSync(reserved)
+    journalRecord(file, expected, null, env)
+    return dest
   }
-  fs.unlinkSync(file)
-  journalRecord(file, before, null, env)
-  return true
+  restore(reserved, file)
+  throw new Error(`no free archive name for ${path.basename(file)}`)
 }
 
 export function readJournal(journal) {

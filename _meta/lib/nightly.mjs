@@ -272,20 +272,24 @@ function nightlyLocked(root, { push, dryRun, env: baseEnv, distiller, journal })
     if (!preflight.ok) return { ...report, reason: `preflight: ${preflight.reason}` }
     const displaced = gitPath(root, baseEnv, 'alambic-displaced')
     if (!displaced) return { ...report, reason: 'preflight: git rev-parse failed' }
-    const kept = displacedEdits(displaced, { prune: true })
+    const kept = displacedEdits(displaced)
     if (kept.length) return { ...report, reason: 'preflight: concurrent edits preserved by an earlier run, resolve and delete them', paths: kept.slice(0, 20) }
     const env = { ...baseEnv, ALAMBIC_DISPLACED_DIR: displaced }
     if (preflight.resumed && !seedJournal(root, env, journal, preflight.head, preflight.resumed)) return { ...report, reason: 'preflight: git diff failed' }
-    try {
-      return runSteps(root, { push, dryRun, env, distiller, journal, report, preflight })
-    } finally {
-      displacedEdits(displaced, { prune: true })
-    }
+    return runSteps(root, { push, dryRun, env, distiller, journal, report, preflight })
   })
   return locked.locked ? { ok: false, locked: true, reason: 'another harvest or nightly run holds the lock' } : locked
 }
 
+function leakPatterns(root, env) {
+  const file = path.resolve(root, env.ALAMBIC_LEAK_PATTERNS_FILE || '.leak-patterns')
+  try { fs.accessSync(file, fs.constants.R_OK); if (fs.statSync(file).isFile()) return { ok: true, file } } catch {}
+  return env.ALAMBIC_LEAK_PATTERNS_FILE ? { ok: false } : { ok: true, file: null }
+}
+
 function runSteps(root, { push, dryRun, env, distiller, journal, report, preflight }) {
+  const patterns = leakPatterns(root, env)
+  if (!patterns.ok) return { ...report, reason: 'ALAMBIC_LEAK_PATTERNS_FILE is set but is not a readable file', commit: null, pushed: false }
   const scan = harvestScan(root, { dryRun, env })
   report.steps.push({ name: 'harvest-scan', ok: scan.ok, queued: scan.queued.length, ...(scan.error ? { error: scan.error } : {}) })
   if (resolveDistiller(distiller, env)) {
@@ -297,8 +301,7 @@ function runSteps(root, { push, dryRun, env, distiller, journal, report, preflig
   report.steps.push(cliStep(root, 'sidekick', ['sidekick', 'run', ...(dryRun ? ['--dry-run'] : ['--apply-all', '--max-freeform', '3']), '--max', '12', '--json'], env))
   const snapshot = dryRun ? null : publishableTree(root, env)
   if (snapshot && !snapshot.ok) return { ...report, reason: snapshot.reason, commit: null, pushed: false }
-  const patterns = env.ALAMBIC_LEAK_PATTERNS_FILE || path.join(root, '.leak-patterns')
-  const gateEnv = { ...env, ...(fs.existsSync(patterns) ? { ALAMBIC_LEAK_PATTERNS_FILE: path.resolve(root, patterns) } : {}) }
+  const gateEnv = { ...env, ...(patterns.file ? { ALAMBIC_LEAK_PATTERNS_FILE: patterns.file } : {}) }
   const gates = (gateRoot) => [
     cliStep(gateRoot, 'validate', ['validate', '--mode', 'strict'], gateEnv),
     cliStep(gateRoot, 'lint', ['lint', '--check'], gateEnv),

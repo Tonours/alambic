@@ -17,6 +17,7 @@ delete process.env.TYPESAFE_API_KEY
 const judge = await import(path.join(root, '_meta/lib/promotion-judge.mjs'))
 const { dedupeCanChange, runSidekick, semanticDedupe } = await import(path.join(root, '_meta/lib/sidekick.mjs'))
 const { harvestStatus } = await import(path.join(root, '_meta/lib/harvest.mjs'))
+const { moveChecked } = await import(path.join(root, '_meta/lib/write-journal.mjs'))
 const cli = (argv) => spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), ...argv], { encoding: 'utf8', env: { ...process.env, ALAMBIC_ROOT: vault } })
 
 const body = 'The lexical cache must keep raw fields and sources because stale entries crash queries after an upgrade. '.repeat(3)
@@ -110,6 +111,24 @@ try {
   fs.unlinkSync(processedDir)
   if (fs.existsSync(parked)) fs.renameSync(parked, processedDir)
   fs.rmSync(escaping)
+
+  const raced = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Session note replaced by an atomic save before its archive' })
+  const judged = fs.readFileSync(raced, 'utf8')
+  const saved = `${judged}\nSaved by the editor.\n`
+  fs.writeFileSync(`${raced}.save`, saved)
+  fs.renameSync(`${raced}.save`, raced)
+  fs.mkdirSync(processedDir, { recursive: true })
+  const racedDest = path.join(processedDir, 'rejected-p9.md')
+  assert.equal(moveChecked(raced, [racedDest], judge.sha256(judged)), null)
+  assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'an atomic save before the archive stays in the inbox')
+  assert.deepEqual(fs.readdirSync(processedDir).filter((name) => name.includes('p9')), [], 'a refused archive leaves no copy')
+  fs.writeFileSync(racedDest, 'taken\n')
+  assert.throws(() => moveChecked(raced, [racedDest], judge.sha256(saved)), /no free archive name/)
+  assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'an archive with no free name restores the source')
+  assert.equal(moveChecked(raced, [racedDest, path.join(processedDir, 'rejected-p9-1.md')], judge.sha256(saved)), path.join(processedDir, 'rejected-p9-1.md'))
+  assert.equal(fs.existsSync(raced), false)
+  assert.deepEqual(fs.readdirSync(processedDir).filter((name) => name.includes('p9')).sort(), ['rejected-p9-1.md', 'rejected-p9.md'], 'the archive keeps no reserved copy')
+  for (const name of ['rejected-p9.md', 'rejected-p9-1.md']) fs.rmSync(path.join(processedDir, name))
 
   const rejectMe = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Vague chit chat about lunch that should never reach the wiki pages' })
   judge.reviewInbox(vault, rel(rejectMe), { decision: 'reject', reason: 'not durable' })

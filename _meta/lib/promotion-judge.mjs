@@ -258,7 +258,7 @@ export function reviewInbox(root, relativePath, { decision, reason, tty = false,
   const sessionOrigin = isSessionOrigin(data, relative)
   if (decision === 'reject') vaultDir(root, 'docs/inbox/ai/processed')
   const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason })
-  if (decision === 'reject') archiveInboxSource(root, relative, 'rejected')
+  if (decision === 'reject') archiveInboxSource(root, relative, 'rejected', text)
   return { ok: true, path: relative, decision, session_origin: sessionOrigin, receipt, idempotent }
 }
 
@@ -475,7 +475,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
     }
     if (scanUnsafe(after).length) return { ok: false, error: 'unsafe-after' }
     if (!writeChecked(targetAbs, before, after)) return { ok: false, error: 'concurrent-edit', path: judgment.update_target }
-    archiveInboxSource(root, judgment.path, 'updated')
+    archiveInboxSource(root, judgment.path, 'updated', text)
     invalidateManifest(root)
     return { ok: true, mode: 'update', path: judgment.update_target, changed: true }
   }
@@ -518,26 +518,19 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   if (scanUnsafe(front).length) return { ok: false, error: 'unsafe-create' }
   if (!writeChecked(targetAbs, null, front)) return { ok: false, error: 'concurrent-edit', path: targetRel }
   applyIndexEntry(root, basename)
-  archiveInboxSource(root, judgment.path, 'created')
+  archiveInboxSource(root, judgment.path, 'created', text)
   invalidateManifest(root)
   return { ok: true, mode: 'create', path: targetRel, changed: true, basename }
 }
 
-function archiveInboxSource(root, relativePath, mode) {
+function archiveInboxSource(root, relativePath, mode, text) {
   const abs = path.join(root, relativePath)
   if (!fs.existsSync(abs)) return
   const processedDir = vaultDir(root, 'docs/inbox/ai/processed')
   const ext = path.extname(relativePath)
   const base = path.basename(relativePath, ext)
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      moveChecked(abs, path.join(processedDir, `${mode}-${base}${attempt ? `-${attempt}` : ''}${ext}`))
-      return
-    } catch (error) {
-      if (error.code !== 'EEXIST') throw error
-    }
-  }
-  throw new Error(`no free archive name for ${relativePath}`)
+  const names = Array.from({ length: 20 }, (_, attempt) => path.join(processedDir, `${mode}-${base}${attempt ? `-${attempt}` : ''}${ext}`))
+  moveChecked(abs, names, text === undefined ? undefined : sha256(text))
 }
 
 function sourceLooksInspectable(root, source) {
