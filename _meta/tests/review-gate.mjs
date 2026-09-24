@@ -172,18 +172,50 @@ try {
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'an archive with no free name restores the source')
   const reservedDir = path.join(state, 'displaced')
   const archived = path.join(processedDir, 'rejected-p9-1.md')
-  const { openSync, writeSync, unlinkSync } = fs
+  const { openSync, writeSync, unlinkSync, renameSync } = fs
   const onOpen = (hook) => { fs.openSync = (dest, ...rest) => { hook(dest); return openSync(dest, ...rest) } }
-  const unhook = () => Object.assign(fs, { openSync, writeSync, unlinkSync })
-  const failing = (dest) => { if (dest === archived) fs.writeSync = (fd, buffer, offset) => { writeSync(fd, buffer, offset, 1); throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }) } }
+  const unhook = () => Object.assign(fs, { openSync, writeSync, unlinkSync, renameSync })
+  const failing = (dest) => {
+    let calls = 0
+    if (dest === archived) fs.writeSync = (fd, buffer, offset) => { if (calls++) throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }); return writeSync(fd, buffer, offset, 1) }
+  }
   onOpen(failing)
   try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { unhook() }
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'a failed archive write restores the source')
   assert.equal(fs.existsSync(archived), false, 'a partial archive is removed')
   onOpen(failing)
-  fs.unlinkSync = (target) => { if (target === archived) throw Object.assign(new Error('denied'), { code: 'EACCES' }); return unlinkSync(target) }
+  fs.renameSync = (from, to) => { if (from === archived) throw Object.assign(new Error('denied'), { code: 'EACCES' }); return renameSync(from, to) }
   try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { unhook() }
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'a failed cleanup still restores the source')
+  fs.rmSync(archived)
+  onOpen((dest) => {
+    let calls = 0
+    if (dest === archived) fs.writeSync = (fd, buffer, offset) => {
+      if (!calls++) return writeSync(fd, buffer, offset, 1)
+      const editor = openSync(archived, 'a')
+      writeSync(editor, 'Edited during the failed write.\n')
+      fs.closeSync(editor)
+      throw Object.assign(new Error('no space left'), { code: 'ENOSPC' })
+    }
+  })
+  try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { unhook() }
+  assert.equal(fs.readFileSync(raced, 'utf8'), saved)
+  assert.equal(fs.existsSync(archived), false)
+  const editedPartial = displacedEdits(reservedDir).filter((file) => file.includes('withdrawn-rejected-p9-1'))
+  assert.equal(editedPartial.length, 1, 'a partial archive edited before its cleanup is kept and flagged')
+  assert.match(fs.readFileSync(editedPartial[0], 'utf8'), /Edited during the failed write/)
+  fs.rmSync(editedPartial[0])
+  const human = 'Human note that took the archive path.\n'
+  fs.renameSync = (from, to) => {
+    if (path.basename(from) === path.basename(archived) && path.basename(path.dirname(to)) === 'displaced') { fs.writeFileSync(`${archived}.human`, human); renameSync(`${archived}.human`, archived) }
+    return renameSync(from, to)
+  }
+  let replacedUndo
+  try { replacedUndo = moveChecked(raced, [archived], judge.sha256(saved), process.env, () => false) } finally { unhook() }
+  assert.equal(replacedUndo, false)
+  assert.equal(fs.readFileSync(archived, 'utf8'), human, 'a file that replaced the archive during the undo stays in place')
+  assert.equal(fs.readFileSync(raced, 'utf8'), saved)
+  assert.deepEqual(displacedEdits(reservedDir).filter((file) => file.includes('rejected-p9-1')), [])
   fs.rmSync(archived)
   const journalDir = path.join(temp, 'journal-dir')
   fs.mkdirSync(journalDir)
@@ -192,7 +224,7 @@ try {
   assert.equal(fs.existsSync(archived), false)
   const swapped = inbox('harvest-2026-09-24-pi-p11.md', { summary: 'Session note whose archive directory is swapped for the compiled wiki' })
   const swapKb = fs.readdirSync(path.join(vault, 'kb')).sort()
-  onOpen((dest) => { if (String(dest).endsWith('rejected-harvest-2026-09-24-pi-p11.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir) } })
+  onOpen((dest) => { if (String(dest) === path.join(processedDir, 'rejected-harvest-2026-09-24-pi-p11.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir) } })
   try { assert.throws(() => judge.reviewInbox(vault, rel(swapped), { decision: 'reject', reason: 'not durable' }), /processed changed during the archive/) } finally {
     unhook()
     if (fs.lstatSync(processedDir).isSymbolicLink()) { fs.unlinkSync(processedDir); fs.renameSync(`${processedDir}.swapped`, processedDir) }
@@ -217,7 +249,7 @@ try {
   fs.rmSync(occupied)
   const reclaimed = inbox('harvest-2026-09-24-pi-p12.md', { summary: 'Session note recreated while its archive directory points into kb' })
   const reclaimedText = fs.readFileSync(reclaimed, 'utf8')
-  onOpen((dest) => { if (String(dest).endsWith('rejected-harvest-2026-09-24-pi-p12.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir); fs.writeFileSync(reclaimed, 'Recreated by the editor.\n') } })
+  onOpen((dest) => { if (String(dest) === path.join(processedDir, 'rejected-harvest-2026-09-24-pi-p12.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir); fs.writeFileSync(reclaimed, 'Recreated by the editor.\n') } })
   try { assert.throws(() => judge.reviewInbox(vault, rel(reclaimed), { decision: 'reject', reason: 'not durable' }), /processed changed during the archive/) } finally {
     unhook()
     if (fs.lstatSync(processedDir).isSymbolicLink()) { fs.unlinkSync(processedDir); fs.renameSync(`${processedDir}.swapped`, processedDir) }
@@ -225,7 +257,7 @@ try {
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), swapKb, 'an undo blocked by a recreated source still removes the copy from kb')
   assert.equal(fs.readFileSync(reclaimed, 'utf8'), 'Recreated by the editor.\n')
   const kept = fs.readdirSync(reservedDir).filter((name) => name.endsWith('pi-p12.md'))
-  assert.deepEqual(kept.map((name) => fs.readFileSync(path.join(reservedDir, name), 'utf8')), [reclaimedText, reclaimedText], 'both versions survive the undo')
+  assert.deepEqual(kept.map((name) => fs.readFileSync(path.join(reservedDir, name), 'utf8')), [reclaimedText], 'the reserved source survives the undo and the unedited copy is dropped')
   for (const name of kept) fs.rmSync(path.join(reservedDir, name))
   fs.rmSync(reclaimed)
   fs.chmodSync(raced, 0o600)
@@ -244,7 +276,6 @@ try {
   const rejectMe = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Vague chit chat about lunch that should never reach the wiki pages' })
   assert.equal(judge.reviewInbox(vault, rel(rejectMe), { decision: 'reject', reason: 'not durable' }).archived, 'docs/inbox/ai/processed/rejected-harvest-2026-09-24-pi-p9.md')
   const editedReject = inbox('harvest-2026-09-24-pi-p10.md', { summary: 'Session note edited while its rejection moves it to the archive' })
-  const { renameSync } = fs
   fs.renameSync = (from, to) => { if (from === editedReject) fs.appendFileSync(from, 'Edited during the reject.\n'); return renameSync(from, to) }
   let editedReport
   try { editedReport = judge.reviewInbox(vault, rel(editedReject), { decision: 'reject', reason: 'not durable' }) } finally { fs.renameSync = renameSync }

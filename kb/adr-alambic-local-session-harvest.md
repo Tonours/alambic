@@ -112,10 +112,14 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   archive write, cleanup or journal append restores the source, and an archive
   directory swapped during the write undoes the archive: the copy, identified by
   the inode of the descriptor that created it, moves into the displaced
-  directory (flagged when edited meanwhile, never a file that took its path) and
-  the source comes back from the displaced inode; when a new source already
-  took its place, the displaced copy stays as the backup. `harvest distill`
-  checks `docs/inbox/ai` the same way after writing a draft.
+  directory and the source comes back from the displaced inode. A cleanup never
+  unlinks by path: it renames into the displaced directory, then checks the
+  moved inode. A file that took the path goes back, our unedited bytes are
+  dropped, an edited copy stays flagged. `harvest distill` checks
+  `docs/inbox/ai` the same way after writing a draft. A copy alambic can no
+  longer find stays where it landed; an untracked file under `kb/` or `ref/`
+  refuses the next nightly preflight, but retrieval reads it until a human
+  removes it.
 - A displaced directory that exists but cannot be read blocks the run.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.

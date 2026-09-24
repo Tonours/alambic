@@ -157,6 +157,27 @@ try {
   assert.match(swappedRun.failed[0]?.error || '', /changed during the distill/, JSON.stringify(swappedRun))
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBeforeSwap, 'a harvest inbox swapped during the write leaves nothing in kb')
   assert.equal(listQueue().length, 1, 'the entry stays queued')
+  const draftsBefore = new Set(fs.readdirSync(inboxAi))
+  const { writeSync } = fs
+  const drafts = new Set()
+  let intended = null
+  fs.openSync = (file, ...rest) => {
+    const fd = openSync(file, ...rest)
+    if (String(file).startsWith(path.join(inboxAi, 'harvest-'))) drafts.add(fd)
+    return fd
+  }
+  fs.writeSync = (fd, data, ...rest) => {
+    if (!drafts.has(fd)) return writeSync(fd, data, ...rest)
+    intended ??= Buffer.from(data)
+    return typeof data === 'string' ? writeSync(fd, data.slice(0, 64), rest[0]) : writeSync(fd, data, rest[0], Math.min(rest[1], 64))
+  }
+  let shortRun
+  try { shortRun = harvestDistill(vault, { distiller: fake, stateDir: state, env }) } finally { Object.assign(fs, { openSync, writeSync }) }
+  const shortDraft = fs.readdirSync(inboxAi).filter((name) => !draftsBefore.has(name))
+  assert.equal(shortDraft.length, 1, JSON.stringify(shortRun))
+  assert.ok(intended && intended.length > 64)
+  assert.deepEqual(fs.readFileSync(path.join(inboxAi, shortDraft[0])), intended, 'short writes still produce the exact draft')
+  fs.rmSync(path.join(inboxAi, shortDraft[0]))
   for (const item of listQueue()) fs.rmSync(path.join(state, 'harvest/queue', item.name))
 
   fs.writeFileSync(fake, '#!/bin/sh\ncat >/dev/null\necho SKIP\n', { mode: 0o755 })

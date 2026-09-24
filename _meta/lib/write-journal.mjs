@@ -15,9 +15,14 @@ export function journalRecord(file, before, after, env = process.env) {
   fs.appendFileSync(env.ALAMBIC_WRITE_JOURNAL, `${JSON.stringify({ path: path.resolve(file), before, after })}\n`)
 }
 
-function reserve(file, expected, dir) {
+export function prepareDisplaced(dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   if (!fs.lstatSync(dir).isDirectory()) throw new Error('the displaced directory must be a real directory')
+  return dir
+}
+
+function reserve(file, expected, dir) {
+  prepareDisplaced(dir)
   const reserved = path.join(dir, `${expected}-${crypto.randomUUID()}-${path.basename(file)}`)
   try { fs.renameSync(file, reserved) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
   const bytes = fs.readFileSync(reserved)
@@ -30,32 +35,40 @@ function sameInode(file, ino) {
   try { return fs.lstatSync(file).ino === ino } catch { return false }
 }
 
-export function removeCreated(file, ino) {
-  try { if (sameInode(file, ino)) fs.unlinkSync(file) } catch {}
+export function withdraw(candidates, ino, dir, mine) {
+  const found = candidates.find((candidate) => sameInode(candidate, ino))
+  if (!found) return
+  const id = crypto.randomUUID()
+  const name = path.basename(found)
+  const moved = path.join(dir, `pending-${id}-${name}`)
+  fs.renameSync(found, moved)
+  if (!sameInode(moved, ino)) {
+    try { fs.linkSync(moved, found); fs.unlinkSync(moved) } catch { fs.renameSync(moved, path.join(dir, `restore-${id}-${name}`)) }
+    return
+  }
+  if (fs.readFileSync(moved).equals(mine)) fs.unlinkSync(moved)
+  else fs.renameSync(moved, path.join(dir, `${digest(mine)}-${id}-withdrawn-${name}`))
 }
 
-export function createExclusive(file, bytes, mode = 0o666) {
+export function createExclusive(file, bytes, dir, mode = 0o666) {
+  const data = Buffer.from(bytes)
   const fd = fs.openSync(file, 'wx', mode)
   let ino
+  let offset = 0
   try {
     ino = fs.fstatSync(fd).ino
-    writeAll(fd, bytes)
+    while (offset < data.length) offset += fs.writeSync(fd, data, offset, data.length - offset)
   } catch (error) {
-    removeCreated(file, ino)
-    throw error
-  } finally {
     fs.closeSync(fd)
+    try { if (ino !== undefined) withdraw([file], ino, dir, data.subarray(0, offset)) } catch {}
+    throw error
   }
+  fs.closeSync(fd)
   return ino
 }
 
-function withdraw(candidates, ino, dir, expected, reserved, file) {
-  try {
-    const found = candidates.find((candidate) => sameInode(candidate, ino))
-    if (found) fs.renameSync(found, path.join(dir, `${expected}-${crypto.randomUUID()}-withdrawn-${path.basename(found)}`))
-  } finally {
-    restore(reserved, file)
-  }
+function undoArchive(candidates, ino, held, file, dir) {
+  try { withdraw(candidates, ino, dir, held.bytes) } finally { restore(held.reserved, file) }
 }
 
 function restore(reserved, file) {
@@ -114,7 +127,7 @@ export function moveChecked(file, dests, expected, env = process.env, accept = (
   for (const dest of dests) {
     let ino
     try {
-      ino = createExclusive(dest, held.bytes, held.mode)
+      ino = createExclusive(dest, held.bytes, dir, held.mode)
     } catch (error) {
       if (error.code === 'EEXIST') continue
       restore(held.reserved, file)
@@ -126,9 +139,9 @@ export function moveChecked(file, dests, expected, env = process.env, accept = (
       if (!sameInode(real, ino)) throw new Error('the archive moved during the write')
       const accepted = accept(real)
       if (accepted) journalRecord(file, expected, null, env)
-      else { withdraw([real, dest], ino, dir, expected, held.reserved, file); return false }
+      else { undoArchive([real, dest], ino, held, file, dir); return false }
     } catch (error) {
-      withdraw([real, dest], ino, dir, expected, held.reserved, file)
+      undoArchive([real, dest], ino, held, file, dir)
       throw error
     }
     return dest

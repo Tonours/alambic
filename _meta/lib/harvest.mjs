@@ -6,7 +6,7 @@ import path from 'node:path'
 import { alambicStateDir } from './state-dir.mjs'
 import { scanUnsafe } from './vault.mjs'
 import { REFUSE_BODY } from './promotion-judge.mjs'
-import { createExclusive, removeCreated, vaultDir } from './write-journal.mjs'
+import { createExclusive, displacedDir, prepareDisplaced, vaultDir, withdraw } from './write-journal.mjs'
 
 export const HARNESSES = ['claude', 'codex', 'pi']
 export const HARVEST_ORIGIN = 'session-harvest'
@@ -445,19 +445,22 @@ export function renderHarvestNote(answer, entry, today = new Date().toISOString(
   return text
 }
 
-function writeExclusive(dir, base, text) {
+function writeExclusive(dir, base, text, env) {
   const real = fs.realpathSync.native(dir)
+  const displaced = prepareDisplaced(displacedDir(path.join(dir, base), env))
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const file = path.join(dir, `${base}${attempt ? `-${attempt}` : ''}.md`)
     let ino
     try {
-      ino = createExclusive(file, text)
+      ino = createExclusive(file, text, displaced)
     } catch (error) {
       if (error.code === 'EEXIST') continue
       throw error
     }
-    if (fs.realpathSync.native(path.dirname(file)) === real) return file
-    removeCreated(file, ino)
+    let landed = null
+    try { landed = fs.realpathSync.native(path.dirname(file)) } catch {}
+    if (landed === real) return file
+    withdraw([file], ino, displaced, Buffer.from(text))
     throw new Error('docs/inbox/ai changed during the distill')
   }
   throw new Error('could not allocate a harvest inbox filename')
@@ -496,7 +499,7 @@ export function harvestDistill(root, { distiller = null, max = 5, stateDir = nul
       }
       const text = renderHarvestNote(answer, entry)
       const today = new Date().toISOString().slice(0, 10)
-      const file = writeExclusive(vaultDir(root, 'docs/inbox/ai'), `harvest-${today}-${entry.harness}-${safeId(entry.session_id).slice(0, 8)}`, text)
+      const file = writeExclusive(vaultDir(root, 'docs/inbox/ai'), `harvest-${today}-${entry.harness}-${safeId(entry.session_id).slice(0, 8)}`, text, env)
       const relative = path.relative(root, file).split(path.sep).join('/')
       report.written.push({ name, path: relative })
       retire(stateDir, name, 'distilled', { inbox_path: relative })

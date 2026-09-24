@@ -203,7 +203,7 @@ to `origin`, then runs harvest scan, distill, enrich (when `TYPESAFE_API_KEY`
 is in the login env), sidekick, validate, lint and leak-scan. It commits only
 top-level `kb/` and `ref/` files, `_meta/enrich-ledger.json` and the deletion
 of inbox notes it promoted, only as its own steps wrote them and exactly as the
-gates checked them on an export of that tree, and pushes that one commit when every gate is green. A file you edit during the run is never overwritten: the run refuses it, or keeps your copy in `.git/alambic-displaced/` and stops until you resolve it. Switching branch during the run cancels the commit. Every write alambic makes, in nightly or by hand, keeps the replaced file there. Copies that still match the sha in their name are backups; delete them when you like. The plist holds paths, never secrets. macOS only; the
+gates checked them on an export of that tree, and pushes that one commit when every gate is green. A file you edit during the run is never overwritten: the run refuses it, or keeps your copy in `.git/alambic-displaced/` and stops until you resolve it. Switching branch during the run cancels the commit. Every write alambic makes, in nightly or by hand, keeps the replaced file there. Copies that still match the sha in their name are backups; delete them when you like. alambic never deletes a file it cannot verify: a stray copy left under `kb/` or `ref/` blocks the next run until you remove it. The plist holds paths, never secrets. macOS only; the
 `alambic-sidekick-daily.yml` workflow stays for manual dispatch.
 `ALAMBIC_YOUTUBE_*` secrets feed attention collect. Details in
 `kb/alambic-self-improvement-loop.md`, `kb/adr-alambic-local-session-harvest.md`
