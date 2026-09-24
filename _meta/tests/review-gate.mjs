@@ -115,6 +115,9 @@ try {
   const flipped = inbox('harvest-2026-09-24-codex-s4.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: body.replaceAll('.', ' != ') })
   assert.notEqual(judge.judgeFreeformNote(vault, flipped).decision, 'noop', 'punctuation and operators count for coverage')
   fs.rmSync(flipped)
+  const retitled = inbox('harvest-2026-09-24-codex-s5.md', { summary: 'Zyxwv quorble retention rule drops the frobnicator warm between upgrades' })
+  assert.notEqual(judge.judgeFreeformNote(vault, retitled).decision, 'noop', 'a correction carried by the title is not a noop')
+  fs.rmSync(retitled)
 
   const escaping = inbox('harvest-2026-09-24-pi-p8.md', { summary: 'Session note whose archive directory points into the compiled wiki' })
   const processedDir = path.join(vault, 'docs/inbox/ai/processed')
@@ -182,6 +185,22 @@ try {
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), swapKb, 'a swapped archive directory leaves nothing in kb')
   assert.equal(fs.existsSync(swapped), true)
   fs.rmSync(swapped)
+  const reclaimed = inbox('harvest-2026-09-24-pi-p12.md', { summary: 'Session note recreated while its archive directory points into kb' })
+  const reclaimedText = fs.readFileSync(reclaimed, 'utf8')
+  fs.writeFileSync = (dest, ...rest) => {
+    if (String(dest).endsWith('rejected-harvest-2026-09-24-pi-p12.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir); writeFileSync(reclaimed, 'Recreated by the editor.\n') }
+    return writeFileSync(dest, ...rest)
+  }
+  try { assert.throws(() => judge.reviewInbox(vault, rel(reclaimed), { decision: 'reject', reason: 'not durable' }), /processed changed during the archive/) } finally {
+    fs.writeFileSync = writeFileSync
+    if (fs.lstatSync(processedDir).isSymbolicLink()) { fs.unlinkSync(processedDir); fs.renameSync(`${processedDir}.swapped`, processedDir) }
+  }
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), swapKb, 'an undo blocked by a recreated source still removes the copy from kb')
+  assert.equal(fs.readFileSync(reclaimed, 'utf8'), 'Recreated by the editor.\n')
+  const kept = fs.readdirSync(reservedDir).filter((name) => name.endsWith('pi-p12.md'))
+  assert.deepEqual(kept.map((name) => fs.readFileSync(path.join(reservedDir, name), 'utf8')), [reclaimedText], 'both versions survive the undo')
+  for (const name of kept) fs.rmSync(path.join(reservedDir, name))
+  fs.rmSync(reclaimed)
   fs.chmodSync(raced, 0o600)
   const reservedCopy = () => fs.readdirSync(reservedDir).find((name) => name.startsWith(judge.sha256(saved)))
   const lateWrite = (dest) => { if (dest === archived) fs.appendFileSync(path.join(reservedDir, reservedCopy()), 'Late write through an open descriptor.\n') }

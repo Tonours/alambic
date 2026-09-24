@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { alambicStateDir } from './state-dir.mjs'
 import path from 'node:path'
 import { parseMarkdownText } from './frontmatter.mjs'
-import { moveChecked, unarchive, vaultDir, writeChecked } from './write-journal.mjs'
+import { moveChecked, vaultDir, writeChecked } from './write-journal.mjs'
 import { buildManifest, invalidateManifest, queryVault, scanUnsafe, validateVault } from './vault.mjs'
 
 /**
@@ -274,9 +274,14 @@ function normalizeText(value) {
 }
 
 function coveredBy(root, targetPath, body) {
+  const title = normalizeText(body.match(/^#\s+(.+)$/m)?.[1])
   const clean = normalizeText(body.replace(/^#\s+.+$/m, ''))
   if (clean.length < 80) return null
-  try { const target = readRaw(root, targetPath); return normalizeText(target).includes(clean) ? sha256(target) : null } catch { return null }
+  try {
+    const target = readRaw(root, targetPath)
+    const text = normalizeText(target)
+    return text.includes(clean) && text.includes(title) ? sha256(target) : null
+  } catch { return null }
 }
 
 export function judgeFreeformNote(root, filePath, { freeformBudgetRemaining = FREEFORM_DAILY_MAX, stateHome } = {}) {
@@ -427,12 +432,9 @@ function coveredSha(root, targetPath) {
 export function archiveNoop(root, judgment) {
   if (judgment.decision !== 'noop') return { ok: false, error: 'not-noop', path: judgment.path }
   if (!judgment.update_target || coveredSha(root, judgment.update_target) !== judgment.target_sha256) return { ok: false, error: 'target-changed-since-judged', path: judgment.path }
-  const archived = archiveInboxSource(root, judgment.path, 'noop', judgment.sha256)
+  const archived = archiveInboxSource(root, judgment.path, 'noop', judgment.sha256, () => coveredSha(root, judgment.update_target) === judgment.target_sha256)
+  if (archived === false) return { ok: false, error: 'target-changed-since-judged', path: judgment.path }
   if (!archived) return { ok: false, error: 'changed-since-judged', path: judgment.path }
-  if (coveredSha(root, judgment.update_target) !== judgment.target_sha256) {
-    unarchive(archived, path.join(root, judgment.path), judgment.sha256)
-    return { ok: false, error: 'target-changed-since-judged', path: judgment.path }
-  }
   return { ok: true, mode: 'noop', path: judgment.path, changed: false }
 }
 
@@ -535,7 +537,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   return { ok: true, mode: 'create', path: targetRel, changed: true, basename }
 }
 
-function archiveInboxSource(root, relativePath, mode, expected) {
+function archiveInboxSource(root, relativePath, mode, expected, accept = () => true) {
   const abs = path.join(root, relativePath)
   if (!fs.existsSync(abs)) return null
   const processedDir = vaultDir(root, 'docs/inbox/ai/processed')
@@ -543,12 +545,10 @@ function archiveInboxSource(root, relativePath, mode, expected) {
   const base = path.basename(relativePath, ext)
   const names = Array.from({ length: 20 }, (_, attempt) => path.join(processedDir, `${mode}-${base}${attempt ? `-${attempt}` : ''}${ext}`))
   const real = fs.realpathSync.native(processedDir)
-  const archived = moveChecked(abs, names, expected)
-  if (archived && fs.realpathSync.native(path.dirname(archived)) !== real) {
-    unarchive(archived, abs, expected)
-    throw new Error('docs/inbox/ai/processed changed during the archive')
-  }
-  return archived
+  return moveChecked(abs, names, expected, process.env, (written) => {
+    if (path.dirname(written) !== real) throw new Error('docs/inbox/ai/processed changed during the archive')
+    return accept()
+  })
 }
 
 function sourceLooksInspectable(root, source) {

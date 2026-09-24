@@ -220,6 +220,7 @@ try {
   assert.deepEqual(displacedEdits(displacedDir), [], 'an intact displaced copy never blocks')
   fs.appendFileSync(path.join(displacedDir, copy), 'Late human write into the old inode.\n')
   assert.deepEqual(displacedEdits(displacedDir).map((file) => path.basename(file)), [copy], 'a late write into the displaced file is preserved')
+  assert.throws(() => displacedEdits(path.join(displacedDir, copy)), /ENOTDIR/, 'an unreadable displaced directory blocks instead of looking empty')
   assert.match(nightlyCommit(vault, { push: false, preflight, env: { ...env, ALAMBIC_DISPLACED_DIR: displacedDir } }).reason, /concurrent edits were preserved/)
   fs.rmSync(displacedDir, { recursive: true })
   fs.writeFileSync(swapped, swapHead)
@@ -279,8 +280,12 @@ try {
   assert.equal(git(['rev-parse', 'feature']), mainBefore)
   git(['checkout', '-q', 'main'])
   git(['branch', '-q', '-D', 'feature'])
-  const ownCommit = nightlyCommit(vault, { push: false, preflight, env, journal })
+  const { writeSync } = fs
+  fs.writeSync = (fd, buffer, offset = 0, length = buffer.length - offset, ...rest) => writeSync(fd, buffer, offset, Math.min(length, 64), ...rest)
+  let ownCommit
+  try { ownCommit = nightlyCommit(vault, { push: false, preflight, env, journal }) } finally { fs.writeSync = writeSync }
   assert.equal(ownCommit.ok, true, JSON.stringify(ownCommit))
+  assert.equal(spawnSync('git', ['-C', vault, 'ls-files', '--error-unmatch', promoted]).status, 0, 'a short write never publishes a truncated index')
   assert.equal(git(['status', '--porcelain']), '', 'the real index follows the new commit')
   assert.equal(fs.existsSync(indexLock), false)
   git(['reset', '-q', '--hard', 'HEAD^'])

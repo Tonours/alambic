@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { harvestDistill, harvestScan, resolveDistiller, stateInsideVault, withHarvestLock } from './harvest.mjs'
 import { alambicStateDir } from './state-dir.mjs'
-import { digest, displacedEdits, journalRecord, readJournal } from './write-journal.mjs'
+import { digest, displacedEdits, journalRecord, readJournal, writeAll } from './write-journal.mjs'
 
 const ENGINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMMIT_PATHS = ['kb', 'ref', '_meta/enrich-ledger.json']
@@ -206,7 +206,7 @@ function publishIndex(root, env, held, build) {
   const next = path.join(dir, 'index')
   try {
     if (!build({ ...env, GIT_INDEX_FILE: next }, next)) return false
-    fs.writeSync(held.fd, fs.readFileSync(next))
+    writeAll(held.fd, fs.readFileSync(next))
     fs.fsyncSync(held.fd)
     fs.renameSync(held.lock, held.index)
     held.published = true

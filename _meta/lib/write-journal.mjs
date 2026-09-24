@@ -26,8 +26,10 @@ function reserve(file, expected, dir) {
   return null
 }
 
-function undoArchive(dest, reserved, file) {
-  try { fs.rmSync(dest, { force: true }) } catch {}
+function undoArchive(dest, reserved, file, written) {
+  for (const candidate of written ? [written.real, dest] : [dest]) {
+    try { if (!written || fs.lstatSync(candidate).ino === written.ino) fs.rmSync(candidate, { force: true }) } catch {}
+  }
   restore(reserved, file)
 }
 
@@ -71,11 +73,15 @@ export function writeChecked(file, before, after, env = process.env) {
 
 export function displacedEdits(dir) {
   let names = []
-  try { names = fs.readdirSync(dir) } catch { return [] }
+  try { names = fs.readdirSync(dir) } catch (error) { if (error.code === 'ENOENT') return []; throw error }
   return names.map((name) => path.join(dir, name)).filter((file) => fileSha(file) !== path.basename(file).slice(0, 64))
 }
 
-export function moveChecked(file, dests, expected, env = process.env) {
+export function writeAll(fd, bytes) {
+  for (let offset = 0; offset < bytes.length;) offset += fs.writeSync(fd, bytes, offset, bytes.length - offset)
+}
+
+export function moveChecked(file, dests, expected, env = process.env, accept = () => true) {
   if (!expected) return null
   const held = reserve(file, expected, displacedDir(file, env))
   if (!held) return null
@@ -87,18 +93,20 @@ export function moveChecked(file, dests, expected, env = process.env) {
       undoArchive(dest, held.reserved, file)
       throw error
     }
-    try { journalRecord(file, expected, null, env) } catch (error) { undoArchive(dest, held.reserved, file); throw error }
+    let written
+    try {
+      const real = fs.realpathSync.native(dest)
+      written = { real, ino: fs.lstatSync(real).ino }
+      if (!accept(real)) { undoArchive(dest, held.reserved, file, written); return false }
+      journalRecord(file, expected, null, env)
+    } catch (error) {
+      undoArchive(dest, held.reserved, file, written)
+      throw error
+    }
     return dest
   }
   restore(held.reserved, file)
   throw new Error(`no free archive name for ${path.basename(file)}`)
-}
-
-export function unarchive(dest, file, expected, env = process.env) {
-  try { fs.linkSync(dest, file) } catch (error) { if (error.code === 'EEXIST') return false; throw error }
-  fs.unlinkSync(dest)
-  journalRecord(file, null, expected, env)
-  return true
 }
 
 export function readJournal(journal) {

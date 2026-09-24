@@ -42,7 +42,8 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   set review fields. Drafts stay in gitignored `docs/inbox/ai/harvest-*.md`.
 - A session-origin note never auto-applies without an accept receipt matching
   its current sha256; the judge, the post-Jev re-gate and the promote step each
-  check it. A note whose body is already in the update target is a NOOP.
+  check it. A note whose title and body are already in the update target is a
+  NOOP.
 - `nightly --push` runs on the vault owner's machine from a LaunchAgent that
   `setup --schedule` installs. It commits only top-level `kb/` and `ref/` files,
   the enrich ledger and inbox deletions, and only content its own steps wrote,
@@ -109,7 +110,10 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   judgment, checked again after the move; a change puts the draft back. A
   rejected draft that changed is not archived, and the review says so. A failed
   archive write, cleanup or journal append restores the source, and an archive
-  directory swapped during the write undoes the archive.
+  directory swapped during the write undoes the archive: the written copy is
+  removed by inode and the source comes back from the displaced inode; when a
+  new source already took its place, the displaced copy stays as the backup.
+- A displaced directory that exists but cannot be read blocks the run.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 
