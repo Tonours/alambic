@@ -144,6 +144,11 @@ try {
   fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n\`\`\`sh\nprintf value\\`))
   inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n\`\`\`sh\nprintf value\\ ` })
   assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a trailing space on the last line of an unclosed fence counts')
+  for (const [target, draft] of [['> ```sh\n> printf value\\', '> ```sh\n> printf value\\ '], ['> Run:\n>\n>     printf value\\', '> Run:\n>\n>     printf value\\ '], ['<pre>\nprintf value\\', '<pre>\nprintf value\\ ']]) {
+    fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n${target}`))
+    inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n${draft}` })
+    assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a trailing space on quoted or html code counts')
+  }
   const nested = (indent, gap) => `\`\`\`\`markdown\n\`\`\`yaml\nkey:\n${indent}enabled: true\n\`\`\`\n\`\`\`\`\n\n    doc = '''a\n${gap}    b'''`
   fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n${nested('  ', '\n')}`))
   for (const [indent, gap] of [['', '\n'], ['  ', '']]) {

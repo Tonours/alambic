@@ -400,7 +400,7 @@ export function distillPrompt(root, entry) {
 
 function parseAnswer(stdout) {
   const text = String(stdout || '').trim()
-  if (/^SKIP\b/i.test(text)) return { skip: true }
+  if (/^SKIP$/i.test(text)) return { skip: true }
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start < 0 || end <= start) throw new Error('no JSON object in distiller output')

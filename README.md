@@ -229,7 +229,7 @@ An entry that fails three times moves, excerpt included, to
 Session drafts never reach `kb/` without an accept receipt from an interactive
 `review`, bound to the file's sha256. The TTY check keeps scripts out, not a
 determined local process: never let an agent run `review --inbox`. A draft whose title and body an existing
-note already contains byte for byte, as whole lines (only trailing spaces of a final line are ignored, and never in a body with an indented or fenced line), or whose exact body an earlier update of that note wrote and left intact (the `alambic-body` comment and its quote), is archived as `noop-*`, only while that note is unchanged
+note already contains byte for byte, as whole lines (only trailing spaces of a final line are ignored, and never in a body with a line that starts with whitespace, `>`, `<`, a backtick or a tilde), or whose exact body an earlier update of that note wrote and left intact (the `alambic-body` comment and its quote), is archived as `noop-*`, only while that note is unchanged
 since the check. `harvest digest --out` and
 `harvest ack --digest` hand the queue to another writer (a vault with its own
 capture agent) and clear it only after that writer pushed.

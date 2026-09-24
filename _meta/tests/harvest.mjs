@@ -216,6 +216,13 @@ try {
   assert.deepEqual([mistyped.skipped, mistyped.failed.map((item) => item.error)], [0, ['distiller skip must be a boolean']], 'a mistyped skip is a failure, not a skip')
   assert.equal(listQueue().length, 1, 'a mistyped skip stays queued')
   for (const item of listQueue()) fs.rmSync(path.join(state, 'harvest/queue', item.name))
+  fs.writeFileSync(fake, `#!/bin/sh\ncat >/dev/null\nprintf '%s\\n%s' 'SKIP: false' '{"skip":"false"}'\n`, { mode: 0o755 })
+  fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: richer }] } })}`)
+  assert.equal(json(cli(['harvest', 'scan', '--session', claudeFile])).queued.length, 1)
+  const prefixed = harvestDistill(vault, { distiller: fake, stateDir: state, env })
+  assert.deepEqual([prefixed.skipped, prefixed.failed.map((item) => item.error)], [0, ['distiller skip must be a boolean']], 'only a bare SKIP answer skips')
+  assert.equal(listQueue().length, 1, 'a prefixed SKIP stays queued')
+  for (const item of listQueue()) fs.rmSync(path.join(state, 'harvest/queue', item.name))
 
   fs.writeFileSync(fake, `#!/bin/sh\ncat >/dev/null\nprintf '%s' '${JSON.stringify({ ...answer, body: `${answer.body} sk-${'b'.repeat(30)}` })}'\n`, { mode: 0o755 })
   fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: richer }] } })}`)
