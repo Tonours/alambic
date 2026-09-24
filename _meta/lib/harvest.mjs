@@ -454,7 +454,7 @@ export function renderHarvestNote(answer, entry, today = new Date().toISOString(
 
 function writeExclusive(dir, base, text, env) {
   const real = fs.realpathSync.native(dir)
-  const displaced = prepareDisplaced(displacedDir(path.join(dir, base), env))
+  const displaced = prepareDisplaced(displacedDir(path.join(dir, base), env), path.join(dir, base), env)
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const file = path.join(dir, `${base}${attempt ? `-${attempt}` : ''}.md`)
     let ino

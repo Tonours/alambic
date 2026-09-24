@@ -248,7 +248,7 @@ try {
   assert.deepEqual(nightlyCommit(vault, { push: true, preflight, env, journal }).paths, ['kb/own-note.md'], 'an edit on top of a run write is refused')
   fs.rmSync(path.join(vault, 'kb/own-note.md'))
 
-  const displacedDir = path.join(temp, 'displaced')
+  const displacedDir = path.join(vault, '.git/swap-displaced')
   const swapEnv = { ALAMBIC_WRITE_JOURNAL: path.join(temp, 'swap.jsonl'), ALAMBIC_DISPLACED_DIR: displacedDir }
   const swapped = path.join(vault, promoted)
   const swapHead = fs.readFileSync(swapped, 'utf8')

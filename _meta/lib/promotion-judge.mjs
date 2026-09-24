@@ -246,7 +246,7 @@ export function readInboxReceipt(stateHome, text) {
   }
 }
 
-export function reviewInbox(root, relativePath, { decision, reason, tty = false, stateHome } = {}) {
+export function reviewInbox(root, relativePath, { decision, reason, tty = false, stateHome, onReceipt = () => {} } = {}) {
   const relative = path.relative(root, path.resolve(root, String(relativePath || ''))).split(path.sep).join('/')
   if (!/^docs\/inbox\/(ai|manual)\/[^/]+\.md$/.test(relative)) throw new Error('review --inbox expects docs/inbox/{ai,manual}/NOTE.md')
   if (!['accept', 'reject'].includes(decision) || !String(reason || '').trim()) throw new Error('review decision requires accept|reject and a non-empty reason')
@@ -258,6 +258,7 @@ export function reviewInbox(root, relativePath, { decision, reason, tty = false,
   const sessionOrigin = isSessionOrigin(data, relative)
   if (decision === 'reject') vaultDir(root, 'docs/inbox/ai/processed')
   const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason })
+  if (sessionOrigin) onReceipt(receipt)
   const archived = decision === 'reject' ? archiveInboxSource(root, relative, 'rejected', sha256(text)) : null
   return { ok: true, path: relative, decision, session_origin: sessionOrigin, receipt, idempotent, archived: archived && path.relative(root, archived).split(path.sep).join('/') }
 }

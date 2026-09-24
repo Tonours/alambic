@@ -163,6 +163,12 @@ try {
     assert.equal(fs.existsSync(escaping), true)
   }
   fs.unlinkSync(vaultAlias)
+  const kbMode = fs.statSync(path.join(vault, 'kb')).mode & 0o777
+  fs.chmodSync(path.join(vault, 'kb'), 0o700)
+  process.env.ALAMBIC_DISPLACED_DIR = path.join(vault, 'kb')
+  try { assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /must sit inside the git directory or the alambic state directory/) } finally { delete process.env.ALAMBIC_DISPLACED_DIR; fs.chmodSync(path.join(vault, 'kb'), kbMode) }
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, 'a private kb directory never receives the draft')
+  assert.equal(fs.existsSync(escaping), true)
   fs.unlinkSync(displacedLink)
   fs.rmSync(escaping)
 
@@ -311,6 +317,10 @@ try {
   const viaPipe = inbox('harvest-2026-09-24-claude-t2.md', { summary: 'Another pipe rejected note about the dinglebop cache warmer path' })
   assert.equal(cli(['review', '--inbox', rel(viaPipe), '--decision', 'reject', '--reason', 'duplicate', '--json']).status, 0)
   assert.deepEqual([harvestStatus(vault).metrics.accepted, harvestStatus(vault).metrics.rejected, harvestStatus(vault).review_acceptance_rate], [1, 1, 0.5])
+  const countedFirst = inbox('harvest-2026-09-24-claude-t4.md', { summary: 'Rejected note counted before its draft moves to the archive' })
+  let presentWhenCounted = null
+  judge.reviewInbox(vault, rel(countedFirst), { decision: 'reject', reason: 'duplicate', onReceipt: () => { presentWhenCounted = fs.existsSync(countedFirst) } })
+  assert.equal(presentWhenCounted, true, 'a review is counted before its draft is archived')
   const interrupted = inbox('harvest-2026-09-24-claude-t3.md', { summary: 'Accepted note whose metric was lost when the review process died' })
   judge.reviewInbox(vault, rel(interrupted), { decision: 'accept', reason: 'checked before the crash', tty: true })
   for (let retry = 0; retry < 2; retry += 1) {

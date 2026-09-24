@@ -15,16 +15,29 @@ export function journalRecord(file, before, after, env = process.env) {
   fs.appendFileSync(env.ALAMBIC_WRITE_JOURNAL, `${JSON.stringify({ path: path.resolve(file), before, after })}\n`)
 }
 
-export function prepareDisplaced(dir) {
+const displacedHomes = new Map()
+function allowedDisplaced(file, env) {
+  const dir = path.dirname(path.resolve(file))
+  if (!displacedHomes.has(dir)) {
+    const located = spawnSync('git', ['rev-parse', '--absolute-git-dir', '--git-common-dir'], { cwd: dir, encoding: 'utf8', env: { ...env, GIT_OPTIONAL_LOCKS: '0' } })
+    const gitDirs = located.status === 0 ? located.stdout.trim().split('\n').map((line) => path.resolve(dir, line)) : []
+    displacedHomes.set(dir, [alambicStateDir(null, env), ...gitDirs].map((home) => { try { return fs.realpathSync(home) } catch { return home } }))
+  }
+  return displacedHomes.get(dir)
+}
+
+export function prepareDisplaced(dir, file, env = process.env) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
   const stat = fs.lstatSync(dir)
   if (!stat.isDirectory()) throw new Error('the displaced directory must be a real directory')
   if (stat.mode & 0o077 || stat.uid !== process.getuid()) throw new Error('the displaced directory must be private to this user (mode 0700)')
+  const real = fs.realpathSync(dir)
+  if (!allowedDisplaced(file, env).some((home) => real.startsWith(`${home}${path.sep}`))) throw new Error('the displaced directory must sit inside the git directory or the alambic state directory')
   return dir
 }
 
-function reserve(file, expected, dir) {
-  prepareDisplaced(dir)
+function reserve(file, expected, dir, env) {
+  prepareDisplaced(dir, file, env)
   const reserved = path.join(dir, `${expected}-${crypto.randomUUID()}-${path.basename(file)}`)
   try { fs.renameSync(file, reserved) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
   const bytes = fs.readFileSync(reserved)
@@ -87,8 +100,8 @@ export function displacedDir(file, env = process.env) {
   return gitDisplaced.get(dir)
 }
 
-function swapChecked(file, temporary, expected, dir) {
-  if (!reserve(file, expected, dir)) return false
+function swapChecked(file, temporary, expected, dir, env) {
+  if (!reserve(file, expected, dir, env)) return false
   fs.linkSync(temporary, file)
   return true
 }
@@ -99,7 +112,7 @@ export function writeChecked(file, before, after, env = process.env) {
   fs.writeFileSync(temporary, after, 'utf8')
   try {
     if (expected === null) fs.linkSync(temporary, file)
-    else if (!swapChecked(file, temporary, expected, displacedDir(file, env))) return false
+    else if (!swapChecked(file, temporary, expected, displacedDir(file, env), env)) return false
   } catch (error) {
     if (error.code === 'EEXIST') return false
     throw error
@@ -123,7 +136,7 @@ export function writeAll(fd, bytes) {
 export function moveChecked(file, dests, expected, env = process.env, accept = () => true) {
   if (!expected) return null
   const dir = displacedDir(file, env)
-  const held = reserve(file, expected, dir)
+  const held = reserve(file, expected, dir, env)
   if (!held) return null
   for (const dest of dests) {
     let ino
