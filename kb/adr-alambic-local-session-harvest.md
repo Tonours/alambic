@@ -76,8 +76,13 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   rename over it, refuse the write when it changed since they read it, and
   journal preimage and result (`ALAMBIC_WRITE_JOURNAL`). Nightly commits a path
   only when its staged blob ends an unbroken chain of journaled writes starting
-  at the HEAD blob, so a human edit made during the run is never published. An
-  edit landing between that re-check and the rename is overwritten and lost.
+  at the HEAD blob, so a human edit made during the run is never published.
+  During nightly the old file is moved into `.git/alambic-displaced/` before
+  the new one is linked; a copy that changed after the check is kept, blocks
+  the commit and blocks later runs until a human resolves it, so no edit is
+  lost.
+- Validate, lint and leak-scan run on an export of the snapshot tree, and
+  nightly resumes only the unpushed commit SHA it recorded itself.
 - Nightly holds `.git/index.lock` from its index check to the index refresh,
   and refreshes only the committed paths, so the user's index is never
   clobbered.

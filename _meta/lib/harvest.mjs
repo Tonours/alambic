@@ -253,30 +253,31 @@ function claim(dir, me, depth) {
   return Boolean(key) && claim(path.join(dir, `reap-${key}`), me, depth + 1)
 }
 
-function sweepClaims(lock) {
-  const current = fs.existsSync(lock) ? ownerKey(lock, lockOwner(lock)) : null
+function sweepClaims(lock, me) {
   const prefix = `${path.basename(lock)}.reap-`
   for (const name of fs.readdirSync(path.dirname(lock))) {
-    if (name.startsWith(prefix) && !name.includes('.gone-') && name.slice(prefix.length) !== current) discard(path.join(path.dirname(lock), name))
+    if (name.startsWith(prefix) && !name.includes('.gone-') && name.slice(prefix.length) !== me.token) discard(path.join(path.dirname(lock), name))
   }
 }
 
 function acquireOwned(lock, me) {
-  if (createOwned(lock, me)) return true
-  const holder = lockOwner(lock)
-  if (ownerAlive(lock, holder)) return false
-  const key = ownerKey(lock, holder)
-  if (!key || !claim(`${lock}.reap-${key}`, me, 0)) return false
-  if (ownerKey(lock, lockOwner(lock)) !== key) return false
-  discard(lock)
-  const acquired = createOwned(lock, me)
-  sweepClaims(lock)
-  return acquired
+  if (!createOwned(lock, me)) {
+    const holder = lockOwner(lock)
+    if (ownerAlive(lock, holder)) return false
+    const key = ownerKey(lock, holder)
+    if (!key || !claim(`${lock}.reap-${key}`, me, 0)) return false
+    if (ownerKey(lock, lockOwner(lock)) !== key) return false
+    discard(lock)
+    if (!createOwned(lock, me)) return false
+  }
+  sweepClaims(lock, me)
+  return true
 }
 
 function releaseOwned(lock, me) {
-  if (lockOwner(lock)?.token === me.token) discard(lock)
-  sweepClaims(lock)
+  if (lockOwner(lock)?.token !== me.token) return
+  sweepClaims(lock, me)
+  discard(lock)
 }
 
 export function withHarvestLock(stateDir, fn) {

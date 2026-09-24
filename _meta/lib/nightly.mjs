@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { harvestDistill, harvestScan, resolveDistiller, stateInsideVault, withHarvestLock } from './harvest.mjs'
-import { digest, journalRecord, readJournal } from './write-journal.mjs'
+import { alambicStateDir } from './state-dir.mjs'
+import { digest, displacedEdits, journalRecord, readJournal } from './write-journal.mjs'
 
 const ENGINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMMIT_PATHS = ['kb', 'ref', '_meta/enrich-ledger.json']
@@ -26,6 +27,28 @@ function changes(root, env, argv) {
   const list = []
   for (let index = 0; index < fields.length; index += 2) list.push({ status: fields[index][0], file: fields[index + 1] })
   return list
+}
+
+const recordPath = (env) => path.join(env.ALAMBIC_STATE_DIR || alambicStateDir(), 'harvest', 'nightly-commit.json')
+
+function recordedCommit(root, env) {
+  try {
+    const record = JSON.parse(fs.readFileSync(recordPath(env), 'utf8'))
+    return record.root === fs.realpathSync.native(root) ? record.commit : null
+  } catch { return null }
+}
+
+function recordCommit(root, env, commit) {
+  const file = recordPath(env)
+  if (commit === null) return fs.rmSync(file, { force: true })
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  fs.writeFileSync(`${file}.tmp`, JSON.stringify({ root: fs.realpathSync.native(root), commit }), { mode: 0o600 })
+  fs.renameSync(`${file}.tmp`, file)
+}
+
+function gitPath(root, env, name) {
+  const located = git(root, ['rev-parse', '--git-path', name], env)
+  return located.ok ? path.resolve(root, located.out) : null
 }
 
 function defaultBranch(root, env) {
@@ -54,9 +77,12 @@ export function nightlyPreflight(root, { push = false, commit = push, env = proc
   if (!fetched.ok) return { ok: false, reason: `git fetch failed: ${fetched.err}` }
   const head = git(root, ['rev-parse', 'HEAD'], env).out
   const upstream = git(root, ['rev-parse', `origin/${target}`], env).out
-  if (head && head !== upstream && git(root, ['rev-parse', 'HEAD^'], env).out === upstream && git(root, ['log', '-1', '--format=%s'], env).out === COMMIT_MESSAGE) {
+  if (head && head !== upstream && head === recordedCommit(root, env) && git(root, ['rev-parse', 'HEAD^'], env).out === upstream) {
     const own = changes(root, env, ['diff-tree', '--no-commit-id', '--name-status', '-r', '--no-renames', 'HEAD'])
-    if (own && own.every(allowedChange) && git(root, ['reset', '-q', upstream], env).ok) return { ok: true, branch, target, head: upstream, resumed: head }
+    if (own && own.every(allowedChange)) {
+      const reset = resetToUpstream(root, env, head, upstream)
+      return reset.ok ? { ok: true, branch, target, head: upstream, resumed: head } : reset
+    }
   }
   if (!head || head !== upstream) return { ok: false, reason: `HEAD differs from origin/${target}`, branch }
   return { ok: true, branch, target, head }
@@ -82,6 +108,19 @@ function withTempIndex(root, env, fn) {
   try {
     if (!git(root, ['read-tree', 'HEAD'], indexEnv).ok) return { ok: false, reason: 'git read-tree failed' }
     return fn(indexEnv)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+function withExport(root, env, tree, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-gates-'))
+  const work = path.join(dir, 'tree')
+  const indexEnv = { ...env, GIT_INDEX_FILE: path.join(dir, 'index') }
+  try {
+    fs.mkdirSync(work)
+    if (!git(root, ['read-tree', tree], indexEnv).ok || !git(root, [`--work-tree=${work}`, 'checkout-index', '-a', '-f'], indexEnv).ok) return null
+    return fn(work)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }
@@ -123,9 +162,8 @@ export function seedJournal(root, env, journal, base, resumed) {
 }
 
 function withIndexLock(root, env, fn) {
-  const located = git(root, ['rev-parse', '--git-path', 'index'], env)
-  if (!located.ok) return { ok: false, reason: 'git rev-parse failed' }
-  const index = path.resolve(root, located.out)
+  const index = gitPath(root, env, 'index')
+  if (!index) return { ok: false, reason: 'git rev-parse failed' }
   const held = { index, lock: `${index}.lock`, fd: null, published: false }
   try { held.fd = fs.openSync(held.lock, 'wx', 0o644) } catch (error) {
     if (error.code === 'EEXIST') return { ok: false, reason: 'the git index is locked by another process' }
@@ -139,12 +177,11 @@ function withIndexLock(root, env, fn) {
   }
 }
 
-function publishIndex(root, env, held, files) {
+function publishIndex(root, env, held, build) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-index-'))
   const next = path.join(dir, 'index')
   try {
-    fs.copyFileSync(held.index, next)
-    if (!git(root, ['reset', '-q', '--', ...files], { ...env, GIT_INDEX_FILE: next }).ok) return false
+    if (!build({ ...env, GIT_INDEX_FILE: next }, next)) return false
     fs.writeSync(held.fd, fs.readFileSync(next))
     fs.fsyncSync(held.fd)
     fs.renameSync(held.lock, held.index)
@@ -155,8 +192,22 @@ function publishIndex(root, env, held, files) {
   }
 }
 
+function resetToUpstream(root, env, head, upstream) {
+  const readEnv = { ...env, GIT_OPTIONAL_LOCKS: '0' }
+  return withIndexLock(root, env, (held) => {
+    const indexed = changes(root, readEnv, ['diff', '--cached', '--name-status', '--no-renames'])
+    if (indexed === null) return { ok: false, reason: 'git diff failed' }
+    if (indexed.length) return { ok: false, reason: 'the index changed during preflight', paths: [...new Set(indexed.map((item) => item.file))].slice(0, 20) }
+    if (!git(root, ['update-ref', '-m', 'reset: resume nightly', 'HEAD', upstream, head], readEnv).ok) return { ok: false, reason: 'HEAD moved during preflight' }
+    if (!publishIndex(root, readEnv, held, (indexEnv) => git(root, ['read-tree', upstream], indexEnv).ok)) return { ok: false, reason: 'git index reset failed during preflight' }
+    return { ok: true }
+  })
+}
+
 export function nightlyCommit(root, { push, preflight, env, expectedTree = null, journal = null }) {
   const readEnv = { ...env, GIT_OPTIONAL_LOCKS: '0' }
+  const preserved = env.ALAMBIC_DISPLACED_DIR ? displacedEdits(env.ALAMBIC_DISPLACED_DIR) : []
+  if (preserved.length) return { ok: false, reason: 'concurrent edits were preserved during the run', paths: preserved.slice(0, 20) }
   const committed = withIndexLock(root, env, (held) => {
     const indexed = changes(root, readEnv, ['diff', '--cached', '--name-status', '--no-renames'])
     const tracked = changes(root, readEnv, ['diff', 'HEAD', '--name-status', '--no-renames'])
@@ -186,7 +237,9 @@ export function nightlyCommit(root, { push, preflight, env, expectedTree = null,
     if (!made.ok) return { ok: false, reason: `git commit failed: ${made.err}` }
     const commit = made.out
     if (!git(root, ['update-ref', '-m', `commit: ${COMMIT_MESSAGE}`, 'HEAD', commit, parent], readEnv).ok) return { ok: false, reason: 'HEAD moved during the run' }
-    if (!publishIndex(root, readEnv, held, built.files)) return { ok: false, commit, files: built.files, pushed: false, reason: 'git index update failed after commit' }
+    recordCommit(root, env, commit)
+    const refresh = (indexEnv, next) => { fs.copyFileSync(held.index, next); return git(root, ['reset', '-q', '--', ...built.files], indexEnv).ok }
+    if (!publishIndex(root, readEnv, held, refresh)) return { ok: false, commit, files: built.files, pushed: false, reason: 'git index update failed after commit' }
     return { ok: true, commit, files: built.files }
   })
   if (!committed.ok || !committed.commit || !push) return committed.ok && committed.commit ? { ...committed, pushed: false } : committed
@@ -195,6 +248,7 @@ export function nightlyCommit(root, { push, preflight, env, expectedTree = null,
   if (outgoing !== '1') return { ok: false, commit, files, pushed: false, reason: `expected one outgoing commit, found ${outgoing || 'none'}` }
   const pushed = git(root, ['push', '--quiet', 'origin', `${commit}:refs/heads/${preflight.target}`], env)
   if (!pushed.ok) return { ok: false, commit, files, pushed: false, reason: `git push failed: ${pushed.err}` }
+  recordCommit(root, env, null)
   return { ok: true, commit, files, pushed: true }
 }
 
@@ -210,32 +264,52 @@ export function runNightly(root, { push = false, dryRun = false, env: baseEnv = 
   }
 }
 
-function nightlyLocked(root, { push, dryRun, env, distiller, journal }) {
+function nightlyLocked(root, { push, dryRun, env: baseEnv, distiller, journal }) {
   const locked = withHarvestLock(null, () => {
     const report = { ok: false, dry_run: dryRun, push, steps: [] }
-    const preflight = nightlyPreflight(root, { push: push && !dryRun, commit: !dryRun, env })
+    const preflight = nightlyPreflight(root, { push: push && !dryRun, commit: !dryRun, env: baseEnv })
     report.preflight = preflight
     if (!preflight.ok) return { ...report, reason: `preflight: ${preflight.reason}` }
+    const displaced = gitPath(root, baseEnv, 'alambic-displaced')
+    if (!displaced) return { ...report, reason: 'preflight: git rev-parse failed' }
+    const kept = displacedEdits(displaced, { prune: true })
+    if (kept.length) return { ...report, reason: 'preflight: concurrent edits preserved by an earlier run, resolve and delete them', paths: kept.slice(0, 20) }
+    const env = { ...baseEnv, ALAMBIC_DISPLACED_DIR: displaced }
     if (preflight.resumed && !seedJournal(root, env, journal, preflight.head, preflight.resumed)) return { ...report, reason: 'preflight: git diff failed' }
-    const scan = harvestScan(root, { dryRun, env })
-    report.steps.push({ name: 'harvest-scan', ok: scan.ok, queued: scan.queued.length, ...(scan.error ? { error: scan.error } : {}) })
-    if (resolveDistiller(distiller, env)) {
-      const distilled = harvestDistill(root, { distiller, dryRun, env })
-      report.steps.push({ name: 'harvest-distill', ok: distilled.ok, written: distilled.written.length, skipped: distilled.skipped, failed: distilled.failed.length, ...(distilled.failed.length ? { error: distilled.failed[0].error } : {}) })
-    } else report.steps.push({ name: 'harvest-distill', ok: true, skipped_reason: 'no distiller' })
-    if (env.TYPESAFE_API_KEY && !dryRun) report.steps.push(cliStep(root, 'enrich', ['enrich', '--apply', '--max', '40', '--json'], env))
-    else report.steps.push({ name: 'enrich', ok: true, skipped_reason: dryRun ? 'dry-run' : 'no TYPESAFE_API_KEY' })
-    report.steps.push(cliStep(root, 'sidekick', ['sidekick', 'run', ...(dryRun ? ['--dry-run'] : ['--apply-all', '--max-freeform', '3']), '--max', '12', '--json'], env))
-    const snapshot = dryRun ? null : publishableTree(root, env)
-    if (snapshot && !snapshot.ok) return { ...report, reason: snapshot.reason, commit: null, pushed: false }
-    report.steps.push(cliStep(root, 'validate', ['validate', '--mode', 'strict'], env))
-    report.steps.push(cliStep(root, 'lint', ['lint', '--check'], env))
-    report.steps.push(step(root, 'leak-scan', '/bin/bash', [path.join(ENGINE, 'tests/leak-scan.sh'), root], env))
-    const red = report.steps.filter((step) => !step.ok).map((step) => step.name)
-    if (red.length) return { ...report, reason: `red gates: ${red.join(', ')}`, commit: null, pushed: false }
-    if (dryRun) return { ...report, ok: true, commit: null, pushed: false }
-    const result = nightlyCommit(root, { push, preflight, env, expectedTree: snapshot.tree, journal })
-    return { ...report, ...result }
+    try {
+      return runSteps(root, { push, dryRun, env, distiller, journal, report, preflight })
+    } finally {
+      displacedEdits(displaced, { prune: true })
+    }
   })
   return locked.locked ? { ok: false, locked: true, reason: 'another harvest or nightly run holds the lock' } : locked
+}
+
+function runSteps(root, { push, dryRun, env, distiller, journal, report, preflight }) {
+  const scan = harvestScan(root, { dryRun, env })
+  report.steps.push({ name: 'harvest-scan', ok: scan.ok, queued: scan.queued.length, ...(scan.error ? { error: scan.error } : {}) })
+  if (resolveDistiller(distiller, env)) {
+    const distilled = harvestDistill(root, { distiller, dryRun, env })
+    report.steps.push({ name: 'harvest-distill', ok: distilled.ok, written: distilled.written.length, skipped: distilled.skipped, failed: distilled.failed.length, ...(distilled.failed.length ? { error: distilled.failed[0].error } : {}) })
+  } else report.steps.push({ name: 'harvest-distill', ok: true, skipped_reason: 'no distiller' })
+  if (env.TYPESAFE_API_KEY && !dryRun) report.steps.push(cliStep(root, 'enrich', ['enrich', '--apply', '--max', '40', '--json'], env))
+  else report.steps.push({ name: 'enrich', ok: true, skipped_reason: dryRun ? 'dry-run' : 'no TYPESAFE_API_KEY' })
+  report.steps.push(cliStep(root, 'sidekick', ['sidekick', 'run', ...(dryRun ? ['--dry-run'] : ['--apply-all', '--max-freeform', '3']), '--max', '12', '--json'], env))
+  const snapshot = dryRun ? null : publishableTree(root, env)
+  if (snapshot && !snapshot.ok) return { ...report, reason: snapshot.reason, commit: null, pushed: false }
+  const patterns = env.ALAMBIC_LEAK_PATTERNS_FILE || path.join(root, '.leak-patterns')
+  const gateEnv = { ...env, ...(fs.existsSync(patterns) ? { ALAMBIC_LEAK_PATTERNS_FILE: path.resolve(root, patterns) } : {}) }
+  const gates = (gateRoot) => [
+    cliStep(gateRoot, 'validate', ['validate', '--mode', 'strict'], gateEnv),
+    cliStep(gateRoot, 'lint', ['lint', '--check'], gateEnv),
+    step(gateRoot, 'leak-scan', '/bin/bash', [path.join(ENGINE, 'tests/leak-scan.sh'), gateRoot], gateEnv),
+  ]
+  const checked = snapshot ? withExport(root, env, snapshot.tree, gates) : gates(root)
+  if (!checked) return { ...report, reason: 'could not export the snapshot for the gates', commit: null, pushed: false }
+  report.steps.push(...checked)
+  const red = report.steps.filter((step) => !step.ok).map((step) => step.name)
+  if (red.length) return { ...report, reason: `red gates: ${red.join(', ')}`, commit: null, pushed: false }
+  if (dryRun) return { ...report, ok: true, commit: null, pushed: false }
+  const result = nightlyCommit(root, { push, preflight, env, expectedTree: snapshot.tree, journal })
+  return { ...report, ...result }
 }
