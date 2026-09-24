@@ -85,15 +85,16 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
 - Validate, lint and leak-scan run on an export of the snapshot tree, and
   nightly resumes only the unpushed commit SHA it recorded itself. A relative
   `ALAMBIC_LEAK_PATTERNS_FILE` resolves against the vault; a configured file
-  that is missing refuses the run.
+  that is missing refuses the run, and leak-scan refuses it again when it
+  reads the rules.
 - Nightly holds `.git/index.lock` from its index check to the index refresh,
   and refreshes only the committed paths, so the user's index is never
   clobbered.
 - Promotion archives only into a real `docs/inbox/ai/processed/` directory
   inside the vault and never overwrites an existing archive. It renames the
   draft to a reserved name first and archives it only when its bytes still
-  match what the judge read, so a save landing before the archive stays in
-  the inbox.
+  match what the judge read (NOOP included), so a save landing before the
+  archive stays in the inbox.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 

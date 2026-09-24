@@ -57,8 +57,8 @@ export function displacedEdits(dir) {
   return names.map((name) => path.join(dir, name)).filter((file) => fileSha(file) !== path.basename(file).slice(0, 64))
 }
 
-export function moveChecked(file, dests, expected = fileSha(file), env = process.env) {
-  if (expected === null) return null
+export function moveChecked(file, dests, expected, env = process.env) {
+  if (!expected) return null
   const reserved = reserve(file, expected, path.dirname(dests[0]))
   if (!reserved) return null
   for (const dest of dests) {

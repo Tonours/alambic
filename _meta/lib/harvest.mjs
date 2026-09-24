@@ -403,7 +403,7 @@ function parseAnswer(stdout) {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start < 0 || end <= start) throw new Error('no JSON object in distiller output')
-  return JSON.parse(text.slice(start, end + 1))
+  try { return JSON.parse(text.slice(start, end + 1)) } catch { throw new Error('distiller output is not valid JSON') }
 }
 
 function yamlString(value) { return JSON.stringify(String(value)) }

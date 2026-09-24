@@ -14,7 +14,18 @@ patterns=$(mktemp)
 hits=$(mktemp)
 trap 'rm -f "$patterns" "$hits"' EXIT
 file="${ALAMBIC_LEAK_PATTERNS_FILE:-$ROOT/.leak-patterns}"
-[ -f "$file" ] && grep -vE '^\s*(#|$)' "$file" >> "$patterns" || true
+if [ -n "${ALAMBIC_LEAK_PATTERNS_FILE:-}" ] || [ -e "$file" ]; then
+  if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+    printf 'leak-scan: the pattern file is missing or unreadable\n' >&2
+    exit 1
+  fi
+  rc=0
+  grep -vE '^\s*(#|$)' "$file" >> "$patterns" || rc=$?
+  if [ "$rc" -gt 1 ]; then
+    printf 'leak-scan: the pattern file is missing or unreadable\n' >&2
+    exit 1
+  fi
+fi
 [ -n "${ALAMBIC_LEAK_PATTERNS:-}" ] && printf '%s\n' "$ALAMBIC_LEAK_PATTERNS" | grep -vE '^\s*(#|$)' >> "$patterns" || true
 count=$(wc -l < "$patterns" | tr -d ' ')
 

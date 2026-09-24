@@ -232,6 +232,9 @@ try {
     const result = spawnSync(process.execPath, [cliPath, 'nightly', '--dry-run', '--json'], { cwd: temp, encoding: 'utf8', env: { ...env, ALAMBIC_LEAK_PATTERNS_FILE: value }, timeout: 300_000 })
     return JSON.parse(result.stdout)
   }
+  const leakScan = (file) => spawnSync('/bin/bash', [path.join(root, '_meta/tests/leak-scan.sh'), vault], { encoding: 'utf8', env: { ...env, ALAMBIC_LEAK_PATTERNS_FILE: file } })
+  assert.notEqual(leakScan(path.join(temp, 'gone-patterns')).status, 0, 'the scanner refuses a configured pattern file that vanished')
+  assert.notEqual(leakScan(temp).status, 0, 'the scanner refuses a pattern path that is not a file')
   assert.match(patternRun('missing-patterns').reason, /ALAMBIC_LEAK_PATTERNS_FILE is set but is not a readable file/, 'a configured but missing pattern file refuses the run')
   fs.writeFileSync(path.join(vault, '.git/private-patterns'), 'zyxwv quorble\n')
   const relativePatterns = patternRun('.git/private-patterns')
