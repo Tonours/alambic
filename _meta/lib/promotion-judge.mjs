@@ -270,7 +270,14 @@ export function reviewGate(judgment, text, stateHome) {
 }
 
 function normalizeText(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim()
+  let fenced = false
+  const lines = []
+  for (const line of String(value || '').split(/\r?\n/)) {
+    const fence = /^\s*(```|~~~)/.test(line)
+    lines.push(fence || fenced || /^( {4}|\t)/.test(line) ? `\n${line.trimEnd()}\n` : line.replace(/\s+/g, ' ').trim())
+    if (fence) fenced = !fenced
+  }
+  return lines.filter(Boolean).join(' ').trim()
 }
 
 function coveredBy(root, targetPath, body) {

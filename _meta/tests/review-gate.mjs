@@ -123,6 +123,15 @@ try {
   assert.match(fs.readFileSync(withdrawn[0], 'utf8'), /Edited in the archive/)
   fs.rmSync(withdrawn[0])
   fs.writeFileSync(targetFile, targetText)
+  const pythonBlock = (inside) => `\`\`\`python\nif valid:\n    stage()\n${inside ? '    ' : ''}commit()\n\`\`\``
+  assert.ok(targetText.includes(body.trim()))
+  fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n${pythonBlock(false)}`))
+  const sameCode = inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n${pythonBlock(false)}` })
+  assert.equal(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a draft whose code is already in the target is a NOOP')
+  inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n${pythonBlock(true)}` })
+  assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a draft that only re-indents code changes its meaning and is not a NOOP')
+  fs.rmSync(sameCode)
+  fs.writeFileSync(targetFile, targetText)
   const crashScript = `import fs from 'node:fs'; const judge = await import(${JSON.stringify(path.join(root, '_meta/lib/promotion-judge.mjs'))}); const open = fs.openSync; fs.openSync = (dest, ...rest) => { if (String(dest).includes('processed/noop-')) process.exit(9); return open(dest, ...rest) }; judge.archiveNoop(${JSON.stringify(vault)}, ${JSON.stringify(noop)})`
   assert.equal(spawnSync(process.execPath, ['--input-type=module', '-e', crashScript], { encoding: 'utf8', env: process.env }).status, 9)
   assert.equal(fs.existsSync(dup), false)

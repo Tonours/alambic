@@ -346,6 +346,12 @@ try {
   assert.equal(git(['rev-parse', 'feature']), mainBefore)
   git(['checkout', '-q', 'main'])
   git(['branch', '-q', '-D', 'feature'])
+  assert.equal(preflight.head, mainBefore)
+  const concurrent = git(['commit-tree', `${mainBefore}^{tree}`, '-p', mainBefore, '-m', 'concurrent worktree commit'])
+  git(['update-ref', 'refs/heads/main', concurrent, mainBefore])
+  assert.match(nightlyCommit(vault, { push: false, preflight, env, journal }).reason, /HEAD moved during the run/, 'a commit made after preflight is never taken as the parent')
+  assert.equal(git(['rev-parse', 'main']), concurrent, 'the concurrent commit stays the branch tip')
+  git(['update-ref', 'refs/heads/main', mainBefore, concurrent])
   const { writeSync } = fs
   fs.writeSync = (fd, buffer, offset = 0, length = buffer.length - offset, ...rest) => writeSync(fd, buffer, offset, Math.min(length, 64), ...rest)
   let ownCommit

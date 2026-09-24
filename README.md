@@ -205,7 +205,7 @@ is in the login env), sidekick, validate, lint, leak-scan and the eval suites
 listed in `_meta/tests/run.sh` as `eval --suite NAME` commands (without the key, on their own state; an unreadable file, no suite or a `--suite` it cannot parse turns the gate red). It commits only
 top-level `kb/` and `ref/` files, `_meta/enrich-ledger.json` and the deletion
 of inbox notes it promoted, only as its own steps wrote them and exactly as the
-gates checked them on an export of that tree, and pushes that one commit when every gate is green. A file you edit during the run is never overwritten: the run refuses it, or keeps your copy in `.git/alambic-displaced/` (always that private 0700 directory, or `displaced/` in the alambic state directory outside git; no environment variable moves it, and a failed git lookup refuses the write) and stops until you resolve it. A copy still named `inflight-…` belongs to a swap or archive that never finished: it blocks the run too, and moving it back to its original path restores the draft. Switching branch during the run cancels the commit. Every write alambic makes, in nightly or by hand, keeps the replaced file there. Copies that still match the sha in their name are backups; delete them when you like. alambic never deletes a file it cannot verify: a stray copy left under `kb/` or `ref/` blocks the next run until you remove it. The plist holds paths, never secrets. macOS only; the
+gates checked them on an export of that tree, and pushes that one commit, on top of the HEAD preflight validated, when every gate is green. A file you edit during the run is never overwritten: the run refuses it, or keeps your copy in `.git/alambic-displaced/` (always that private 0700 directory, or `displaced/` in the alambic state directory outside git; no environment variable moves it, and a failed git lookup refuses the write) and stops until you resolve it. A copy still named `inflight-…` belongs to a swap or archive that never finished: it blocks the run too, and moving it back to its original path restores the draft. Switching branch during the run cancels the commit. Every write alambic makes, in nightly or by hand, keeps the replaced file there. Copies that still match the sha in their name are backups; delete them when you like. alambic never deletes a file it cannot verify: a stray copy left under `kb/` or `ref/` blocks the next run until you remove it. The plist holds paths, never secrets. macOS only; the
 `alambic-sidekick-daily.yml` workflow stays for manual dispatch.
 `ALAMBIC_YOUTUBE_*` secrets feed attention collect. Details in
 `kb/alambic-self-improvement-loop.md`, `kb/adr-alambic-local-session-harvest.md`
@@ -229,7 +229,7 @@ An entry that fails three times moves, excerpt included, to
 Session drafts never reach `kb/` without an accept receipt from an interactive
 `review`, bound to the file's sha256. The TTY check keeps scripts out, not a
 determined local process: never let an agent run `review --inbox`. A draft whose title and body an existing
-note already contains is archived as `noop-*`, only while that note is unchanged
+note already contains (prose whitespace aside; code lines must match exactly) is archived as `noop-*`, only while that note is unchanged
 since the check. `harvest digest --out` and
 `harvest ack --digest` hand the queue to another writer (a vault with its own
 capture agent) and clear it only after that writer pushed.

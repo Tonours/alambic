@@ -262,7 +262,7 @@ export function nightlyCommit(root, { push, preflight, env, expectedTree = null,
     if (!built.ok || !built.files.length) return built.ok ? { ok: true, commit: null, pushed: false } : built
     const ref = `refs/heads/${preflight.branch}`
     if (git(root, ['symbolic-ref', '-q', 'HEAD'], readEnv).out !== ref) return { ok: false, reason: 'the branch changed during the run' }
-    const parent = git(root, ['rev-parse', ref], readEnv).out
+    const parent = preflight.head
     const made = git(root, ['commit-tree', built.tree, '-p', parent, '-m', COMMIT_MESSAGE], readEnv)
     if (!made.ok) return { ok: false, reason: `git commit failed: ${made.err}` }
     const commit = made.out
