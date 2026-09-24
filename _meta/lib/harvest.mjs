@@ -201,6 +201,7 @@ function readJson(file, fallback) {
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  if (!fs.lstatSync(path.dirname(file)).isDirectory()) throw new Error('alambic state directories must be real directories')
   const temporary = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
   fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
   fs.renameSync(temporary, file)
@@ -440,6 +441,7 @@ export function renderHarvestNote(answer, entry, today = new Date().toISOString(
     body,
     '',
   ].join('\n')
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text)) throw new Error('control characters in the draft')
   if (scanUnsafe(text).length) throw new Error('unsafe content')
   if (REFUSE_BODY.some((regex) => regex.test(text))) throw new Error('refused content')
   return text

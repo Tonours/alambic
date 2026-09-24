@@ -323,6 +323,22 @@ try {
   const dense = Array.from({ length: 100 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', text: `${richer} step ${index}` }))
   assert.ok(harvestLib.buildExcerpt(dense).excerpt.length <= 6000, 'the excerpt respects its bound')
 
+  const nulAnswer = { title: 'Nul byte draft', summary: 'A draft whose body hides a control character.', body: `${'Body text. '.repeat(30)}\u0000 zyxwv quorble`, tags: ['harvest'] }
+  assert.throws(() => harvestLib.renderHarvestNote(nulAnswer, { source_ref: 'claude:s1', score: 50 }), /control characters/, 'a draft with a NUL byte is refused before the leak scan')
+
+  const raceState = path.join(temp, 'race-state')
+  const raceTarget = path.join(vault, 'kb/race')
+  fs.mkdirSync(raceTarget)
+  const { mkdirSync } = fs
+  fs.mkdirSync = (dir, options) => {
+    if (dir === path.join(raceState, 'harvest/queue')) { fs.mkdirSync = mkdirSync; fs.mkdirSync(path.join(raceState, 'harvest'), { recursive: true }); fs.symlinkSync(raceTarget, dir) }
+    return mkdirSync(dir, options)
+  }
+  try { assert.throws(() => harvestLib.harvestScan(vault, { session: claudeFile, stateDir: raceState, env }), /real directories/, 'a queue swapped for a link after the check is refused') } finally { fs.mkdirSync = mkdirSync }
+  assert.deepEqual(fs.readdirSync(raceTarget), [], 'no excerpt lands in the vault')
+  assert.equal(fs.existsSync(path.join(raceState, 'harvest/cursor.json')), false, 'the cursor stays put')
+  fs.rmSync(raceTarget, { recursive: true })
+
   fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: richer }] } })}`)
   const started = Date.now()
   const hooked = spawnSync(process.execPath, [path.join(root, '_meta/hooks/harvest-hook.mjs')], { input: JSON.stringify({ transcript_path: claudeFile }), encoding: 'utf8', env })

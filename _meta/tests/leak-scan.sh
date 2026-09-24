@@ -38,9 +38,9 @@ if [ "$count" -gt 0 ]; then
   # Publishable set: tracked + untracked-not-ignored files (gitignored runtime
   # artifacts never ship). Outside a git checkout, scan the whole tree.
   if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    scan() { git ls-files -z -co --exclude-standard | grep -zv -e '^node_modules/' | xargs -0 grep -InEi -f "$patterns" -- 2>/dev/null; }
+    scan() { git ls-files -z -co --exclude-standard | grep -zv -e '^node_modules/' | xargs -0 grep -HanEi -f "$patterns" -- 2>/dev/null; }
   else
-    scan() { grep -RInEi -f "$patterns" "${EXCLUDES[@]}" --exclude="$(basename "$file")" . 2>/dev/null; }
+    scan() { grep -RHanEi -f "$patterns" "${EXCLUDES[@]}" --exclude="$(basename "$file")" . 2>/dev/null; }
   fi
   # Judge by output, not exit status (xargs batches mask per-batch matches).
   scan > "$hits" || true

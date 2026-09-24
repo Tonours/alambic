@@ -97,6 +97,9 @@ const applied = applyStructuralWikilink(tmp, 'kb/alpha-side.md', 'beta-side')
 assert(applied.ok && applied.changed, 'link should apply')
 const raw = fs.readFileSync(path.join(kb, 'alpha-side.md'), 'utf8')
 assert(raw.includes('[[beta-side]]'), 'wikilink missing after apply')
+assert(applyStructuralWikilink(tmp, 'kb/alpha-side.md', 'gamma-side').changed, 'second link should apply')
+const relinked = fs.readFileSync(path.join(kb, 'alpha-side.md'), 'utf8')
+assert(/## Related\n\n- \[\[gamma-side\]\]\n- \[\[beta-side\]\]\n/.test(relinked) && !relinked.includes('\n\n\n'), 'each related link adds no blank line')
 
 // Secret freeform reject
 const bad = path.join(tmp, 'docs', 'bad.md')

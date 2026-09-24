@@ -477,7 +477,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
     for (const link of links.slice(0, 5)) {
       if (!hasWikilink(after, link) && link !== path.basename(judgment.update_target, '.md')) {
         if (/^## Related\s*$/m.test(after)) {
-          after = after.replace(/^(## Related\s*\n)/m, `$1\n- [[${link}]]\n`)
+          after = after.replace(/^(## Related)[ \t]*\n(?:[ \t]*\n)*/m, `$1\n\n- [[${link}]]\n`)
         }
       }
     }
@@ -589,7 +589,7 @@ export function applyStructuralWikilink(root, sourcePath, targetBasename) {
   const link = `[[${targetBasename}]]`
   let after
   if (/^## Related\s*$/m.test(before)) {
-    after = before.replace(/^(## Related\s*\n)/m, `$1\n- ${link}\n`)
+    after = before.replace(/^(## Related)[ \t]*\n(?:[ \t]*\n)*/m, `$1\n\n- ${link}\n`)
   } else {
     const trimmed = before.replace(/\s*$/, '')
     after = `${trimmed}\n\n## Related\n\n- ${link}\n`

@@ -122,6 +122,15 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   refuses the next nightly preflight, but retrieval reads it until a human
   removes it.
 - A displaced directory that exists but cannot be read blocks the run.
+- Nightly also runs the eval suites listed in `_meta/tests/run.sh`, without
+  `TYPESAFE_API_KEY` and on a temporary state dir, so a heal that breaks a
+  retrieval eval never reaches the remote and never touches the real state.
+- A distilled draft with control characters (NUL included) is refused, and
+  leak-scan reads binary files too, so a marker cannot hide behind a NUL byte.
+- The harvest state directories must be real directories when alambic writes
+  into them. A same-user process that swaps one for a link between that check
+  and the write can still redirect it; an untracked file under `kb/` or `ref/`
+  then refuses the next nightly preflight.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 

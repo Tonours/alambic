@@ -309,6 +309,22 @@ function nightlyLocked(root, { push, dryRun, env: baseEnv, distiller, journal })
   return locked.locked ? { ok: false, locked: true, reason: 'another harvest or nightly run holds the lock' } : locked
 }
 
+function evalGate(root, env, vault) {
+  const modules = path.join(vault, 'node_modules')
+  if (root !== vault && fs.existsSync(modules)) fs.symlinkSync(modules, path.join(root, 'node_modules'))
+  let listed = ''
+  try { listed = fs.readFileSync(path.join(root, '_meta/tests/run.sh'), 'utf8') } catch {}
+  const suites = [...new Set([...listed.matchAll(/eval --suite ([\w-]+)/g)].map((match) => match[1]))]
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-evals-'))
+  const isolated = Object.fromEntries(Object.entries(env).filter(([key]) => key !== 'TYPESAFE_API_KEY' && !key.startsWith('ALAMBIC_')))
+  try {
+    const failed = suites.filter((suite) => !cliStep(root, `eval ${suite}`, ['eval', '--suite', suite], { ...isolated, XDG_STATE_HOME: state }).ok)
+    return { name: 'evals', ok: !failed.length, suites: suites.length, ...(failed.length ? { error: `failed suites: ${failed.join(', ')}` } : {}) }
+  } finally {
+    fs.rmSync(state, { recursive: true, force: true })
+  }
+}
+
 function leakPatterns(root, env) {
   const file = path.resolve(root, env.ALAMBIC_LEAK_PATTERNS_FILE || '.leak-patterns')
   if (!env.ALAMBIC_LEAK_PATTERNS_FILE && !fs.lstatSync(file, { throwIfNoEntry: false })) return { ok: true, file: null }
@@ -335,6 +351,7 @@ function runSteps(root, { push, dryRun, env, distiller, journal, report, preflig
     cliStep(gateRoot, 'validate', ['validate', '--mode', 'strict'], gateEnv),
     cliStep(gateRoot, 'lint', ['lint', '--check'], gateEnv),
     step(gateRoot, 'leak-scan', '/bin/bash', [path.join(ENGINE, 'tests/leak-scan.sh'), gateRoot], gateEnv),
+    evalGate(gateRoot, gateEnv, root),
   ]
   const checked = snapshot ? withExport(root, env, snapshot.tree, gates) : gates(root)
   if (!checked) return { ...report, reason: 'could not export the snapshot for the gates', commit: null, pushed: false }
