@@ -227,6 +227,18 @@ try {
   assert.equal(harvestLib.withHarvestLock(lockState, () => { inside = harvestLib.withHarvestLock(lockState, () => ({ ok: true })); return { ok: true, ran: true } }).ran, true, 'a dead reaper is inherited through its own reap claim')
   assert.equal(inside.locked, true, 'the new owner excludes a concurrent run')
   assert.deepEqual(fs.readdirSync(path.join(lockState, 'harvest')), [], 'the takeover chain leaves no lock, reaper or tombstone')
+  fs.mkdirSync(path.join(lockState, 'harvest/lock'))
+  fs.writeFileSync(path.join(lockState, 'harvest/lock/owner.json'), JSON.stringify({ pid: 999999, token: 'dead4' }))
+  fs.mkdirSync(path.join(lockState, 'harvest/lock.reap-dead4/reap-dead5'), { recursive: true })
+  fs.writeFileSync(path.join(lockState, 'harvest/lock.reap-dead4/owner.json'), JSON.stringify({ pid: 999998, token: 'dead5' }))
+  fs.writeFileSync(path.join(lockState, 'harvest/lock.reap-dead4/reap-dead5/owner.json'), JSON.stringify({ pid: process.pid, token: 'heir' }))
+  assert.equal(harvestLib.withHarvestLock(lockState, () => ({ ok: true })).locked, true, 'a live heir of a dead reaper keeps the takeover exclusive')
+  assert.ok(fs.existsSync(path.join(lockState, 'harvest/lock.reap-dead4/reap-dead5')), 'a claim on the current dead lock is never swept')
+  fs.rmSync(path.join(lockState, 'harvest/lock.reap-dead4'), { recursive: true })
+  fs.mkdirSync(path.join(lockState, 'harvest/lock.reap-gone'))
+  fs.writeFileSync(path.join(lockState, 'harvest/lock.reap-gone/owner.json'), JSON.stringify({ pid: process.pid, token: 'old' }))
+  assert.equal(harvestLib.withHarvestLock(lockState, () => ({ ok: true, ran: true })).ran, true)
+  assert.deepEqual(fs.readdirSync(path.join(lockState, 'harvest')), [], 'claims for a lock that no longer exists are swept')
 
   const bumper = `import(${JSON.stringify(path.join(root, '_meta/lib/harvest.mjs'))}).then((lib) => { for (let index = 0; index < 20; index += 1) lib.bumpMetrics(${JSON.stringify(lockState)}, { accepted: 1 }) })`
   const { spawn } = await import('node:child_process')

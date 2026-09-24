@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { alambicStateDir } from './state-dir.mjs'
 import path from 'node:path'
 import { parseMarkdownText } from './frontmatter.mjs'
-import { journalWrite } from './write-journal.mjs'
+import { moveChecked, vaultDir, writeChecked } from './write-journal.mjs'
 import { buildManifest, invalidateManifest, queryVault, scanUnsafe, validateVault } from './vault.mjs'
 
 /**
@@ -256,6 +256,7 @@ export function reviewInbox(root, relativePath, { decision, reason, tty = false,
   if (scanUnsafe(text).length) throw new Error('inbox note contains unsafe content')
   const { data } = parseMarkdownText(text)
   const sessionOrigin = isSessionOrigin(data, relative)
+  if (decision === 'reject') vaultDir(root, 'docs/inbox/ai/processed')
   const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason })
   if (decision === 'reject') archiveInboxSource(root, relative, 'rejected')
   return { ok: true, path: relative, decision, session_origin: sessionOrigin, receipt, idempotent }
@@ -473,10 +474,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
       }
     }
     if (scanUnsafe(after).length) return { ok: false, error: 'unsafe-after' }
-    const temporary = `${targetAbs}.${process.pid}.tmp`
-    fs.writeFileSync(temporary, after, 'utf8')
-    fs.renameSync(temporary, targetAbs)
-    journalWrite(targetAbs, after)
+    if (!writeChecked(targetAbs, before, after)) return { ok: false, error: 'concurrent-edit', path: judgment.update_target }
     archiveInboxSource(root, judgment.path, 'updated')
     invalidateManifest(root)
     return { ok: true, mode: 'update', path: judgment.update_target, changed: true }
@@ -518,9 +516,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   ].join('\n')
 
   if (scanUnsafe(front).length) return { ok: false, error: 'unsafe-create' }
-  fs.writeFileSync(`${targetAbs}.${process.pid}.tmp`, front, 'utf8')
-  fs.renameSync(`${targetAbs}.${process.pid}.tmp`, targetAbs)
-  journalWrite(targetAbs, front)
+  if (!writeChecked(targetAbs, null, front)) return { ok: false, error: 'concurrent-edit', path: targetRel }
   applyIndexEntry(root, basename)
   archiveInboxSource(root, judgment.path, 'created')
   invalidateManifest(root)
@@ -530,18 +526,18 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
 function archiveInboxSource(root, relativePath, mode) {
   const abs = path.join(root, relativePath)
   if (!fs.existsSync(abs)) return
-  const processedDir = path.join(root, 'docs/inbox/ai/processed')
-  fs.mkdirSync(processedDir, { recursive: true })
-  const base = path.basename(relativePath)
-  const dest = path.join(processedDir, `${mode}-${base}`)
-  try {
-    fs.renameSync(abs, dest)
-  } catch {
-    // cross-device fallback
-    fs.copyFileSync(abs, dest)
-    fs.unlinkSync(abs)
+  const processedDir = vaultDir(root, 'docs/inbox/ai/processed')
+  const ext = path.extname(relativePath)
+  const base = path.basename(relativePath, ext)
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      moveChecked(abs, path.join(processedDir, `${mode}-${base}${attempt ? `-${attempt}` : ''}${ext}`))
+      return
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+    }
   }
-  journalWrite(abs, null)
+  throw new Error(`no free archive name for ${relativePath}`)
 }
 
 function sourceLooksInspectable(root, source) {
@@ -603,10 +599,7 @@ export function applyStructuralWikilink(root, sourcePath, targetBasename) {
   // Safety: no secrets introduced
   if (scanUnsafe(after).length) return { ok: false, error: 'unsafe-after', path: sourcePath }
 
-  const temporary = `${absolute}.${process.pid}.tmp`
-  fs.writeFileSync(temporary, after, 'utf8')
-  fs.renameSync(temporary, absolute)
-  journalWrite(absolute, after)
+  if (!writeChecked(absolute, before, after)) return { ok: false, error: 'concurrent-edit', path: sourcePath }
   invalidateManifest(root)
   return { ok: true, path: sourcePath, changed: true, link }
 }
@@ -635,10 +628,7 @@ export function applyIndexEntry(root, basename) {
   }
 
   if (scanUnsafe(after).length) return { ok: false, error: 'unsafe-after', path: 'kb/_index.md' }
-  const temporary = `${indexPath}.${process.pid}.tmp`
-  fs.writeFileSync(temporary, after, 'utf8')
-  fs.renameSync(temporary, indexPath)
-  journalWrite(indexPath, after)
+  if (!writeChecked(indexPath, before, after)) return { ok: false, error: 'concurrent-edit', path: 'kb/_index.md' }
   invalidateManifest(root)
   return { ok: true, path: 'kb/_index.md', changed: true, basename }
 }

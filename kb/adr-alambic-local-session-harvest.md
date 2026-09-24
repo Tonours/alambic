@@ -72,10 +72,17 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   bytes that were reviewed.
 - Nightly snapshots the publishable tree before validate, lint and leak-scan,
   and commits that exact tree; an edit landing during the gates aborts the run.
-- Enrich and the promotion writers journal what they write
-  (`ALAMBIC_WRITE_JOURNAL`); nightly refuses a changed path whose content is
-  not the last journaled write, so a human edit made during the run is never
-  published. An edit landing between a step's read and its write is merged.
+- Enrich and the promotion writers re-check each file's sha256 before they
+  rename over it, refuse the write when it changed since they read it, and
+  journal preimage and result (`ALAMBIC_WRITE_JOURNAL`). Nightly commits a path
+  only when its staged blob ends an unbroken chain of journaled writes starting
+  at the HEAD blob, so a human edit made during the run is never published. An
+  edit landing between that re-check and the rename is overwritten and lost.
+- Nightly holds `.git/index.lock` from its index check to the index refresh,
+  and refreshes only the committed paths, so the user's index is never
+  clobbered.
+- Promotion archives only into a real `docs/inbox/ai/processed/` directory
+  inside the vault and never overwrites an existing archive.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 

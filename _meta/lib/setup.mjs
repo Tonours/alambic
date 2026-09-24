@@ -475,7 +475,7 @@ function planItem(context, item, recorded) {
     action.preimage = found.preimage
     action.status = { absent: 'create', match: 'unchanged', owned: 'update', foreign: 'collision' }[found.state]
     if (found.state === 'foreign') action.reason = found.reason || (recorded ? 'changed since setup wrote it' : 'exists and is not owned by setup')
-    if (item.launchd && action.status === 'unchanged' && !launchctl(context, ['print', `${launchDomain()}/${item.launchd}`]).ok) Object.assign(action, { status: 'update', reason: 'LaunchAgent not loaded' })
+    if (item.launchd && action.status === 'unchanged' && !launchctl(context, ['print', `${launchDomain()}/${item.launchd}`]).ok) Object.assign(action, { status: 'update', reason: 'LaunchAgent not loaded', matched: true })
   } catch (error) {
     if (!(error instanceof Refusal)) throw error
     action.status = 'refuse'
@@ -584,7 +584,7 @@ export function applySetup(context, plan) {
       continue
     }
     const known = run.manifest.items.some((item) => item.id === action.id)
-    const preState = action.status === 'create' ? 'absent' : action.status === 'unchanged' && !known ? 'preexisting' : 'existing-owned'
+    const preState = action.status === 'create' ? 'absent' : (action.status === 'unchanged' || action.matched) && !known ? 'preexisting' : 'existing-owned'
     const journaled = run.manifest.items.some((item) => item.id === action.id && item.fingerprint === action.fingerprint)
     try {
       action.result = action.status === 'unchanged' ? 'unchanged' : applyAction(run, action)

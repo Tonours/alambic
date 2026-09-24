@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { harvestDistill, harvestScan, resolveDistiller, stateInsideVault, withHarvestLock } from './harvest.mjs'
-import { fileSha, journalWrite, readJournal } from './write-journal.mjs'
+import { digest, journalRecord, readJournal } from './write-journal.mjs'
 
 const ENGINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMMIT_PATHS = ['kb', 'ref', '_meta/enrich-ledger.json']
@@ -96,59 +96,101 @@ export function publishableTree(root, env) {
   })
 }
 
-function foreignChanges(root, list, journal) {
-  const written = readJournal(journal)
+function blobSha(root, env, spec) {
+  const result = spawnSync('git', ['cat-file', 'blob', spec], { cwd: root, env, timeout: 120_000, maxBuffer: 64 * 1024 * 1024 })
+  return result.status === 0 ? digest(result.stdout) : null
+}
+
+function foreignChanges(root, list, journal, env, indexEnv) {
+  const chains = readJournal(journal)
   return list.filter(({ status, file }) => {
-    const absolute = path.resolve(root, file)
-    if (!written.has(absolute)) return true
-    return status === 'D' ? written.get(absolute) !== null : written.get(absolute) !== fileSha(absolute)
+    const chain = chains.get(path.resolve(root, file))
+    if (!chain) return true
+    let expected = blobSha(root, env, `HEAD:${file}`)
+    for (const entry of chain) {
+      if (entry.before !== expected) return true
+      expected = entry.after
+    }
+    return expected !== (status === 'D' ? null : blobSha(root, indexEnv, `:${file}`))
   }).map((item) => item.file)
 }
 
-export function seedJournal(root, env, journal) {
-  const pending = changes(root, env, ['diff', 'HEAD', '--name-status', '--no-renames'])
-  if (pending === null) return false
-  for (const { file } of pending) {
-    const absolute = path.resolve(root, file)
-    const content = fs.existsSync(absolute) ? fs.readFileSync(absolute) : null
-    journalWrite(absolute, content, { ALAMBIC_WRITE_JOURNAL: journal })
-  }
+export function seedJournal(root, env, journal, base, resumed) {
+  const own = changes(root, env, ['diff-tree', '-r', '--no-renames', '--name-status', base, resumed])
+  if (own === null) return false
+  for (const { file } of own) journalRecord(path.resolve(root, file), blobSha(root, env, `${base}:${file}`), blobSha(root, env, `${resumed}:${file}`), { ALAMBIC_WRITE_JOURNAL: journal })
   return true
 }
 
+function withIndexLock(root, env, fn) {
+  const located = git(root, ['rev-parse', '--git-path', 'index'], env)
+  if (!located.ok) return { ok: false, reason: 'git rev-parse failed' }
+  const index = path.resolve(root, located.out)
+  const held = { index, lock: `${index}.lock`, fd: null, published: false }
+  try { held.fd = fs.openSync(held.lock, 'wx', 0o644) } catch (error) {
+    if (error.code === 'EEXIST') return { ok: false, reason: 'the git index is locked by another process' }
+    throw error
+  }
+  try {
+    return fn(held)
+  } finally {
+    fs.closeSync(held.fd)
+    if (!held.published) fs.rmSync(held.lock, { force: true })
+  }
+}
+
+function publishIndex(root, env, held, files) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-index-'))
+  const next = path.join(dir, 'index')
+  try {
+    fs.copyFileSync(held.index, next)
+    if (!git(root, ['reset', '-q', '--', ...files], { ...env, GIT_INDEX_FILE: next }).ok) return false
+    fs.writeSync(held.fd, fs.readFileSync(next))
+    fs.fsyncSync(held.fd)
+    fs.renameSync(held.lock, held.index)
+    held.published = true
+    return true
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 export function nightlyCommit(root, { push, preflight, env, expectedTree = null, journal = null }) {
-  const indexed = changes(root, env, ['diff', '--cached', '--name-status', '--no-renames'])
-  const tracked = changes(root, env, ['diff', 'HEAD', '--name-status', '--no-renames'])
-  if (indexed === null || tracked === null) return { ok: false, reason: 'git diff failed' }
-  if (indexed.length) return { ok: false, reason: 'the index changed during the run', paths: [...new Set(indexed.map((item) => item.file))].slice(0, 20) }
-  const outside = tracked.filter((item) => !allowedChange(item))
-  if (outside.length) return { ok: false, reason: 'changes outside the commit allowlist', paths: [...new Set(outside.map((item) => item.file))].slice(0, 20) }
-  const built = withTempIndex(root, env, (indexEnv) => {
-    const stageError = stagePublishable(root, indexEnv)
-    if (stageError) return { ok: false, reason: stageError }
-    const index = changes(root, indexEnv, ['diff', '--cached', '--name-status', '--no-renames'])
-    if (index === null) return { ok: false, reason: 'git diff failed' }
-    const refused = index.filter((item) => !allowedChange(item))
-    if (refused.length) return { ok: false, reason: 'changes outside the commit allowlist', paths: [...new Set(refused.map((item) => item.file))].slice(0, 20) }
-    if (journal) {
-      const foreign = foreignChanges(root, index, journal)
-      if (foreign.length) return { ok: false, reason: 'changes not written by this run', paths: foreign.slice(0, 20) }
-    }
-    const tree = git(root, ['write-tree'], indexEnv)
-    if (!tree.ok) return { ok: false, reason: 'git write-tree failed' }
-    if (expectedTree && tree.out !== expectedTree) return { ok: false, reason: 'publishable paths changed after the gates ran' }
-    return { ok: true, tree: tree.out, files: index.map((item) => item.file) }
+  const readEnv = { ...env, GIT_OPTIONAL_LOCKS: '0' }
+  const committed = withIndexLock(root, env, (held) => {
+    const indexed = changes(root, readEnv, ['diff', '--cached', '--name-status', '--no-renames'])
+    const tracked = changes(root, readEnv, ['diff', 'HEAD', '--name-status', '--no-renames'])
+    if (indexed === null || tracked === null) return { ok: false, reason: 'git diff failed' }
+    if (indexed.length) return { ok: false, reason: 'the index changed during the run', paths: [...new Set(indexed.map((item) => item.file))].slice(0, 20) }
+    const outside = tracked.filter((item) => !allowedChange(item))
+    if (outside.length) return { ok: false, reason: 'changes outside the commit allowlist', paths: [...new Set(outside.map((item) => item.file))].slice(0, 20) }
+    const built = withTempIndex(root, readEnv, (indexEnv) => {
+      const stageError = stagePublishable(root, indexEnv)
+      if (stageError) return { ok: false, reason: stageError }
+      const index = changes(root, indexEnv, ['diff', '--cached', '--name-status', '--no-renames'])
+      if (index === null) return { ok: false, reason: 'git diff failed' }
+      const refused = index.filter((item) => !allowedChange(item))
+      if (refused.length) return { ok: false, reason: 'changes outside the commit allowlist', paths: [...new Set(refused.map((item) => item.file))].slice(0, 20) }
+      if (journal) {
+        const foreign = foreignChanges(root, index, journal, readEnv, indexEnv)
+        if (foreign.length) return { ok: false, reason: 'changes not written by this run', paths: foreign.slice(0, 20) }
+      }
+      const tree = git(root, ['write-tree'], indexEnv)
+      if (!tree.ok) return { ok: false, reason: 'git write-tree failed' }
+      if (expectedTree && tree.out !== expectedTree) return { ok: false, reason: 'publishable paths changed after the gates ran' }
+      return { ok: true, tree: tree.out, files: index.map((item) => item.file) }
+    })
+    if (!built.ok || !built.files.length) return built.ok ? { ok: true, commit: null, pushed: false } : built
+    const parent = git(root, ['rev-parse', 'HEAD'], readEnv).out
+    const made = git(root, ['commit-tree', built.tree, '-p', parent, '-m', COMMIT_MESSAGE], readEnv)
+    if (!made.ok) return { ok: false, reason: `git commit failed: ${made.err}` }
+    const commit = made.out
+    if (!git(root, ['update-ref', '-m', `commit: ${COMMIT_MESSAGE}`, 'HEAD', commit, parent], readEnv).ok) return { ok: false, reason: 'HEAD moved during the run' }
+    if (!publishIndex(root, readEnv, held, built.files)) return { ok: false, commit, files: built.files, pushed: false, reason: 'git index update failed after commit' }
+    return { ok: true, commit, files: built.files }
   })
-  if (!built.ok) return built
-  if (!built.files.length) return { ok: true, commit: null, pushed: false }
-  const parent = git(root, ['rev-parse', 'HEAD'], env).out
-  const made = git(root, ['commit-tree', built.tree, '-p', parent, '-m', COMMIT_MESSAGE], env)
-  if (!made.ok) return { ok: false, reason: `git commit failed: ${made.err}` }
-  const commit = made.out
-  if (!git(root, ['update-ref', '-m', `commit: ${COMMIT_MESSAGE}`, 'HEAD', commit, parent], env).ok) return { ok: false, reason: 'HEAD moved during the run' }
-  git(root, ['reset', '-q', '--', ...built.files], env)
-  const files = built.files
-  if (!push) return { ok: true, commit, files, pushed: false }
+  if (!committed.ok || !committed.commit || !push) return committed.ok && committed.commit ? { ...committed, pushed: false } : committed
+  const { commit, files } = committed
   const outgoing = git(root, ['rev-list', '--count', `origin/${preflight.target}..${commit}`], env).out
   if (outgoing !== '1') return { ok: false, commit, files, pushed: false, reason: `expected one outgoing commit, found ${outgoing || 'none'}` }
   const pushed = git(root, ['push', '--quiet', 'origin', `${commit}:refs/heads/${preflight.target}`], env)
@@ -174,7 +216,7 @@ function nightlyLocked(root, { push, dryRun, env, distiller, journal }) {
     const preflight = nightlyPreflight(root, { push: push && !dryRun, commit: !dryRun, env })
     report.preflight = preflight
     if (!preflight.ok) return { ...report, reason: `preflight: ${preflight.reason}` }
-    if (preflight.resumed && !seedJournal(root, env, journal)) return { ...report, reason: 'preflight: git diff failed' }
+    if (preflight.resumed && !seedJournal(root, env, journal, preflight.head, preflight.resumed)) return { ...report, reason: 'preflight: git diff failed' }
     const scan = harvestScan(root, { dryRun, env })
     report.steps.push({ name: 'harvest-scan', ok: scan.ok, queued: scan.queued.length, ...(scan.error ? { error: scan.error } : {}) })
     if (resolveDistiller(distiller, env)) {

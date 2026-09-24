@@ -4,7 +4,7 @@ import path from 'node:path'
 import { topicVocabulary } from './semantic-vault.mjs'
 import { askJev, noul } from './typesafe-judge.mjs'
 import { buildKnowledgeGraph, buildManifest, validateVault } from './vault.mjs'
-import { journalWrite } from './write-journal.mjs'
+import { writeChecked } from './write-journal.mjs'
 
 const LEDGER = '_meta/enrich-ledger.json'
 const MAX_CANDIDATE_TAGS = 12
@@ -16,22 +16,16 @@ const ACTIVE = new Set(['verified', 'accepted'])
 
 function readLedger(root) {
   const file = path.join(root, LEDGER)
-  if (!fs.existsSync(file)) return { version: 1, notes: {} }
-  const ledger = JSON.parse(fs.readFileSync(file, 'utf8'))
+  if (!fs.existsSync(file)) return { version: 1, notes: {}, raw: null }
+  const raw = fs.readFileSync(file, 'utf8')
+  const ledger = JSON.parse(raw)
   if (ledger.version !== 1 || typeof ledger.notes !== 'object') throw new Error(`${LEDGER} has an unsupported shape`)
-  return ledger
-}
-
-function writeAtomic(file, text) {
-  const temporary = `${file}.${process.pid}.tmp`
-  fs.writeFileSync(temporary, text, 'utf8')
-  fs.renameSync(temporary, file)
-  journalWrite(file, text)
+  return { ...ledger, raw }
 }
 
 function writeLedger(root, ledger) {
   const sorted = Object.fromEntries(Object.entries(ledger.notes).sort(([a], [b]) => a.localeCompare(b)))
-  writeAtomic(path.join(root, LEDGER), `${JSON.stringify({ version: 1, notes: sorted }, null, 2)}\n`)
+  if (!writeChecked(path.join(root, LEDGER), ledger.raw, `${JSON.stringify({ version: 1, notes: sorted }, null, 2)}\n`)) throw new Error(`${LEDGER} changed during enrich`)
 }
 
 function sha256(text) {
@@ -120,7 +114,7 @@ export async function enrichVault(root, { apply = false, max = 25, ...options } 
     return { note, ...(await judgeNote(note, candidates, options)) }
   })
 
-  const report = { apply, vocabulary: vocabulary.length, pending: pending.length, judged: 0, provider_failures: 0, notes_changed: 0, tags_added: 0, input_tokens: 0, changes: [] }
+  const report = { apply, vocabulary: vocabulary.length, pending: pending.length, judged: 0, provider_failures: 0, notes_changed: 0, tags_added: 0, concurrent_edits: 0, input_tokens: 0, changes: [] }
   for (const { note, added, semantic } of judged) {
     if (semantic.available) {
       report.judged += 1
@@ -137,7 +131,7 @@ export async function enrichVault(root, { apply = false, max = 25, ...options } 
     if (!apply) continue
     const next = added.length ? appendTags(note.raw, added.map((entry) => entry.tag)) : note.raw
     if (added.length) {
-      writeAtomic(path.join(root, note.path), next)
+      if (!writeChecked(path.join(root, note.path), note.raw, next)) { report.concurrent_edits += 1; continue }
       report.notes_changed += 1
     }
     ledger.notes[note.path] = sha256(next)

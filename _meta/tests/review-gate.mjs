@@ -97,6 +97,20 @@ try {
   assert.notEqual(judge.judgeFreeformNote(vault, flipped).decision, 'noop', 'punctuation and operators count for coverage')
   fs.rmSync(flipped)
 
+  const escaping = inbox('harvest-2026-09-24-pi-p8.md', { summary: 'Session note whose archive directory points into the compiled wiki' })
+  const processedDir = path.join(vault, 'docs/inbox/ai/processed')
+  const parked = `${processedDir}.parked`
+  if (fs.existsSync(processedDir)) fs.renameSync(processedDir, parked)
+  fs.symlinkSync(path.join(vault, 'kb'), processedDir)
+  const kbBefore = fs.readdirSync(path.join(vault, 'kb')).sort()
+  assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /real directory inside the vault/)
+  assert.throws(() => judge.archiveNoop(vault, { decision: 'noop', path: rel(escaping) }), /real directory inside the vault/)
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, 'a symlinked archive never moves a draft into kb')
+  assert.equal(fs.existsSync(escaping), true)
+  fs.unlinkSync(processedDir)
+  if (fs.existsSync(parked)) fs.renameSync(parked, processedDir)
+  fs.rmSync(escaping)
+
   const rejectMe = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Vague chit chat about lunch that should never reach the wiki pages' })
   judge.reviewInbox(vault, rel(rejectMe), { decision: 'reject', reason: 'not durable' })
   assert.equal(fs.existsSync(path.join(vault, 'docs/inbox/ai/processed/rejected-harvest-2026-09-24-pi-p9.md')), true)

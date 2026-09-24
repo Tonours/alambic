@@ -513,6 +513,20 @@ try {
   const leftHooks = readJson(settingsS).hooks.SessionEnd
   assert(leftHooks.length === 2 && leftHooks[0].hooks[0].command === 'echo bye' && !leftHooks[1].hooks[0].command.includes('alambic-brain'), 'uninstall removes only its own SessionEnd entry')
 
+  const homeP = freshHome('home-preexisting-agent')
+  const envP = envFor(homeP, { ALAMBIC_LAUNCHCTL: launchctlStub, CODEX_HOME: path.join(homeP, 'codex-home') })
+  const plistP = path.join(homeP, `Library/LaunchAgents/${label}.plist`)
+  const scheduleOnly = ['--yes', '--harness', 'claude', '--no-skill', '--no-mcp', '--no-shim', '--name', 'brain', '--vault', brain, '--schedule', '06:30', '--json']
+  assert((await setup(engine, scheduleOnly, envP)).code === 0, 'seed schedule install')
+  const manifestP = spawnSync('/usr/bin/find', [homeP, '-name', 'setup-brain.json'], { encoding: 'utf8' }).stdout.trim()
+  assert(manifestP, 'the named manifest exists')
+  fs.rmSync(manifestP)
+  fs.writeFileSync(path.join(homeP, '.launchd-loaded.json'), '{}')
+  const reloaded = await setup(engine, scheduleOnly, envP)
+  assert(byId(reloaded.json)["launchd:schedule"].status === "update", `an unloaded preexisting agent is reloaded: ${reloaded.out}`)
+  const leftAgent = await setup(engine, ['--uninstall', '--yes', '--name', 'brain', '--json'], envP)
+  assert(leftAgent.json.items.find((item) => item.id === 'launchd:schedule').result === 'left' && fs.existsSync(plistP), `uninstall keeps a plist that existed before setup: ${leftAgent.out}`)
+
   console.log('setup: ok')
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })

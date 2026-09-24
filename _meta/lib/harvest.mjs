@@ -6,6 +6,7 @@ import path from 'node:path'
 import { alambicStateDir } from './state-dir.mjs'
 import { scanUnsafe } from './vault.mjs'
 import { REFUSE_BODY } from './promotion-judge.mjs'
+import { vaultDir } from './write-journal.mjs'
 
 export const HARNESSES = ['claude', 'codex', 'pi']
 export const HARVEST_ORIGIN = 'session-harvest'
@@ -219,14 +220,15 @@ function ownerAlive(dir, owner) {
 
 function createOwned(dir, owner) {
   if (fs.existsSync(dir)) return false
-  const temporary = fs.mkdtempSync(`${dir}.new-`)
+  let temporary
+  try { temporary = fs.mkdtempSync(`${dir}.new-`) } catch (error) { if (error.code === 'ENOENT') return false; throw error }
   fs.writeFileSync(path.join(temporary, 'owner.json'), JSON.stringify(owner), { mode: 0o600 })
   try {
     fs.renameSync(temporary, dir)
     return true
   } catch (error) {
     fs.rmSync(temporary, { recursive: true, force: true })
-    if (error.code === 'EEXIST' || error.code === 'ENOTEMPTY') return false
+    if (error.code === 'EEXIST' || error.code === 'ENOTEMPTY' || error.code === 'ENOENT') return false
     throw error
   }
 }
@@ -238,38 +240,43 @@ function discard(dir) {
 }
 
 function ownerKey(dir, owner) {
-  if (owner?.token) return String(owner.token).replace(/[^A-Za-z0-9-]/g, '').slice(0, 64)
-  try { return `ino${fs.statSync(dir).ino}` } catch { return null }
+  if (owner?.token) return String(owner.token).replace(/[^A-Za-z0-9-]/g, '').slice(0, 64) || null
+  try { const stat = fs.statSync(dir); return `ino${stat.ino}m${Math.floor(stat.mtimeMs)}` } catch { return null }
 }
 
-function claimReap(lock, deadKey, me, depth) {
-  if (!deadKey || depth > REAP_DEPTH) return null
-  const reaper = `${lock}.reap-${deadKey}`
-  if (createOwned(reaper, me)) return [reaper]
-  const other = lockOwner(reaper)
-  if (ownerAlive(reaper, other)) return null
-  const inherited = claimReap(lock, ownerKey(reaper, other), me, depth + 1)
-  return inherited ? [reaper, ...inherited] : null
+function claim(dir, me, depth) {
+  if (createOwned(dir, me)) return true
+  if (depth >= REAP_DEPTH) return false
+  const owner = lockOwner(dir)
+  if (ownerAlive(dir, owner)) return false
+  const key = ownerKey(dir, owner)
+  return Boolean(key) && claim(path.join(dir, `reap-${key}`), me, depth + 1)
+}
+
+function sweepClaims(lock) {
+  const current = fs.existsSync(lock) ? ownerKey(lock, lockOwner(lock)) : null
+  const prefix = `${path.basename(lock)}.reap-`
+  for (const name of fs.readdirSync(path.dirname(lock))) {
+    if (name.startsWith(prefix) && !name.includes('.gone-') && name.slice(prefix.length) !== current) discard(path.join(path.dirname(lock), name))
+  }
 }
 
 function acquireOwned(lock, me) {
   if (createOwned(lock, me)) return true
   const holder = lockOwner(lock)
   if (ownerAlive(lock, holder)) return false
-  const deadKey = ownerKey(lock, holder)
-  const reapers = claimReap(lock, deadKey, me, 0)
-  if (!reapers) return false
-  let acquired = false
-  if (ownerKey(lock, lockOwner(lock)) === deadKey) {
-    discard(lock)
-    acquired = createOwned(lock, me)
-  }
-  for (const reaper of reapers.reverse()) discard(reaper)
+  const key = ownerKey(lock, holder)
+  if (!key || !claim(`${lock}.reap-${key}`, me, 0)) return false
+  if (ownerKey(lock, lockOwner(lock)) !== key) return false
+  discard(lock)
+  const acquired = createOwned(lock, me)
+  sweepClaims(lock)
   return acquired
 }
 
 function releaseOwned(lock, me) {
   if (lockOwner(lock)?.token === me.token) discard(lock)
+  sweepClaims(lock)
 }
 
 export function withHarvestLock(stateDir, fn) {
@@ -437,13 +444,6 @@ export function renderHarvestNote(answer, entry, today = new Date().toISOString(
   return text
 }
 
-function harvestInbox(root) {
-  const dir = path.join(root, 'docs/inbox/ai')
-  fs.mkdirSync(dir, { recursive: true })
-  if (fs.realpathSync.native(dir) !== path.join(fs.realpathSync.native(root), 'docs', 'inbox', 'ai')) throw new Error('docs/inbox/ai must be a real directory inside the vault')
-  return dir
-}
-
 function writeExclusive(dir, base, text) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const file = path.join(dir, `${base}${attempt ? `-${attempt}` : ''}.md`)
@@ -490,7 +490,7 @@ export function harvestDistill(root, { distiller = null, max = 5, stateDir = nul
       }
       const text = renderHarvestNote(answer, entry)
       const today = new Date().toISOString().slice(0, 10)
-      const file = writeExclusive(harvestInbox(root), `harvest-${today}-${entry.harness}-${safeId(entry.session_id).slice(0, 8)}`, text)
+      const file = writeExclusive(vaultDir(root, 'docs/inbox/ai'), `harvest-${today}-${entry.harness}-${safeId(entry.session_id).slice(0, 8)}`, text)
       const relative = path.relative(root, file).split(path.sep).join('/')
       report.written.push({ name, path: relative })
       retire(stateDir, name, 'distilled', { inbox_path: relative })
