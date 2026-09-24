@@ -340,10 +340,9 @@ try {
     else { const dir = ensureState(); const target = path.join(dir, 'candidates', `${digest}.json`); atomicJson(target, candidate); output(`shadow candidate: ${target}`) }
   } else if (command === 'harvest') {
     const harvest = await import('./lib/harvest.mjs')
-    has('--json')
     const dryRun = has('--dry-run')
     const sub = args.shift() || 'status'
-    const usage = 'usage: alambic harvest scan [--harness claude,codex,pi] [--session FILE] [--min-score N] [--dry-run] | distill [--distiller CMD] [--max N] [--dry-run] | digest --out FILE [--max N] | ack --digest FILE [--dry-run] | status [--json]'
+    const usage = 'usage: alambic harvest scan [--harness claude,codex,pi] [--session FILE] [--min-score N] [--dry-run] | distill [--distiller CMD] [--max N] [--dry-run] | digest --out FILE [--max N] | ack --digest FILE [--dry-run] | status'
     let run
     if (sub === 'scan') {
       const harnesses = option('--harness', harvest.HARNESSES.join(',')).split(',').map((value) => value.trim()).filter(Boolean)
@@ -373,9 +372,8 @@ try {
     if (!report.ok) process.exitCode = 1
   } else if (command === 'distill') {
     const proposalFile = option('--proposal', '')
-    if (!proposalFile) throw new Error('usage: alambic distill --proposal FILE [--shadow]')
+    if (!proposalFile) throw new Error('usage: alambic distill --proposal FILE')
     if (has('--apply')) throw new Error('apply is disabled until the 7-day shadow gate is satisfied')
-    has('--shadow')
     const proposal = JSON.parse(fs.readFileSync(proposalFile, 'utf8'))
     validateProposal(proposal)
     if (scanUnsafe(JSON.stringify(proposal)).length) throw new Error('proposal rejected by security scan')

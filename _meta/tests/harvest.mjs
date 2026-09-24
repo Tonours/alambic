@@ -254,7 +254,7 @@ try {
   if (caseAlias !== vault && fs.existsSync(caseAlias)) {
     assert.notEqual(cli(['harvest', 'digest', '--out', path.join(caseAlias, 'kb/raw.json')]).status, 0, 'a case alias of the vault is refused')
     assert.equal(fs.existsSync(path.join(vault, 'kb/raw.json')), false)
-    const caseState = spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), 'harvest', 'scan', '--dry-run', '--json'], { encoding: 'utf8', env: { ...env, ALAMBIC_ROOT: vault, ALAMBIC_STATE_DIR: path.join(caseAlias, 'kb/runtime') } })
+    const caseState = spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), 'harvest', 'scan', '--dry-run'], { encoding: 'utf8', env: { ...env, ALAMBIC_ROOT: vault, ALAMBIC_STATE_DIR: path.join(caseAlias, 'kb/runtime') } })
     assert.notEqual(caseState.status, 0, 'a state dir under a case alias of the vault is refused')
   }
   const digestFile = path.join(temp, 'digest.json')

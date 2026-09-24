@@ -266,15 +266,15 @@ if (suite === 'retrieval') {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-eval-'))
   const proposal = path.join(temp, 'proposal.json')
   fs.writeFileSync(proposal, JSON.stringify({ version: 1, action: 'noop', target: '', source_refs: ['codex:2026-07-09:test'], trust: 'untrusted-session-data', rationale: 'weak finding', preimage_sha256: '', patch: '' }))
-  const run = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', proposal, '--shadow'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
-  const replay = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', proposal, '--shadow'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const run = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', proposal], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const replay = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', proposal], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const apply = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', proposal, '--apply'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const forbiddenFile = path.join(temp, 'forbidden.json')
   fs.writeFileSync(forbiddenFile, JSON.stringify({ version: 1, action: 'update', target: 'CLAUDE.md', source_refs: ['codex:2026-07-09:test'], trust: 'untrusted-session-data', rationale: 'forbidden target', preimage_sha256: 'a'.repeat(64), patch: 'unsafe' }))
-  const forbidden = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', forbiddenFile, '--shadow'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const forbidden = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', forbiddenFile], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const traversalFile = path.join(temp, 'traversal.json')
   fs.writeFileSync(traversalFile, JSON.stringify({ version: 1, action: 'update', target: 'kb/../CLAUDE.md', source_refs: ['codex:2026-07-10:test'], trust: 'untrusted-session-data', rationale: 'path traversal', preimage_sha256: 'a'.repeat(64), patch: 'unsafe' }))
-  const traversal = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', traversalFile, '--shadow'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const traversal = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', traversalFile], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const proposalFiles = fs.readdirSync(path.join(temp, 'alambic/proposals'))
   const storedProposal = path.join(temp, 'alambic/proposals', proposalFiles[0])
   const review = spawnSync(path.join(root, '_meta/alambic'), ['review', '--proposal', storedProposal, '--decision', 'accept', '--reason', 'supervised fixture', '--json'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
@@ -294,12 +294,12 @@ if (suite === 'retrieval') {
   const replayJson = reviewReplay.status === 0 ? JSON.parse(reviewReplay.stdout) : null
   const conflictProposalFile = path.join(temp, 'preimage-conflict.json')
   fs.writeFileSync(conflictProposalFile, JSON.stringify({ version: 1, action: 'update', target: 'ref/current-work.md', source_refs: ['codex:2026-07-10:test'], trust: 'trusted-local', rationale: 'preimage conflict fixture', preimage_sha256: 'a'.repeat(64), patch: 'safe patch' }))
-  const conflictDistill = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', conflictProposalFile, '--shadow'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const conflictDistill = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', conflictProposalFile], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const conflictStoredProposal = conflictDistill.stdout.trim().replace(/^shadow proposal: /, '')
   const conflictAccept = spawnSync(path.join(root, '_meta/alambic'), ['review', '--proposal', conflictStoredProposal, '--decision', 'accept', '--reason', 'must fail stale preimage'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const concurrentProposalFile = path.join(temp, 'concurrent.json')
   fs.writeFileSync(concurrentProposalFile, JSON.stringify({ version: 1, action: 'noop', target: '', source_refs: ['codex:2026-07-10:concurrent'], trust: 'trusted-local', rationale: 'concurrent decision fixture', preimage_sha256: '', patch: '' }))
-  const concurrentDistill = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', concurrentProposalFile, '--shadow'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const concurrentDistill = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', concurrentProposalFile], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const concurrentStoredProposal = concurrentDistill.stdout.trim().replace(/^shadow proposal: /, '')
   const concurrentOptions = { env: { ...process.env, XDG_STATE_HOME: temp } }
   const concurrentReviews = await Promise.all([
@@ -795,7 +795,7 @@ tags:
         // Multi-session trajectory:
         // S1 plant (shadow) → S2 apply attempt → S3 review-accept attempt → S4 retrieve as authority
         const env = { ...process.env, XDG_STATE_HOME: temp }
-        const shadow = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', proposal, '--shadow'], { encoding: 'utf8', env })
+        const shadow = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', proposal], { encoding: 'utf8', env })
         const apply = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', proposal, '--apply'], { encoding: 'utf8', env })
         let review = { status: 1, stdout: '', stderr: '' }
         const proposalLine = String(shadow.stdout || '')

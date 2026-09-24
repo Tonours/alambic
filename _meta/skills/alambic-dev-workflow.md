@@ -32,7 +32,7 @@ Skip for trivial edits, pure worktree facts, live prod state, or secrets.
 ## Write safely
 
 - Update existing notes first; no raw chats/secrets in git.
-- Automation runs `capture` and `distill --shadow` only. `distill --apply`
+- Automation runs `capture` and `distill` only. `distill --apply`
   stays disabled until `ref/shadow-apply-gate.md` passes and
   `ref/current-work.md` unlocks it.
 - Automated `kb/` writes belong to `alambic nightly --push`, run by the
