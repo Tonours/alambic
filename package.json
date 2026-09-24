@@ -24,6 +24,12 @@
     "validate": "_meta/validate-kb.sh",
     "lint": "node _meta/alambic.mjs lint --check",
     "session": "node _meta/alambic.mjs session --json",
+    "nightly": "node _meta/alambic.mjs nightly --json",
+    "nightly:dry": "node _meta/alambic.mjs nightly --dry-run --json",
+    "harvest": "node _meta/alambic.mjs harvest status",
+    "harvest:scan": "node _meta/alambic.mjs harvest scan --dry-run",
+    "enrich": "node _meta/alambic.mjs enrich --json",
+    "attention": "node _meta/alambic.mjs attention status --json",
     "eval:freeze": "node _meta/bin/eval-freeze.mjs"
   },
   "dependencies": {

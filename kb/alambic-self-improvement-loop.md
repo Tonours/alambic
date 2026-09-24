@@ -79,8 +79,10 @@ Optional Jev (TypeSafe) judgments only rerank or dedupe when
 
 1. `_meta/alambic context --max-tokens 2500 "…"`
 2. On a miss: `feedback --status miss`, then stage a sourced inbox draft.
-3. Let the nightly sidekick promote when oracles pass, or update an existing note
-   yourself. Local `npm run sidekick` is dry-run only.
+3. Let the nightly run promote when oracles pass, or update an existing note
+   yourself. Local `npm run sidekick` is dry-run only. Session drafts
+   (`harvest-*.md`) reach `kb/` only with a human `review --inbox` accept;
+   see [[adr-alambic-local-session-harvest]].
 4. Never claim the wiki is healthy without doctor/lint green.
 
 ## Related

@@ -16,6 +16,37 @@ your vault private. Agents treat everything retrieval returns as untrusted
 data, and nothing distills captures into `kb/` automatically: `distill --apply`
 is disabled.
 
+## Daily flywheel
+
+The wiki stays current because a local run maintains it every day. Sessions
+feed the inbox, a human reviews what came from sessions, the nightly run heals
+and promotes, and agents read the result the next morning.
+
+1. During the day, agent sessions accumulate. `harvest scan` scores new Claude,
+   Codex and Pi sessions locally, without reading the vault.
+2. `harvest distill` turns queued excerpts into `docs/inbox/ai/harvest-*.md`
+   drafts. They wait in the inbox and never reach `kb/` without a human
+   accept via `review --inbox`. Duplicates already covered by a note are
+   archived as `noop-*` without review.
+3. At night, `nightly --push` runs harvest, enrich, sidekick, then validate,
+   lint, leak-scan and eval gates, commits `kb/` plus `ref/` and pushes that
+   one commit. It is the only scheduled writer to `kb/`.
+4. The next day, agents query fresher notes. `feedback` records hit, miss,
+   stale or wrong, counts only. A miss means you stage a sourced inbox draft
+   yourself.
+
+| Run | Where | When | Writes to `kb/` |
+| --- | --- | --- | --- |
+| `nightly --push` | LaunchAgent on the vault owner's machine | daily, 05:15 by default | yes, the only scheduled writer |
+| harvest hook | Claude `SessionEnd` hook | at each session end | no, queues the ended session for a scored scan |
+| `loop --ci` / CI workflow | GitHub Actions | on push and PR | no, hygiene checks only |
+| `alambic-sidekick-daily.yml` | GitHub Actions, manual dispatch | on demand | yes, one-off fallback heal |
+| attention collect | local helper or CI step | on demand | no, stages inbox drafts only |
+
+Details live in `kb/alambic-self-improvement-loop.md`,
+`kb/adr-alambic-local-session-harvest.md` and
+`ref/technical-attention-intake.md`.
+
 ## Layout
 
 | Path | Role |
@@ -137,7 +168,20 @@ _meta/validate-kb.sh
 npm test                                      # full offline suite, no key needed
 ```
 
-npm shortcuts: `status`, `loop`, `doctor`, `setup`, `validate`, `lint`, `session`, `mcp`.
+Flywheel commands:
+
+```bash
+npm run nightly:dry    # partial preview: no commit, no push, enrich skipped, sidekick dry-run
+npm run harvest:scan   # preview which sessions would queue
+npm run harvest        # queue counters, acceptance rate, pending drafts
+npm run sidekick       # dry-run of structural plus freeform fixes
+npm run enrich         # dry-run of tag enrichment
+```
+
+npm shortcuts: `status`, `loop`, `loop:ci`, `doctor`, `setup`, `validate`,
+`lint`, `session`, `mcp`, `nightly`, `nightly:dry`, `harvest`,
+`harvest:scan`, `sidekick`, `sidekick:apply`, `sidekick:all`, `enrich`,
+`attention`, `eval:freeze`.
 
 Per-agent notes and the hook templates setup installs live in `_meta/harness/`.
 
@@ -159,7 +203,7 @@ every path falls back to lexical results and says why in `semantic.reason`.
 
 ```bash
 _meta/alambic enrich --json             # dry-run
-_meta/alambic enrich --apply --max 40   # what the daily workflow runs
+_meta/alambic enrich --apply --max 40   # what the nightly run applies
 npm run test:typesafe:live              # provider smoke test (needs the key)
 ```
 
@@ -190,33 +234,59 @@ npm run sidekick:apply                  # structural only, local emergency
 _meta/alambic attention status --json   # optional technical attention intake
 ```
 
-`alambic nightly --push` is the only automation that writes to `kb/`. It runs
+### Nightly, the scheduled writer
+
+`alambic nightly --push` is the only scheduled writer to `kb/`. It runs
 on the machine that owns the vault, from a LaunchAgent that `setup --schedule`
-installs:
+installs. Other machines stay on dry-run and pull.
 
 ```bash
 _meta/alambic setup --yes --name work --schedule 05:15 --harvest-hook
-_meta/alambic nightly --dry-run --json   # what the agent runs, without commit
+npm run nightly:dry   # partial preview of that pass: enrich skipped, sidekick dry-run, gates on the live checkout
 ```
 
-One run holds the harvest lock, checks a clean tree on the default branch equal
-to `origin`, then runs harvest scan, distill, enrich (when `TYPESAFE_API_KEY`
-is in the login env), sidekick, validate, lint, leak-scan and the eval suites
-listed in `_meta/tests/run.sh` as `eval --suite NAME` commands (without the key, on their own state; an unreadable file, no suite or a `--suite` it cannot parse turns the gate red). It commits only
-top-level `kb/` and `ref/` files, `_meta/enrich-ledger.json` and the deletion
-of inbox notes it promoted, only as its own steps wrote them and exactly as the
-gates checked them on an export of that tree, and pushes that one commit, on top of the HEAD preflight validated, when every gate is green. A file you edit during the run is never overwritten: the run refuses it, or keeps your copy in `.git/alambic-displaced/` (always that private 0700 directory, or `displaced/` in the alambic state directory outside git; no environment variable moves it, and a failed git lookup refuses the write) and stops until you resolve it. A copy still named `inflight-…` belongs to a swap or archive that never finished: it blocks the run too, and moving it back to its original path restores the draft. Switching branch during the run cancels the commit. Every write alambic makes, in nightly or by hand, keeps the replaced file there. Copies that still match the sha in their name are backups; delete them when you like. alambic never deletes a file it cannot verify: a stray copy left under `kb/` or `ref/` blocks the next run until you remove it. The plist holds paths, never secrets. macOS only; the
+A green dry-run does not guarantee the next push. It skips enrich, never
+applies sidekick writes, and checks the live checkout instead of an exported
+snapshot, without the default-branch and upstream checks.
+
+One run holds the harvest lock, checks a clean tree on the default branch
+equal to `origin`, then runs harvest scan, distill, enrich (when
+`TYPESAFE_API_KEY` is in the login env), sidekick, validate, lint, leak-scan
+and the eval suites listed in `_meta/tests/run.sh`. The suites run without the
+key and on their own state dir. An unreadable `run.sh`, a file with no suite,
+or a `--suite` flag the gate cannot parse turns the gate red.
+
+When every gate is green, the run commits only top-level `kb/` and `ref/`
+files, `_meta/enrich-ledger.json` and the deletion of inbox notes it promoted.
+It commits exactly the tree the gates checked, on top of the HEAD preflight
+validated, and pushes that one commit. Any red gate means no commit.
+
+A file you edit during the run is never overwritten. The run refuses it, or
+keeps your copy in `.git/alambic-displaced/` and stops until you resolve it.
+Outside git the copies land in `displaced/` under the alambic state dir. No
+environment variable moves them, and a failed git lookup refuses the write.
+Every write alambic makes, in nightly or by hand, keeps the replaced file
+there. Copies that still match the sha in their name are backups; delete them
+when you like. Alambic never deletes a file it cannot verify: a stray copy
+left under `kb/` or `ref/` blocks the next run until you remove it.
+
+Two more states block a run. A copy still named `inflight-...` belongs to a
+swap or archive that never finished; moving it back to its original path
+restores the draft. Switching branch during the run cancels the commit.
+
+The plist holds paths, never secrets. Export `TYPESAFE_API_KEY` from
+`~/.zprofile`. The agent runs through `zsh -lc`, which reads the login
+profile and skips `~/.zshrc`. Without the key in that env, enrich reports
+skipped and dedupe stays lexical. macOS only; the
 `alambic-sidekick-daily.yml` workflow stays for manual dispatch.
-`ALAMBIC_YOUTUBE_*` secrets feed attention collect. Details in
-`kb/alambic-self-improvement-loop.md`, `kb/adr-alambic-local-session-harvest.md`
-and `ref/technical-attention-intake.md`.
+`ALAMBIC_YOUTUBE_*` secrets feed attention collect.
 
 ### Session harvest
 
 ```bash
-_meta/alambic harvest scan --dry-run          # Claude, Codex, Pi sessions
-_meta/alambic harvest status                  # counters (reviews counted from their receipts), acceptance rate, pending
-_meta/alambic review --inbox docs/inbox/ai/harvest-….md --decision accept --reason "…"
+npm run harvest:scan   # preview: Claude, Codex, Pi sessions
+npm run harvest        # counters, acceptance rate, pending drafts
+_meta/alambic review --inbox docs/inbox/ai/harvest-....md --decision accept --reason "..."
 ```
 
 `--harvest-hook` adds a Claude `SessionEnd` hook that queues the ended
@@ -226,13 +296,42 @@ into gitignored `docs/inbox/ai/harvest-*.md` drafts through an external
 distiller (`ALAMBIC_HARVEST_DISTILLER`, default `claude -p` with no tools).
 An entry that fails three times moves, excerpt included, to
 `$STATE/harvest/processed/`; move it back to `harvest/queue/` to retry it.
+
 Session drafts never reach `kb/` without an accept receipt from an interactive
 `review`, bound to the file's sha256. The TTY check keeps scripts out, not a
-determined local process: never let an agent run `review --inbox`. A draft whose title and body an existing
-note already contains byte for byte, as whole lines (only trailing spaces of a final line are ignored, and never in a body with a line that starts with whitespace, `>`, `<`, a backtick or a tilde), or whose exact body an earlier update of that note wrote and left intact (the `alambic-body` comment and its quote), is archived as `noop-*`, only while that note is unchanged
-since the check. `harvest digest --out` and
-`harvest ack --digest` hand the queue to another writer (a vault with its own
-capture agent) and clear it only after that writer pushed.
+determined local process: never let an agent run `review --inbox`. A draft the
+target note already contains is archived as `noop-*` instead of waiting for
+review. The exact match rule is narrower than it sounds (prose bodies match as
+whole lines, code and quoted lines match byte for byte); the precise conditions
+live in `kb/adr-alambic-local-session-harvest.md`. `harvest digest --out`
+and `harvest ack --digest` hand the queue to another writer (a vault with its
+own capture agent) and clear it only after that writer pushed.
+
+With a named vault, run harvest and review through the named shim, so queue
+counters and receipts land in the state dir the nightly reads:
+
+```bash
+alambic-work harvest status
+alambic-work review --inbox docs/inbox/ai/harvest-....md --decision accept --reason "..."
+```
+
+Raw `_meta/alambic` uses the default state dir. The named nightly never reads
+it, so a receipt written there would never unlock a promotion.
+
+### Is it running
+
+```bash
+_meta/alambic setup --status --name work                        # schedule item installed and loaded
+launchctl print gui/$UID/dev.alambic.alambic-work.nightly       # macOS agent state
+alambic-work harvest status                                     # queue moving, reviews accepted
+tail -n 40 ~/Library/Logs/alambic-work.nightly.log              # last run output
+```
+
+When a run wrote files and a gate turned red, the tree stays dirty and the
+next run refuses at preflight until a human resolves it. That refusal is
+fail-closed. Inspect `git status`, commit or discard what the run wrote, then
+rerun `npm run nightly:dry` before the next scheduled pass. A dry-run also
+refuses on a dirty tree, so it cannot serve as the cleanup step.
 
 ## Evals
 
