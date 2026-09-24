@@ -277,10 +277,10 @@ function coveredBy(root, targetPath, body) {
   if (flatten(body.replace(/^#\s+.+$/m, '')).length < 80) return null
   try {
     const raw = readRaw(root, targetPath)
-    const target = raw.replace(/\r\n/g, '\n')
-    const text = body.replace(/\r\n/g, '\n').replace(/^\n+|\n+$/g, '')
-    const covered = /^([ \t]|```|~~~)/m.test(text) ? target.includes(text) : flatten(target).includes(flatten(text))
-    return covered || target.includes(promotedBlock(body)) ? sha256(raw) : null
+    const target = `\n${raw.replace(/\r\n/g, '\n')}\n`
+    const lines = body.replace(/\r\n/g, '\n').replace(/^(?:[ \t]*\n)+|\n+$/g, '')
+    const text = /(^|\n)[ \t][^\n]*$/.test(lines) ? lines : lines.trimEnd()
+    return target.includes(`\n${text}\n`) || target.includes(promotedBlock(body)) ? sha256(raw) : null
   } catch { return null }
 }
 

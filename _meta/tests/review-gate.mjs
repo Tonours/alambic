@@ -136,6 +136,11 @@ try {
   assert.equal(judge.judgeFreeformNote(vault, inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n    printf '<%s>' value\\` })).decision, 'noop')
   inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n    printf '<%s>' value\\ ` })
   assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a trailing space on the last code line of a body counts')
+  fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n    deploy --dry-run`))
+  for (const tail of ['    deploy', 'deploy --dry-run']) {
+    inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n${tail}` })
+    assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a shortened or unindented last code line is not a NOOP')
+  }
   const nested = (indent, gap) => `\`\`\`\`markdown\n\`\`\`yaml\nkey:\n${indent}enabled: true\n\`\`\`\n\`\`\`\`\n\n    doc = '''a\n${gap}    b'''`
   fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n${nested('  ', '\n')}`))
   for (const [indent, gap] of [['', '\n'], ['  ', '']]) {
