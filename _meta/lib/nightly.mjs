@@ -283,13 +283,14 @@ function nightlyLocked(root, { push, dryRun, env: baseEnv, distiller, journal })
 
 function leakPatterns(root, env) {
   const file = path.resolve(root, env.ALAMBIC_LEAK_PATTERNS_FILE || '.leak-patterns')
+  if (!env.ALAMBIC_LEAK_PATTERNS_FILE && !fs.lstatSync(file, { throwIfNoEntry: false })) return { ok: true, file: null }
   try { fs.accessSync(file, fs.constants.R_OK); if (fs.statSync(file).isFile()) return { ok: true, file } } catch {}
-  return env.ALAMBIC_LEAK_PATTERNS_FILE ? { ok: false } : { ok: true, file: null }
+  return { ok: false }
 }
 
 function runSteps(root, { push, dryRun, env, distiller, journal, report, preflight }) {
   const patterns = leakPatterns(root, env)
-  if (!patterns.ok) return { ...report, reason: 'ALAMBIC_LEAK_PATTERNS_FILE is set but is not a readable file', commit: null, pushed: false }
+  if (!patterns.ok) return { ...report, reason: 'the leak pattern file is configured or present but is not a readable file', commit: null, pushed: false }
   const scan = harvestScan(root, { dryRun, env })
   report.steps.push({ name: 'harvest-scan', ok: scan.ok, queued: scan.queued.length, ...(scan.error ? { error: scan.error } : {}) })
   if (resolveDistiller(distiller, env)) {

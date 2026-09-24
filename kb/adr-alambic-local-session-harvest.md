@@ -62,7 +62,7 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
 ## Consequences
 
 - `harvest status` reports `review_acceptance_rate = accepted / (accepted +
-  rejected)` as the write-precision metric.
+  rejected)`, a review acceptance rate, not a measure of knowledge accuracy.
 - A red gate leaves the tree dirty and the next run refuses at preflight until a
   human resolves it (fail-closed).
 - Existing inbox notes citing session sources now wait for review.
@@ -77,7 +77,8 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   journal preimage and result (`ALAMBIC_WRITE_JOURNAL`). Nightly commits a path
   only when its staged blob ends an unbroken chain of journaled writes starting
   at the HEAD blob, so a human edit made during the run is never published.
-  During nightly the old file is moved into `.git/alambic-displaced/` before
+  Every checked write (nightly, sidekick or enrich run by hand) moves the old
+  file into `.git/alambic-displaced/` (the state dir outside git) before
   the new one is linked; a copy that changed after the check is kept, blocks
   the commit and blocks later runs until a human resolves it, so no edit is
   lost. Nightly never deletes a displaced copy; an intact copy is a backup and
@@ -85,7 +86,8 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
 - Validate, lint and leak-scan run on an export of the snapshot tree, and
   nightly resumes only the unpushed commit SHA it recorded itself. A relative
   `ALAMBIC_LEAK_PATTERNS_FILE` resolves against the vault; a configured file
-  that is missing refuses the run, and leak-scan refuses it again when it
+  that is missing, or a present default that is not a readable file, refuses
+  the run, and leak-scan refuses it again when it
   reads the rules.
 - Nightly holds `.git/index.lock` from its index check to the index refresh,
   and refreshes only the committed paths, so the user's index is never
@@ -94,7 +96,8 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   inside the vault and never overwrites an existing archive. It renames the
   draft to a reserved name first and archives it only when its bytes still
   match what the judge read (NOOP included), so a save landing before the
-  archive stays in the inbox.
+  archive stays in the inbox. The archive is a copy; the original inode stays
+  displaced, so a late write through an open descriptor blocks the next run.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 

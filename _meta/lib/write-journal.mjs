@@ -1,6 +1,8 @@
+import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { alambicStateDir } from './state-dir.mjs'
 
 export const digest = (content) => crypto.createHash('sha256').update(content).digest('hex')
 
@@ -26,6 +28,17 @@ function restore(reserved, file) {
   try { fs.linkSync(reserved, file); fs.unlinkSync(reserved) } catch (error) { if (error.code !== 'EEXIST') throw error }
 }
 
+const gitDisplaced = new Map()
+export function displacedDir(file, env = process.env) {
+  if (env.ALAMBIC_DISPLACED_DIR) return env.ALAMBIC_DISPLACED_DIR
+  const dir = path.dirname(path.resolve(file))
+  if (!gitDisplaced.has(dir)) {
+    const located = spawnSync('git', ['rev-parse', '--git-path', 'alambic-displaced'], { cwd: dir, encoding: 'utf8', env: { ...env, GIT_OPTIONAL_LOCKS: '0' } })
+    gitDisplaced.set(dir, located.status === 0 ? path.resolve(dir, located.stdout.trim()) : path.join(alambicStateDir(null, env), 'displaced'))
+  }
+  return gitDisplaced.get(dir)
+}
+
 function swapChecked(file, temporary, expected, dir) {
   if (!reserve(file, expected, dir)) return false
   fs.linkSync(temporary, file)
@@ -38,9 +51,7 @@ export function writeChecked(file, before, after, env = process.env) {
   fs.writeFileSync(temporary, after, 'utf8')
   try {
     if (expected === null) fs.linkSync(temporary, file)
-    else if (env.ALAMBIC_DISPLACED_DIR) { if (!swapChecked(file, temporary, expected, env.ALAMBIC_DISPLACED_DIR)) return false }
-    else if (fileSha(file) === expected) fs.renameSync(temporary, file)
-    else return false
+    else if (!swapChecked(file, temporary, expected, displacedDir(file, env))) return false
   } catch (error) {
     if (error.code === 'EEXIST') return false
     throw error
@@ -59,11 +70,10 @@ export function displacedEdits(dir) {
 
 export function moveChecked(file, dests, expected, env = process.env) {
   if (!expected) return null
-  const reserved = reserve(file, expected, path.dirname(dests[0]))
+  const reserved = reserve(file, expected, displacedDir(file, env))
   if (!reserved) return null
   for (const dest of dests) {
-    try { fs.linkSync(reserved, dest) } catch (error) { if (error.code === 'EEXIST') continue; throw error }
-    fs.unlinkSync(reserved)
+    try { fs.copyFileSync(reserved, dest, fs.constants.COPYFILE_EXCL) } catch (error) { if (error.code === 'EEXIST') continue; throw error }
     journalRecord(file, expected, null, env)
     return dest
   }

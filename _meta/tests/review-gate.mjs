@@ -17,7 +17,7 @@ delete process.env.TYPESAFE_API_KEY
 const judge = await import(path.join(root, '_meta/lib/promotion-judge.mjs'))
 const { dedupeCanChange, runSidekick, semanticDedupe } = await import(path.join(root, '_meta/lib/sidekick.mjs'))
 const { harvestStatus } = await import(path.join(root, '_meta/lib/harvest.mjs'))
-const { moveChecked } = await import(path.join(root, '_meta/lib/write-journal.mjs'))
+const { displacedEdits, moveChecked } = await import(path.join(root, '_meta/lib/write-journal.mjs'))
 const cli = (argv) => spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), ...argv], { encoding: 'utf8', env: { ...process.env, ALAMBIC_ROOT: vault } })
 
 const body = 'The lexical cache must keep raw fields and sources because stale entries crash queries after an upgrade. '.repeat(3)
@@ -134,6 +134,13 @@ try {
   assert.equal(moveChecked(raced, [racedDest, path.join(processedDir, 'rejected-p9-1.md')], judge.sha256(saved)), path.join(processedDir, 'rejected-p9-1.md'))
   assert.equal(fs.existsSync(raced), false)
   assert.deepEqual(fs.readdirSync(processedDir).filter((name) => name.includes('p9')).sort(), ['rejected-p9-1.md', 'rejected-p9.md'], 'the archive keeps no reserved copy')
+  const reservedDir = path.join(state, 'displaced')
+  const reservedCopy = fs.readdirSync(reservedDir).find((name) => name.startsWith(judge.sha256(saved)))
+  assert.ok(reservedCopy, 'the archived inode stays in the displaced directory')
+  fs.appendFileSync(path.join(reservedDir, reservedCopy), 'Late write through an open descriptor.\n')
+  assert.deepEqual(displacedEdits(reservedDir), [path.join(reservedDir, reservedCopy)], 'a late write after the archive is kept and flagged')
+  assert.equal(fs.readFileSync(path.join(processedDir, 'rejected-p9-1.md'), 'utf8'), saved, 'the archive holds the checked bytes')
+  fs.rmSync(path.join(reservedDir, reservedCopy))
   for (const name of ['rejected-p9.md', 'rejected-p9-1.md']) fs.rmSync(path.join(processedDir, name))
 
   const rejectMe = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Vague chit chat about lunch that should never reach the wiki pages' })
