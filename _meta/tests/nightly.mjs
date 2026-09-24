@@ -161,7 +161,7 @@ try {
   assert.match(redEval.reason, /red gates: evals/, JSON.stringify(redEval))
   assert.match(redEval.steps.find((item) => item.name === 'evals').error, /missing-suite/)
   assert.equal(redEval.commit, null, 'a red eval blocks the commit')
-  for (const [label, text, error] of [['dynamic suite', `${listed}"$ROOT/_meta/alambic" eval --suite "$SUITE"\n`, /unparsed eval suite/], ['no suites', listed.split('\n').filter((line) => !/ eval --suite /.test(line)).join('\n'), /no eval suites/]]) {
+  for (const [label, text, error] of [['dynamic suite', `${listed}"$ROOT/_meta/alambic" eval --suite "$SUITE"\n`, /unparsed eval suite/], ['chained suites', `${listed}"$ROOT/_meta/alambic" eval --suite missing-suite; "$ROOT/_meta/alambic" eval --suite attention-compile\n`, /missing-suite/], ['no suites', listed.split('\n').filter((line) => !/ eval --suite /.test(line)).join('\n'), /no eval suites/]]) {
     fs.writeFileSync(runner, text)
     git(['commit', '-q', '-am', label])
     git(['push', '-q', 'origin', 'main'])

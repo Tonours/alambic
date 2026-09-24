@@ -446,11 +446,12 @@ function relatedLinks(root) {
 }
 
 function setFrontmatterField(text, key, value) {
-  const end = text.startsWith('---\n') ? text.indexOf('\n---', 4) : -1
+  const nl = text.match(/^---(\r?\n)/)?.[1]
+  const end = nl ? text.indexOf(`${nl}---`, 3) : -1
   if (end < 0) return text
   const head = text.slice(0, end)
   const line = new RegExp(`^${key}:.*$`, 'm')
-  return (line.test(head) ? head.replace(line, `${key}: ${value}`) : `${head}\n${key}: ${value}`) + text.slice(end)
+  return (line.test(head) ? head.replace(line, `${key}: ${value}`) : `${head}${nl}${key}: ${value}`) + text.slice(end)
 }
 
 export function applyFreeformPromote(root, judgment, { stateHome } = {}) {

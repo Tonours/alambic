@@ -314,9 +314,9 @@ function evalGate(root, env, vault) {
   if (root !== vault && fs.existsSync(modules)) fs.symlinkSync(modules, path.join(root, 'node_modules'))
   let listed
   try { listed = fs.readFileSync(path.join(root, '_meta/tests/run.sh'), 'utf8') } catch { return { name: 'evals', ok: false, suites: 0, error: 'cannot read _meta/tests/run.sh' } }
-  const declared = listed.split('\n').filter((line) => /\beval\b.*--suite/.test(line))
-  const parsed = declared.map((line) => line.match(/\beval --suite (["']?)([\w-]+)\1\s*$/)?.[2])
-  if (!parsed.length || parsed.includes(undefined)) return { name: 'evals', ok: false, suites: 0, error: parsed.length ? 'unparsed eval suite declarations in _meta/tests/run.sh' : 'no eval suites declared in _meta/tests/run.sh' }
+  const declared = listed.match(/--suite\b/g)?.length || 0
+  const parsed = [...listed.matchAll(/\beval --suite (["']?)([\w-]+)\1(?=[\s;&|)]|$)/g)].map((match) => match[2])
+  if (!declared || parsed.length !== declared) return { name: 'evals', ok: false, suites: 0, error: declared ? 'unparsed eval suite declarations in _meta/tests/run.sh' : 'no eval suites declared in _meta/tests/run.sh' }
   const suites = [...new Set(parsed)]
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-evals-'))
   const isolated = Object.fromEntries(Object.entries(env).filter(([key]) => key !== 'TYPESAFE_API_KEY' && !key.startsWith('ALAMBIC_')))

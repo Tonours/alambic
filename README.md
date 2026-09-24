@@ -202,7 +202,7 @@ _meta/alambic nightly --dry-run --json   # what the agent runs, without commit
 One run holds the harvest lock, checks a clean tree on the default branch equal
 to `origin`, then runs harvest scan, distill, enrich (when `TYPESAFE_API_KEY`
 is in the login env), sidekick, validate, lint, leak-scan and the eval suites
-listed in `_meta/tests/run.sh` as `eval --suite NAME` lines (without the key, on their own state; an unreadable file, no suite or a line it cannot parse turns the gate red). It commits only
+listed in `_meta/tests/run.sh` as `eval --suite NAME` commands (without the key, on their own state; an unreadable file, no suite or a `--suite` it cannot parse turns the gate red). It commits only
 top-level `kb/` and `ref/` files, `_meta/enrich-ledger.json` and the deletion
 of inbox notes it promoted, only as its own steps wrote them and exactly as the
 gates checked them on an export of that tree, and pushes that one commit when every gate is green. A file you edit during the run is never overwritten: the run refuses it, or keeps your copy in `.git/alambic-displaced/` and stops until you resolve it. Switching branch during the run cancels the commit. Every write alambic makes, in nightly or by hand, keeps the replaced file there. Copies that still match the sha in their name are backups; delete them when you like. alambic never deletes a file it cannot verify: a stray copy left under `kb/` or `ref/` blocks the next run until you remove it. The plist holds paths, never secrets. macOS only; the
