@@ -214,8 +214,8 @@ and `ref/technical-attention-intake.md`.
 ### Session harvest
 
 ```bash
-_meta/alambic harvest scan --dry-run --json   # Claude, Codex, Pi sessions
-_meta/alambic harvest status --json           # counters (reviews counted from their receipts), acceptance rate, pending
+_meta/alambic harvest scan --dry-run          # Claude, Codex, Pi sessions
+_meta/alambic harvest status                  # counters (reviews counted from their receipts), acceptance rate, pending
 _meta/alambic review --inbox docs/inbox/ai/harvest-….md --decision accept --reason "…"
 ```
 
