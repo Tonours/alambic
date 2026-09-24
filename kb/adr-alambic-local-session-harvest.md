@@ -110,9 +110,12 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   judgment, checked again after the move; a change puts the draft back. A
   rejected draft that changed is not archived, and the review says so. A failed
   archive write, cleanup or journal append restores the source, and an archive
-  directory swapped during the write undoes the archive: the written copy is
-  removed by inode and the source comes back from the displaced inode; when a
-  new source already took its place, the displaced copy stays as the backup.
+  directory swapped during the write undoes the archive: the copy, identified by
+  the inode of the descriptor that created it, moves into the displaced
+  directory (flagged when edited meanwhile, never a file that took its path) and
+  the source comes back from the displaced inode; when a new source already
+  took its place, the displaced copy stays as the backup. `harvest distill`
+  checks `docs/inbox/ai` the same way after writing a draft.
 - A displaced directory that exists but cannot be read blocks the run.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.

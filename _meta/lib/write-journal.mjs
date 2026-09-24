@@ -26,11 +26,36 @@ function reserve(file, expected, dir) {
   return null
 }
 
-function undoArchive(dest, reserved, file, written) {
-  for (const candidate of written ? [written.real, dest] : [dest]) {
-    try { if (!written || fs.lstatSync(candidate).ino === written.ino) fs.rmSync(candidate, { force: true }) } catch {}
+function sameInode(file, ino) {
+  try { return fs.lstatSync(file).ino === ino } catch { return false }
+}
+
+export function removeCreated(file, ino) {
+  try { if (sameInode(file, ino)) fs.unlinkSync(file) } catch {}
+}
+
+export function createExclusive(file, bytes, mode = 0o666) {
+  const fd = fs.openSync(file, 'wx', mode)
+  let ino
+  try {
+    ino = fs.fstatSync(fd).ino
+    writeAll(fd, bytes)
+  } catch (error) {
+    removeCreated(file, ino)
+    throw error
+  } finally {
+    fs.closeSync(fd)
   }
-  restore(reserved, file)
+  return ino
+}
+
+function withdraw(candidates, ino, dir, expected, reserved, file) {
+  try {
+    const found = candidates.find((candidate) => sameInode(candidate, ino))
+    if (found) fs.renameSync(found, path.join(dir, `${expected}-${crypto.randomUUID()}-withdrawn-${path.basename(found)}`))
+  } finally {
+    restore(reserved, file)
+  }
 }
 
 function restore(reserved, file) {
@@ -83,24 +108,27 @@ export function writeAll(fd, bytes) {
 
 export function moveChecked(file, dests, expected, env = process.env, accept = () => true) {
   if (!expected) return null
-  const held = reserve(file, expected, displacedDir(file, env))
+  const dir = displacedDir(file, env)
+  const held = reserve(file, expected, dir)
   if (!held) return null
   for (const dest of dests) {
+    let ino
     try {
-      fs.writeFileSync(dest, held.bytes, { flag: 'wx', mode: held.mode })
+      ino = createExclusive(dest, held.bytes, held.mode)
     } catch (error) {
       if (error.code === 'EEXIST') continue
-      undoArchive(dest, held.reserved, file)
+      restore(held.reserved, file)
       throw error
     }
-    let written
+    let real = dest
     try {
-      const real = fs.realpathSync.native(dest)
-      written = { real, ino: fs.lstatSync(real).ino }
-      if (!accept(real)) { undoArchive(dest, held.reserved, file, written); return false }
-      journalRecord(file, expected, null, env)
+      real = fs.realpathSync.native(dest)
+      if (!sameInode(real, ino)) throw new Error('the archive moved during the write')
+      const accepted = accept(real)
+      if (accepted) journalRecord(file, expected, null, env)
+      else { withdraw([real, dest], ino, dir, expected, held.reserved, file); return false }
     } catch (error) {
-      undoArchive(dest, held.reserved, file, written)
+      withdraw([real, dest], ino, dir, expected, held.reserved, file)
       throw error
     }
     return dest

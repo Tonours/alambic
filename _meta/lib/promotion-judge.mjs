@@ -274,14 +274,8 @@ function normalizeText(value) {
 }
 
 function coveredBy(root, targetPath, body) {
-  const title = normalizeText(body.match(/^#\s+(.+)$/m)?.[1])
-  const clean = normalizeText(body.replace(/^#\s+.+$/m, ''))
-  if (clean.length < 80) return null
-  try {
-    const target = readRaw(root, targetPath)
-    const text = normalizeText(target)
-    return text.includes(clean) && text.includes(title) ? sha256(target) : null
-  } catch { return null }
+  if (normalizeText(body.replace(/^#\s+.+$/m, '')).length < 80) return null
+  try { const target = readRaw(root, targetPath); return normalizeText(target).includes(normalizeText(body)) ? sha256(target) : null } catch { return null }
 }
 
 export function judgeFreeformNote(root, filePath, { freeformBudgetRemaining = FREEFORM_DAILY_MAX, stateHome } = {}) {

@@ -139,6 +139,25 @@ try {
   fs.rmSync(path.join(vault, 'kb/imports'), { recursive: true })
   fs.renameSync(path.join(temp, 'inbox-ai'), path.join(vault, 'docs/inbox/ai'))
   for (const item of listQueue()) fs.rmSync(path.join(state, 'harvest/queue', item.name))
+  fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: `${richer} Swap.` }] } })}`)
+  assert.equal(json(cli(['harvest', 'scan', '--session', claudeFile])).queued.length, 1)
+  const { harvestDistill } = await import(path.join(root, '_meta/lib/harvest.mjs'))
+  const inboxAi = path.join(vault, 'docs/inbox/ai')
+  const kbBeforeSwap = fs.readdirSync(path.join(vault, 'kb')).sort()
+  const { openSync } = fs
+  fs.openSync = (file, ...rest) => {
+    if (String(file).startsWith(path.join(inboxAi, 'harvest-')) && !fs.lstatSync(inboxAi).isSymbolicLink()) { fs.renameSync(inboxAi, path.join(temp, 'inbox-ai')); fs.symlinkSync(path.join(vault, 'kb'), inboxAi) }
+    return openSync(file, ...rest)
+  }
+  let swappedRun
+  try { swappedRun = harvestDistill(vault, { distiller: fake, stateDir: state, env }) } finally {
+    fs.openSync = openSync
+    if (fs.lstatSync(inboxAi).isSymbolicLink()) { fs.unlinkSync(inboxAi); fs.renameSync(path.join(temp, 'inbox-ai'), inboxAi) }
+  }
+  assert.match(swappedRun.failed[0]?.error || '', /changed during the distill/, JSON.stringify(swappedRun))
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBeforeSwap, 'a harvest inbox swapped during the write leaves nothing in kb')
+  assert.equal(listQueue().length, 1, 'the entry stays queued')
+  for (const item of listQueue()) fs.rmSync(path.join(state, 'harvest/queue', item.name))
 
   fs.writeFileSync(fake, '#!/bin/sh\ncat >/dev/null\necho SKIP\n', { mode: 0o755 })
   fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: richer }] } })}`)

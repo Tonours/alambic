@@ -103,11 +103,25 @@ try {
   assert.equal(judge.archiveNoop(vault, noop).error, 'target-changed-since-judged', 'a noop whose target changed since the judgment is not archived')
   assert.equal(fs.readFileSync(dup, 'utf8'), judgedDup)
   fs.writeFileSync(targetFile, targetText)
-  const { writeFileSync: plainWrite } = fs
-  fs.writeFileSync = (dest, ...rest) => { if (String(dest).includes('processed/noop-')) plainWrite(targetFile, 'Rewritten during the archive.\n'); return plainWrite(dest, ...rest) }
-  try { assert.equal(judge.archiveNoop(vault, noop).error, 'target-changed-since-judged', 'a target changed during the archive puts the draft back') } finally { fs.writeFileSync = plainWrite }
+  const { openSync: plainOpen } = fs
+  fs.openSync = (dest, ...rest) => { if (String(dest).includes('processed/noop-')) fs.writeFileSync(targetFile, 'Rewritten during the archive.\n'); return plainOpen(dest, ...rest) }
+  try { assert.equal(judge.archiveNoop(vault, noop).error, 'target-changed-since-judged', 'a target changed during the archive puts the draft back') } finally { fs.openSync = plainOpen }
   assert.equal(fs.readFileSync(dup, 'utf8'), judgedDup)
   assert.deepEqual(fs.readdirSync(path.join(vault, 'docs/inbox/ai/processed')).filter((name) => name.includes('codex-s2')), [], 'the undone noop leaves no archive')
+  fs.writeFileSync(targetFile, targetText)
+  const { realpathSync } = fs
+  const plainReal = realpathSync.native
+  realpathSync.native = (file, ...rest) => {
+    if (String(file).includes('processed/noop-harvest-2026-09-24-codex-s2')) { fs.appendFileSync(file, 'Edited in the archive.\n'); fs.writeFileSync(targetFile, 'Rewritten while the archive was edited.\n') }
+    return plainReal(file, ...rest)
+  }
+  try { assert.equal(judge.archiveNoop(vault, noop).error, 'target-changed-since-judged') } finally { realpathSync.native = plainReal }
+  assert.equal(fs.readFileSync(dup, 'utf8'), judgedDup)
+  const withdrawnDir = path.join(state, 'displaced')
+  const withdrawn = displacedEdits(withdrawnDir)
+  assert.equal(withdrawn.length, 1, 'an archive edited before its undo is kept and flagged')
+  assert.match(fs.readFileSync(withdrawn[0], 'utf8'), /Edited in the archive/)
+  fs.rmSync(withdrawn[0])
   fs.writeFileSync(targetFile, targetText)
   const partial = inbox('harvest-2026-09-24-codex-s3.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body} However the rule no longer holds after version 4 because the cache format changed.` })
   assert.notEqual(judge.judgeFreeformNote(vault, partial).decision, 'noop', 'a note that adds a correction is not a noop')
@@ -115,6 +129,9 @@ try {
   const flipped = inbox('harvest-2026-09-24-codex-s4.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: body.replaceAll('.', ' != ') })
   assert.notEqual(judge.judgeFreeformNote(vault, flipped).decision, 'noop', 'punctuation and operators count for coverage')
   fs.rmSync(flipped)
+  const narrower = inbox('harvest-2026-09-24-codex-s6.md', { summary: 'quorble retention rule keeps the f' })
+  assert.notEqual(judge.judgeFreeformNote(vault, narrower).decision, 'noop', 'a title found only inside another title is not a noop')
+  fs.rmSync(narrower)
   const retitled = inbox('harvest-2026-09-24-codex-s5.md', { summary: 'Zyxwv quorble retention rule drops the frobnicator warm between upgrades' })
   assert.notEqual(judge.judgeFreeformNote(vault, retitled).decision, 'noop', 'a correction carried by the title is not a noop')
   fs.rmSync(retitled)
@@ -155,18 +172,19 @@ try {
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'an archive with no free name restores the source')
   const reservedDir = path.join(state, 'displaced')
   const archived = path.join(processedDir, 'rejected-p9-1.md')
-  const { writeFileSync, copyFileSync } = fs
-  const failing = (dest) => { if (dest === archived) throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }) }
-  fs.writeFileSync = (dest, ...rest) => { failing(dest); return writeFileSync(dest, ...rest) }
-  fs.copyFileSync = (source, dest, ...rest) => { failing(dest); return copyFileSync(source, dest, ...rest) }
-  try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { Object.assign(fs, { writeFileSync, copyFileSync }) }
+  const { openSync, writeSync, unlinkSync } = fs
+  const onOpen = (hook) => { fs.openSync = (dest, ...rest) => { hook(dest); return openSync(dest, ...rest) } }
+  const unhook = () => Object.assign(fs, { openSync, writeSync, unlinkSync })
+  const failing = (dest) => { if (dest === archived) fs.writeSync = (fd, buffer, offset) => { writeSync(fd, buffer, offset, 1); throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }) } }
+  onOpen(failing)
+  try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { unhook() }
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'a failed archive write restores the source')
-  assert.equal(fs.existsSync(archived), false)
-  const { rmSync } = fs
-  fs.writeFileSync = (dest, ...rest) => { failing(dest); return writeFileSync(dest, ...rest) }
-  fs.rmSync = (target, ...rest) => { if (target === archived) throw Object.assign(new Error('denied'), { code: 'EACCES' }); return rmSync(target, ...rest) }
-  try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { Object.assign(fs, { writeFileSync, rmSync }) }
+  assert.equal(fs.existsSync(archived), false, 'a partial archive is removed')
+  onOpen(failing)
+  fs.unlinkSync = (target) => { if (target === archived) throw Object.assign(new Error('denied'), { code: 'EACCES' }); return unlinkSync(target) }
+  try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { unhook() }
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'a failed cleanup still restores the source')
+  fs.rmSync(archived)
   const journalDir = path.join(temp, 'journal-dir')
   fs.mkdirSync(journalDir)
   assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved), { ...process.env, ALAMBIC_WRITE_JOURNAL: journalDir }), /EISDIR/)
@@ -174,39 +192,47 @@ try {
   assert.equal(fs.existsSync(archived), false)
   const swapped = inbox('harvest-2026-09-24-pi-p11.md', { summary: 'Session note whose archive directory is swapped for the compiled wiki' })
   const swapKb = fs.readdirSync(path.join(vault, 'kb')).sort()
-  fs.writeFileSync = (dest, ...rest) => {
-    if (String(dest).endsWith('rejected-harvest-2026-09-24-pi-p11.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir) }
-    return writeFileSync(dest, ...rest)
-  }
+  onOpen((dest) => { if (String(dest).endsWith('rejected-harvest-2026-09-24-pi-p11.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir) } })
   try { assert.throws(() => judge.reviewInbox(vault, rel(swapped), { decision: 'reject', reason: 'not durable' }), /processed changed during the archive/) } finally {
-    fs.writeFileSync = writeFileSync
+    unhook()
     if (fs.lstatSync(processedDir).isSymbolicLink()) { fs.unlinkSync(processedDir); fs.renameSync(`${processedDir}.swapped`, processedDir) }
   }
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), swapKb, 'a swapped archive directory leaves nothing in kb')
   assert.equal(fs.existsSync(swapped), true)
   fs.rmSync(swapped)
+  const occupied = inbox('harvest-2026-09-24-pi-p13.md', { summary: 'Session note whose archive directory is swapped after the write' })
+  const humanNote = path.join(vault, 'kb/rejected-harvest-2026-09-24-pi-p13.md')
+  fs.writeFileSync(humanNote, 'Human note that shares the archive name.\n')
+  realpathSync.native = (file, ...rest) => {
+    if (String(file).endsWith('rejected-harvest-2026-09-24-pi-p13.md') && !fs.lstatSync(processedDir).isSymbolicLink()) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir) }
+    return plainReal(file, ...rest)
+  }
+  try { assert.throws(() => judge.reviewInbox(vault, rel(occupied), { decision: 'reject', reason: 'not durable' }), /archive moved during the write|processed changed during the archive/) } finally {
+    realpathSync.native = plainReal
+    if (fs.lstatSync(processedDir).isSymbolicLink()) { fs.unlinkSync(processedDir); fs.rmSync(processedDir + '.swapped/rejected-harvest-2026-09-24-pi-p13.md', { force: true }); fs.renameSync(`${processedDir}.swapped`, processedDir) }
+  }
+  assert.equal(fs.readFileSync(humanNote, 'utf8'), 'Human note that shares the archive name.\n', 'an undo never removes a kb note it did not write')
+  assert.equal(fs.existsSync(occupied), true)
+  fs.rmSync(humanNote)
+  fs.rmSync(occupied)
   const reclaimed = inbox('harvest-2026-09-24-pi-p12.md', { summary: 'Session note recreated while its archive directory points into kb' })
   const reclaimedText = fs.readFileSync(reclaimed, 'utf8')
-  fs.writeFileSync = (dest, ...rest) => {
-    if (String(dest).endsWith('rejected-harvest-2026-09-24-pi-p12.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir); writeFileSync(reclaimed, 'Recreated by the editor.\n') }
-    return writeFileSync(dest, ...rest)
-  }
+  onOpen((dest) => { if (String(dest).endsWith('rejected-harvest-2026-09-24-pi-p12.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir); fs.writeFileSync(reclaimed, 'Recreated by the editor.\n') } })
   try { assert.throws(() => judge.reviewInbox(vault, rel(reclaimed), { decision: 'reject', reason: 'not durable' }), /processed changed during the archive/) } finally {
-    fs.writeFileSync = writeFileSync
+    unhook()
     if (fs.lstatSync(processedDir).isSymbolicLink()) { fs.unlinkSync(processedDir); fs.renameSync(`${processedDir}.swapped`, processedDir) }
   }
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), swapKb, 'an undo blocked by a recreated source still removes the copy from kb')
   assert.equal(fs.readFileSync(reclaimed, 'utf8'), 'Recreated by the editor.\n')
   const kept = fs.readdirSync(reservedDir).filter((name) => name.endsWith('pi-p12.md'))
-  assert.deepEqual(kept.map((name) => fs.readFileSync(path.join(reservedDir, name), 'utf8')), [reclaimedText], 'both versions survive the undo')
+  assert.deepEqual(kept.map((name) => fs.readFileSync(path.join(reservedDir, name), 'utf8')), [reclaimedText, reclaimedText], 'both versions survive the undo')
   for (const name of kept) fs.rmSync(path.join(reservedDir, name))
   fs.rmSync(reclaimed)
   fs.chmodSync(raced, 0o600)
   const reservedCopy = () => fs.readdirSync(reservedDir).find((name) => name.startsWith(judge.sha256(saved)))
   const lateWrite = (dest) => { if (dest === archived) fs.appendFileSync(path.join(reservedDir, reservedCopy()), 'Late write through an open descriptor.\n') }
-  fs.writeFileSync = (dest, ...rest) => { lateWrite(dest); return writeFileSync(dest, ...rest) }
-  fs.copyFileSync = (source, dest, ...rest) => { lateWrite(dest); return copyFileSync(source, dest, ...rest) }
-  try { assert.equal(moveChecked(raced, [racedDest, archived], judge.sha256(saved)), archived) } finally { Object.assign(fs, { writeFileSync, copyFileSync }) }
+  onOpen(lateWrite)
+  try { assert.equal(moveChecked(raced, [racedDest, archived], judge.sha256(saved)), archived) } finally { unhook() }
   assert.equal(fs.existsSync(raced), false)
   assert.deepEqual(fs.readdirSync(processedDir).filter((name) => name.includes('p9')).sort(), ['rejected-p9-1.md', 'rejected-p9.md'], 'the archive keeps no reserved copy')
   assert.equal(fs.readFileSync(archived, 'utf8'), saved, 'the archive holds the checked bytes even when the inode changes before the copy')

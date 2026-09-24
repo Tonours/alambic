@@ -6,7 +6,7 @@ import path from 'node:path'
 import { alambicStateDir } from './state-dir.mjs'
 import { scanUnsafe } from './vault.mjs'
 import { REFUSE_BODY } from './promotion-judge.mjs'
-import { vaultDir } from './write-journal.mjs'
+import { createExclusive, removeCreated, vaultDir } from './write-journal.mjs'
 
 export const HARNESSES = ['claude', 'codex', 'pi']
 export const HARVEST_ORIGIN = 'session-harvest'
@@ -446,14 +446,19 @@ export function renderHarvestNote(answer, entry, today = new Date().toISOString(
 }
 
 function writeExclusive(dir, base, text) {
+  const real = fs.realpathSync.native(dir)
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const file = path.join(dir, `${base}${attempt ? `-${attempt}` : ''}.md`)
+    let ino
     try {
-      fs.writeFileSync(file, text, { flag: 'wx' })
-      return file
+      ino = createExclusive(file, text)
     } catch (error) {
-      if (error.code !== 'EEXIST') throw error
+      if (error.code === 'EEXIST') continue
+      throw error
     }
+    if (fs.realpathSync.native(path.dirname(file)) === real) return file
+    removeCreated(file, ino)
+    throw new Error('docs/inbox/ai changed during the distill')
   }
   throw new Error('could not allocate a harvest inbox filename')
 }
