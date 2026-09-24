@@ -161,7 +161,9 @@ try {
   assert.equal(JSON.stringify(listQueue()).includes('Qwpfragment'), false, 'a malformed answer never reaches the queue state')
   assert.equal(failedJson(cli(['harvest', 'distill', '--distiller', fake])).failed[0].attempts, 3)
   assert.equal(listQueue().length, 0, 'a candidate is retired after three failed attempts')
-  assert.equal(JSON.parse(fs.readFileSync(path.join(state, 'harvest/processed', retry[0].name), 'utf8')).status, 'distill_failed')
+  const failedEntry = JSON.parse(fs.readFileSync(path.join(state, 'harvest/processed', retry[0].name), 'utf8'))
+  assert.equal(failedEntry.status, 'distill_failed')
+  assert.equal(failedEntry.excerpt, retry[0].entry.excerpt, 'a retired failure keeps its excerpt so it can be requeued')
 
   fs.appendFileSync(codexFile, `\n${JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: richer }] } })}`)
   assert.equal(json(cli(['harvest', 'scan', '--session', codexFile])).queued.length, 1)

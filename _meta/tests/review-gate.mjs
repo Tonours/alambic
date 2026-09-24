@@ -159,6 +159,29 @@ try {
   try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { Object.assign(fs, { writeFileSync, copyFileSync }) }
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'a failed archive write restores the source')
   assert.equal(fs.existsSync(archived), false)
+  const { rmSync } = fs
+  fs.writeFileSync = (dest, ...rest) => { failing(dest); return writeFileSync(dest, ...rest) }
+  fs.rmSync = (target, ...rest) => { if (target === archived) throw Object.assign(new Error('denied'), { code: 'EACCES' }); return rmSync(target, ...rest) }
+  try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { Object.assign(fs, { writeFileSync, rmSync }) }
+  assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'a failed cleanup still restores the source')
+  const journalDir = path.join(temp, 'journal-dir')
+  fs.mkdirSync(journalDir)
+  assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved), { ...process.env, ALAMBIC_WRITE_JOURNAL: journalDir }), /EISDIR/)
+  assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'a failed journal write undoes the archive')
+  assert.equal(fs.existsSync(archived), false)
+  const swapped = inbox('harvest-2026-09-24-pi-p11.md', { summary: 'Session note whose archive directory is swapped for the compiled wiki' })
+  const swapKb = fs.readdirSync(path.join(vault, 'kb')).sort()
+  fs.writeFileSync = (dest, ...rest) => {
+    if (String(dest).endsWith('rejected-harvest-2026-09-24-pi-p11.md')) { fs.renameSync(processedDir, `${processedDir}.swapped`); fs.symlinkSync(path.join(vault, 'kb'), processedDir) }
+    return writeFileSync(dest, ...rest)
+  }
+  try { assert.throws(() => judge.reviewInbox(vault, rel(swapped), { decision: 'reject', reason: 'not durable' }), /processed changed during the archive/) } finally {
+    fs.writeFileSync = writeFileSync
+    if (fs.lstatSync(processedDir).isSymbolicLink()) { fs.unlinkSync(processedDir); fs.renameSync(`${processedDir}.swapped`, processedDir) }
+  }
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), swapKb, 'a swapped archive directory leaves nothing in kb')
+  assert.equal(fs.existsSync(swapped), true)
+  fs.rmSync(swapped)
   fs.chmodSync(raced, 0o600)
   const reservedCopy = () => fs.readdirSync(reservedDir).find((name) => name.startsWith(judge.sha256(saved)))
   const lateWrite = (dest) => { if (dest === archived) fs.appendFileSync(path.join(reservedDir, reservedCopy()), 'Late write through an open descriptor.\n') }

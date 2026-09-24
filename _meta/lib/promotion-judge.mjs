@@ -542,7 +542,13 @@ function archiveInboxSource(root, relativePath, mode, expected) {
   const ext = path.extname(relativePath)
   const base = path.basename(relativePath, ext)
   const names = Array.from({ length: 20 }, (_, attempt) => path.join(processedDir, `${mode}-${base}${attempt ? `-${attempt}` : ''}${ext}`))
-  return moveChecked(abs, names, expected)
+  const real = fs.realpathSync.native(processedDir)
+  const archived = moveChecked(abs, names, expected)
+  if (archived && fs.realpathSync.native(path.dirname(archived)) !== real) {
+    unarchive(archived, abs, expected)
+    throw new Error('docs/inbox/ai/processed changed during the archive')
+  }
+  return archived
 }
 
 function sourceLooksInspectable(root, source) {

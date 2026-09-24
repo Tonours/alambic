@@ -26,6 +26,11 @@ function reserve(file, expected, dir) {
   return null
 }
 
+function undoArchive(dest, reserved, file) {
+  try { fs.rmSync(dest, { force: true }) } catch {}
+  restore(reserved, file)
+}
+
 function restore(reserved, file) {
   try { fs.linkSync(reserved, file); fs.unlinkSync(reserved) } catch (error) { if (error.code !== 'EEXIST') throw error }
 }
@@ -79,11 +84,10 @@ export function moveChecked(file, dests, expected, env = process.env) {
       fs.writeFileSync(dest, held.bytes, { flag: 'wx', mode: held.mode })
     } catch (error) {
       if (error.code === 'EEXIST') continue
-      fs.rmSync(dest, { force: true })
-      restore(held.reserved, file)
+      undoArchive(dest, held.reserved, file)
       throw error
     }
-    journalRecord(file, expected, null, env)
+    try { journalRecord(file, expected, null, env) } catch (error) { undoArchive(dest, held.reserved, file); throw error }
     return dest
   }
   restore(held.reserved, file)

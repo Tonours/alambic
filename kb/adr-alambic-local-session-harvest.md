@@ -107,7 +107,9 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   the original inode stays displaced, so a write through an open descriptor
   blocks the next run. A NOOP also needs its update target unchanged since the
   judgment, checked again after the move; a change puts the draft back. A
-  rejected draft that changed is not archived, and the review says so.
+  rejected draft that changed is not archived, and the review says so. A failed
+  archive write, cleanup or journal append restores the source, and an archive
+  directory swapped during the write undoes the archive.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 

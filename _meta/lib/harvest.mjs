@@ -499,7 +499,7 @@ export function harvestDistill(root, { distiller = null, max = 5, stateDir = nul
       const message = error.message.slice(0, 200)
       const attempts = (entry.attempts || 0) + 1
       report.failed.push({ name, error: message, attempts })
-      if (attempts >= DISTILL_ATTEMPTS) retire(stateDir, name, 'distill_failed', { error: message, attempts })
+      if (attempts >= DISTILL_ATTEMPTS) retire(stateDir, name, 'distill_failed', { error: message, attempts, excerpt: entry.excerpt })
       else writeJson(harvestDir(stateDir, 'queue', name), { ...entry, attempts, last_error: message })
     }
   }

@@ -222,6 +222,8 @@ transcript in local state and returns at once. `harvest scan` scores new
 sessions without reading the vault; `harvest distill` turns queued excerpts
 into gitignored `docs/inbox/ai/harvest-*.md` drafts through an external
 distiller (`ALAMBIC_HARVEST_DISTILLER`, default `claude -p` with no tools).
+An entry that fails three times moves, excerpt included, to
+`$STATE/harvest/processed/`; move it back to `harvest/queue/` to retry it.
 Session drafts never reach `kb/` without an accept receipt from an interactive
 `review`, bound to the file's sha256. The TTY check keeps scripts out, not a
 determined local process: never let an agent run `review --inbox`. A draft whose body an existing note
