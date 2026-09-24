@@ -401,9 +401,9 @@ try {
     if (args.length || !inboxFile) throw new Error('usage: alambic review --inbox FILE --decision accept|reject --reason TEXT [--json]')
     const { reviewInbox } = await import('./lib/promotion-judge.mjs')
     const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
-    if (report.session_origin && !report.idempotent) {
+    if (report.session_origin) {
       const { bumpMetrics } = await import('./lib/harvest.mjs')
-      bumpMetrics(null, { [decision === 'accept' ? 'accepted' : 'rejected']: 1 })
+      bumpMetrics(null, { [decision === 'accept' ? 'accepted' : 'rejected']: 1 }, report.receipt.receipt_sha256)
     }
     if (json) output(report, true)
     else output(`inbox: ${report.path}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? '\nnext: sidekick --apply-freeform promotes it' : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)

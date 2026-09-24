@@ -300,10 +300,15 @@ function withFileLock(file, fn) {
   try { return fn() } finally { releaseOwned(lock, me) }
 }
 
-export function bumpMetrics(stateDir, delta) {
+export function bumpMetrics(stateDir, delta, once = null) {
   const file = harvestDir(stateDir, 'metrics.json')
   return withFileLock(file, () => {
     const metrics = { version: 1, ...Object.fromEntries(COUNTERS.map((key) => [key, 0])), ...readJson(file, {}) }
+    if (once) {
+      const counted = metrics.counted_reviews || []
+      if (counted.includes(once)) return metrics
+      metrics.counted_reviews = [...counted, once]
+    }
     for (const [key, value] of Object.entries(delta)) if (COUNTERS.includes(key) && value) metrics[key] += value
     metrics.updated_at = new Date().toISOString()
     writeJson(file, metrics)

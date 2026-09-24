@@ -154,6 +154,15 @@ try {
   try { assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /displaced directory must be a real directory/) } finally { delete process.env.ALAMBIC_DISPLACED_DIR }
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, 'a symlinked displaced directory never moves a draft into kb')
   assert.equal(fs.existsSync(escaping), true)
+  const vaultAlias = path.join(temp, 'vault-alias')
+  fs.symlinkSync(vault, vaultAlias)
+  for (const shared of [path.join(vault, 'kb'), path.join(vaultAlias, 'kb')]) {
+    process.env.ALAMBIC_DISPLACED_DIR = shared
+    try { assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /displaced directory must be private/) } finally { delete process.env.ALAMBIC_DISPLACED_DIR }
+    assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, `a displaced directory set to ${path.basename(path.dirname(shared))}/kb never receives the draft`)
+    assert.equal(fs.existsSync(escaping), true)
+  }
+  fs.unlinkSync(vaultAlias)
   fs.unlinkSync(displacedLink)
   fs.rmSync(escaping)
 
@@ -302,6 +311,14 @@ try {
   const viaPipe = inbox('harvest-2026-09-24-claude-t2.md', { summary: 'Another pipe rejected note about the dinglebop cache warmer path' })
   assert.equal(cli(['review', '--inbox', rel(viaPipe), '--decision', 'reject', '--reason', 'duplicate', '--json']).status, 0)
   assert.deepEqual([harvestStatus(vault).metrics.accepted, harvestStatus(vault).metrics.rejected, harvestStatus(vault).review_acceptance_rate], [1, 1, 0.5])
+  const interrupted = inbox('harvest-2026-09-24-claude-t3.md', { summary: 'Accepted note whose metric was lost when the review process died' })
+  judge.reviewInbox(vault, rel(interrupted), { decision: 'accept', reason: 'checked before the crash', tty: true })
+  for (let retry = 0; retry < 2; retry += 1) {
+    const resumed = spawnSync('python3', ['-c', 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)', process.execPath, path.join(root, '_meta/alambic.mjs'), 'review', '--inbox', rel(interrupted), '--decision', 'accept', '--reason', 'checked before the crash'], { encoding: 'utf8', input: '', env: { ...process.env, ALAMBIC_ROOT: vault } })
+    assert.equal(resumed.status, 0, resumed.stdout + resumed.stderr)
+  }
+  assert.equal(harvestStatus(vault).metrics.accepted, 2, 'a retried review counts a lost metric once')
+  fs.rmSync(interrupted)
 
   fs.appendFileSync(path.join(vault, 'kb/unrelated-topic.md'), '\n## Related\n\n- [[capture-quarantine-before-kb]]\n')
   const updater = inbox('harvest-2026-09-24-codex-u1.md', { summary: 'Tomato watering rule refined from a session about the garden notes', text: `${body}${'Water the tomatoes at dawn in summer. '.repeat(10)}See [[adr-alambic-autonomous-oracle-sidekick]].` })

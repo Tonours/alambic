@@ -17,7 +17,9 @@ export function journalRecord(file, before, after, env = process.env) {
 
 export function prepareDisplaced(dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  if (!fs.lstatSync(dir).isDirectory()) throw new Error('the displaced directory must be a real directory')
+  const stat = fs.lstatSync(dir)
+  if (!stat.isDirectory()) throw new Error('the displaced directory must be a real directory')
+  if (stat.mode & 0o077 || stat.uid !== process.getuid()) throw new Error('the displaced directory must be private to this user (mode 0700)')
   return dir
 }
 
