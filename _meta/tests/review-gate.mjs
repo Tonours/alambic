@@ -132,6 +132,10 @@ try {
   assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a draft that only re-indents code changes its meaning and is not a NOOP')
   inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n${pythonBlock(false).replace('commit()', 'commit()  ')}` })
   assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'code lines are compared verbatim, trailing spaces included')
+  fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n    printf '<%s>' value\\`))
+  assert.equal(judge.judgeFreeformNote(vault, inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n    printf '<%s>' value\\` })).decision, 'noop')
+  inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n    printf '<%s>' value\\ ` })
+  assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a trailing space on the last code line of a body counts')
   fs.rmSync(sameCode)
   fs.writeFileSync(targetFile, targetText)
   const crashScript = `import fs from 'node:fs'; const judge = await import(${JSON.stringify(path.join(root, '_meta/lib/promotion-judge.mjs'))}); const open = fs.openSync; fs.openSync = (dest, ...rest) => { if (String(dest).includes('processed/noop-')) process.exit(9); return open(dest, ...rest) }; judge.archiveNoop(${JSON.stringify(vault)}, ${JSON.stringify(noop)})`
@@ -359,6 +363,10 @@ try {
   fs.writeFileSync(codeUpdater, codeText)
   const replayed = judge.judgeFreeformNote(vault, codeUpdater)
   assert.equal(replayed.decision, 'noop', `a replayed update with code is a NOOP: ${replayed.decision} ${replayed.reason}`)
+  for (const edit of [pythonBlock(true), pythonBlock(false).replace('commit()', 'commit()  ')]) {
+    fs.writeFileSync(codeUpdater, codeText.replace(pythonBlock(false), edit))
+    assert.notEqual(judge.judgeFreeformNote(vault, codeUpdater).decision, 'noop', 'a code change after an accepted update is not taken for its replay')
+  }
   fs.rmSync(codeUpdater)
   const crlfTarget = path.join(vault, 'kb/unrelated-topic.md')
   fs.writeFileSync(crlfTarget, fs.readFileSync(crlfTarget, 'utf8').replace(/^reviewed_by: .*$/m, 'reviewed_by: oracle:stale').replace(/^reviewed_at: .*$/m, 'reviewed_at: 2020-01-01').replace(/\n/g, '\r\n'))
