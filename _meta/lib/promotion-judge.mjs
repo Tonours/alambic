@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { alambicStateDir } from './state-dir.mjs'
 import path from 'node:path'
 import { parseMarkdownText } from './frontmatter.mjs'
-import { moveChecked, vaultDir, writeChecked } from './write-journal.mjs'
+import { moveChecked, unarchive, vaultDir, writeChecked } from './write-journal.mjs'
 import { buildManifest, invalidateManifest, queryVault, scanUnsafe, validateVault } from './vault.mjs'
 
 /**
@@ -258,8 +258,8 @@ export function reviewInbox(root, relativePath, { decision, reason, tty = false,
   const sessionOrigin = isSessionOrigin(data, relative)
   if (decision === 'reject') vaultDir(root, 'docs/inbox/ai/processed')
   const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason })
-  if (decision === 'reject') archiveInboxSource(root, relative, 'rejected', sha256(text))
-  return { ok: true, path: relative, decision, session_origin: sessionOrigin, receipt, idempotent }
+  const archived = decision === 'reject' ? archiveInboxSource(root, relative, 'rejected', sha256(text)) : null
+  return { ok: true, path: relative, decision, session_origin: sessionOrigin, receipt, idempotent, archived: archived && path.relative(root, archived).split(path.sep).join('/') }
 }
 
 export function reviewGate(judgment, text, stateHome) {
@@ -427,7 +427,12 @@ function coveredSha(root, targetPath) {
 export function archiveNoop(root, judgment) {
   if (judgment.decision !== 'noop') return { ok: false, error: 'not-noop', path: judgment.path }
   if (!judgment.update_target || coveredSha(root, judgment.update_target) !== judgment.target_sha256) return { ok: false, error: 'target-changed-since-judged', path: judgment.path }
-  if (!archiveInboxSource(root, judgment.path, 'noop', judgment.sha256)) return { ok: false, error: 'changed-since-judged', path: judgment.path }
+  const archived = archiveInboxSource(root, judgment.path, 'noop', judgment.sha256)
+  if (!archived) return { ok: false, error: 'changed-since-judged', path: judgment.path }
+  if (coveredSha(root, judgment.update_target) !== judgment.target_sha256) {
+    unarchive(archived, path.join(root, judgment.path), judgment.sha256)
+    return { ok: false, error: 'target-changed-since-judged', path: judgment.path }
+  }
   return { ok: true, mode: 'noop', path: judgment.path, changed: false }
 }
 

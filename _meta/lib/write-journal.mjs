@@ -21,7 +21,7 @@ function reserve(file, expected, dir) {
   const reserved = path.join(dir, `${expected}-${crypto.randomUUID()}-${path.basename(file)}`)
   try { fs.renameSync(file, reserved) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
   const bytes = fs.readFileSync(reserved)
-  if (digest(bytes) === expected) return { reserved, bytes }
+  if (digest(bytes) === expected) return { reserved, bytes, mode: fs.statSync(reserved).mode & 0o777 }
   restore(reserved, file)
   return null
 }
@@ -75,12 +75,26 @@ export function moveChecked(file, dests, expected, env = process.env) {
   const held = reserve(file, expected, displacedDir(file, env))
   if (!held) return null
   for (const dest of dests) {
-    try { fs.writeFileSync(dest, held.bytes, { flag: 'wx' }) } catch (error) { if (error.code === 'EEXIST') continue; throw error }
+    try {
+      fs.writeFileSync(dest, held.bytes, { flag: 'wx', mode: held.mode })
+    } catch (error) {
+      if (error.code === 'EEXIST') continue
+      fs.rmSync(dest, { force: true })
+      restore(held.reserved, file)
+      throw error
+    }
     journalRecord(file, expected, null, env)
     return dest
   }
   restore(held.reserved, file)
   throw new Error(`no free archive name for ${path.basename(file)}`)
+}
+
+export function unarchive(dest, file, expected, env = process.env) {
+  try { fs.linkSync(dest, file) } catch (error) { if (error.code === 'EEXIST') return false; throw error }
+  fs.unlinkSync(dest)
+  journalRecord(file, null, expected, env)
+  return true
 }
 
 export function readJournal(journal) {

@@ -79,8 +79,8 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   at the HEAD blob, so a human edit made during the run is never published.
   Every checked write (nightly, sidekick or enrich run by hand) moves the old
   file into `.git/alambic-displaced/` (the state dir outside git) before
-  the new one is linked; a copy that changed after the check is kept, blocks
-  the commit and blocks later runs until a human resolves it, so no edit is
+  the new one is linked; a copy that changed after the check is kept and
+  blocks until a human resolves it (see below for which run), so no edit is
   lost. Nightly never deletes a displaced copy; an intact copy is a backup and
   does not block. The displaced directory must be a real directory, never a
   symlink.
@@ -90,9 +90,12 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   that is missing, or a present default (dangling link included) that is not a
   readable file, refuses the run, and leak-scan refuses it again when it
   reads the rules.
-- Nightly commits to the branch ref preflight validated and refuses when HEAD
-  points elsewhere. Only committing runs check the snapshot export; a dry run
-  checks the live checkout.
+- Nightly commits to, and resumes on, the branch ref preflight validated and
+  refuses when HEAD points elsewhere. Only committing runs check the snapshot
+  export, written from raw blobs so no checkout filter changes what the gates
+  read; a dry run checks the live checkout.
+- A displaced copy that changes before nightly checks the copies blocks that
+  commit; one that changes later blocks the next run.
 - Nightly holds `.git/index.lock` from its index check to the index refresh,
   and refreshes only the committed paths, so the user's index is never
   clobbered.
@@ -103,7 +106,8 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   archive stays in the inbox. The archive is written from the verified buffer;
   the original inode stays displaced, so a write through an open descriptor
   blocks the next run. A NOOP also needs its update target unchanged since the
-  judgment.
+  judgment, checked again after the move; a change puts the draft back. A
+  rejected draft that changed is not archived, and the review says so.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 

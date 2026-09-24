@@ -167,7 +167,7 @@ try {
   assert.equal(nightly(['--dry-run']).ok, true, 'a dry run works on any branch')
   git(['checkout', '-q', 'main'])
 
-  const { nightlyCommit, nightlyPreflight, publishableTree } = await import(path.join(root, '_meta/lib/nightly.mjs'))
+  const { exportTree, nightlyCommit, nightlyPreflight, publishableTree, resetToUpstream } = await import(path.join(root, '_meta/lib/nightly.mjs'))
   const { displacedEdits, writeChecked } = await import(path.join(root, '_meta/lib/write-journal.mjs'))
   const preflight = nightlyPreflight(vault, { push: true, env })
   assert.equal(preflight.ok, true, JSON.stringify(preflight))
@@ -284,6 +284,24 @@ try {
   assert.equal(git(['status', '--porcelain']), '', 'the real index follows the new commit')
   assert.equal(fs.existsSync(indexLock), false)
   git(['reset', '-q', '--hard', 'HEAD^'])
+  const resumeHead = git(['rev-parse', 'HEAD'])
+  git(['checkout', '-q', '-b', 'resume-side'])
+  assert.match(resetToUpstream(vault, env, resumeHead, resumeHead, 'main').reason, /branch changed during preflight/, 'a resume never resets a branch preflight did not validate')
+  git(['checkout', '-q', 'main'])
+  git(['branch', '-q', '-D', 'resume-side'])
+  fs.mkdirSync(path.join(vault, '.git/info'), { recursive: true })
+  fs.writeFileSync(path.join(vault, '.git/info/attributes'), '*.md filter=mask\n')
+  git(['config', 'filter.mask.smudge', 'tr e E'])
+  git(['config', 'filter.mask.clean', 'cat'])
+  const exported = path.join(temp, 'exported')
+  fs.mkdirSync(exported)
+  try { assert.equal(exportTree(vault, env, git(['rev-parse', 'HEAD^{tree}']), exported), true) } finally {
+    fs.rmSync(path.join(vault, '.git/info/attributes'))
+    git(['config', '--remove-section', 'filter.mask'])
+  }
+  const blob = spawnSync('git', ['cat-file', 'blob', `HEAD:${promoted}`], { cwd: vault, env }).stdout
+  assert.ok(fs.readFileSync(path.join(exported, promoted)).equals(blob), 'the gates read the committed blob, never a smudged checkout')
+  fs.rmSync(exported, { recursive: true })
 
   fs.appendFileSync(path.join(vault, 'package.json'), '\n')
   git(['add', 'package.json'])

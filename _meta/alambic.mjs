@@ -406,7 +406,7 @@ try {
       bumpMetrics(null, { [decision === 'accept' ? 'accepted' : 'rejected']: 1 })
     }
     if (json) output(report, true)
-    else output(`inbox: ${report.path}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'reject' ? '\narchived: docs/inbox/ai/processed/' : '\nnext: sidekick --apply-freeform promotes it'}`)
+    else output(`inbox: ${report.path}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? '\nnext: sidekick --apply-freeform promotes it' : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)
   } else if (command === 'review') {
     const json = has('--json')
     const proposalFile = option('--proposal', '')

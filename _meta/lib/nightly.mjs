@@ -80,7 +80,7 @@ export function nightlyPreflight(root, { push = false, commit = push, env = proc
   if (head && head !== upstream && head === recordedCommit(root, env) && git(root, ['rev-parse', 'HEAD^'], env).out === upstream) {
     const own = changes(root, env, ['diff-tree', '--no-commit-id', '--name-status', '-r', '--no-renames', 'HEAD'])
     if (own && own.every(allowedChange)) {
-      const reset = resetToUpstream(root, env, head, upstream)
+      const reset = resetToUpstream(root, env, head, upstream, branch)
       return reset.ok ? { ok: true, branch, target, head: upstream, resumed: head } : reset
     }
   }
@@ -113,13 +113,37 @@ function withTempIndex(root, env, fn) {
   }
 }
 
+export function exportTree(root, env, tree, work) {
+  const listed = spawnSync('git', ['ls-tree', '-r', '-z', tree], { cwd: root, env, maxBuffer: 1 << 30 })
+  if (listed.status !== 0) return false
+  const entries = listed.stdout.toString('utf8').split('\0').filter(Boolean).map((line) => {
+    const tab = line.indexOf('\t')
+    const [mode, type, sha] = line.slice(0, tab).split(' ')
+    return { mode, type, sha, file: line.slice(tab + 1) }
+  }).filter((entry) => entry.type === 'blob')
+  const batch = spawnSync('git', ['cat-file', '--batch'], { cwd: root, env, input: entries.map((entry) => `${entry.sha}\n`).join(''), maxBuffer: 1 << 30 })
+  if (batch.status !== 0) return false
+  let offset = 0
+  for (const entry of entries) {
+    const newline = batch.stdout.indexOf(10, offset)
+    const [sha, type, size] = batch.stdout.subarray(offset, newline).toString('utf8').split(' ')
+    if (sha !== entry.sha || type !== 'blob') return false
+    const bytes = batch.stdout.subarray(newline + 1, newline + 1 + Number(size))
+    offset = newline + 2 + Number(size)
+    const dest = path.join(work, entry.file)
+    fs.mkdirSync(path.dirname(dest), { recursive: true })
+    if (entry.mode === '120000') fs.symlinkSync(bytes.toString('utf8'), dest)
+    else fs.writeFileSync(dest, bytes, { mode: entry.mode === '100755' ? 0o755 : 0o644 })
+  }
+  return true
+}
+
 function withExport(root, env, tree, fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-gates-'))
   const work = path.join(dir, 'tree')
-  const indexEnv = { ...env, GIT_INDEX_FILE: path.join(dir, 'index') }
   try {
     fs.mkdirSync(work)
-    if (!git(root, ['read-tree', tree], indexEnv).ok || !git(root, [`--work-tree=${work}`, 'checkout-index', '-a', '-f'], indexEnv).ok) return null
+    if (!exportTree(root, env, tree, work)) return null
     return fn(work)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
@@ -192,13 +216,15 @@ function publishIndex(root, env, held, build) {
   }
 }
 
-function resetToUpstream(root, env, head, upstream) {
+export function resetToUpstream(root, env, head, upstream, branch) {
   const readEnv = { ...env, GIT_OPTIONAL_LOCKS: '0' }
   return withIndexLock(root, env, (held) => {
     const indexed = changes(root, readEnv, ['diff', '--cached', '--name-status', '--no-renames'])
     if (indexed === null) return { ok: false, reason: 'git diff failed' }
     if (indexed.length) return { ok: false, reason: 'the index changed during preflight', paths: [...new Set(indexed.map((item) => item.file))].slice(0, 20) }
-    if (!git(root, ['update-ref', '-m', 'reset: resume nightly', 'HEAD', upstream, head], readEnv).ok) return { ok: false, reason: 'HEAD moved during preflight' }
+    const ref = `refs/heads/${branch}`
+    if (git(root, ['symbolic-ref', '-q', 'HEAD'], readEnv).out !== ref) return { ok: false, reason: 'the branch changed during preflight' }
+    if (!git(root, ['update-ref', '-m', 'reset: resume nightly', ref, upstream, head], readEnv).ok) return { ok: false, reason: 'HEAD moved during preflight' }
     if (!publishIndex(root, readEnv, held, (indexEnv) => git(root, ['read-tree', upstream], indexEnv).ok)) return { ok: false, reason: 'git index reset failed during preflight' }
     return { ok: true }
   })

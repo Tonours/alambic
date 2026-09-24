@@ -103,6 +103,12 @@ try {
   assert.equal(judge.archiveNoop(vault, noop).error, 'target-changed-since-judged', 'a noop whose target changed since the judgment is not archived')
   assert.equal(fs.readFileSync(dup, 'utf8'), judgedDup)
   fs.writeFileSync(targetFile, targetText)
+  const { writeFileSync: plainWrite } = fs
+  fs.writeFileSync = (dest, ...rest) => { if (String(dest).includes('processed/noop-')) plainWrite(targetFile, 'Rewritten during the archive.\n'); return plainWrite(dest, ...rest) }
+  try { assert.equal(judge.archiveNoop(vault, noop).error, 'target-changed-since-judged', 'a target changed during the archive puts the draft back') } finally { fs.writeFileSync = plainWrite }
+  assert.equal(fs.readFileSync(dup, 'utf8'), judgedDup)
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'docs/inbox/ai/processed')).filter((name) => name.includes('codex-s2')), [], 'the undone noop leaves no archive')
+  fs.writeFileSync(targetFile, targetText)
   const partial = inbox('harvest-2026-09-24-codex-s3.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body} However the rule no longer holds after version 4 because the cache format changed.` })
   assert.notEqual(judge.judgeFreeformNote(vault, partial).decision, 'noop', 'a note that adds a correction is not a noop')
   fs.rmSync(partial)
@@ -146,21 +152,37 @@ try {
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'an archive with no free name restores the source')
   const reservedDir = path.join(state, 'displaced')
   const archived = path.join(processedDir, 'rejected-p9-1.md')
+  const { writeFileSync, copyFileSync } = fs
+  const failing = (dest) => { if (dest === archived) throw Object.assign(new Error('no space left'), { code: 'ENOSPC' }) }
+  fs.writeFileSync = (dest, ...rest) => { failing(dest); return writeFileSync(dest, ...rest) }
+  fs.copyFileSync = (source, dest, ...rest) => { failing(dest); return copyFileSync(source, dest, ...rest) }
+  try { assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved)), /no space left/) } finally { Object.assign(fs, { writeFileSync, copyFileSync }) }
+  assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'a failed archive write restores the source')
+  assert.equal(fs.existsSync(archived), false)
+  fs.chmodSync(raced, 0o600)
   const reservedCopy = () => fs.readdirSync(reservedDir).find((name) => name.startsWith(judge.sha256(saved)))
   const lateWrite = (dest) => { if (dest === archived) fs.appendFileSync(path.join(reservedDir, reservedCopy()), 'Late write through an open descriptor.\n') }
-  const { writeFileSync, copyFileSync } = fs
   fs.writeFileSync = (dest, ...rest) => { lateWrite(dest); return writeFileSync(dest, ...rest) }
   fs.copyFileSync = (source, dest, ...rest) => { lateWrite(dest); return copyFileSync(source, dest, ...rest) }
   try { assert.equal(moveChecked(raced, [racedDest, archived], judge.sha256(saved)), archived) } finally { Object.assign(fs, { writeFileSync, copyFileSync }) }
   assert.equal(fs.existsSync(raced), false)
   assert.deepEqual(fs.readdirSync(processedDir).filter((name) => name.includes('p9')).sort(), ['rejected-p9-1.md', 'rejected-p9.md'], 'the archive keeps no reserved copy')
   assert.equal(fs.readFileSync(archived, 'utf8'), saved, 'the archive holds the checked bytes even when the inode changes before the copy')
+  assert.equal(fs.statSync(archived).mode & 0o077, 0, 'the archive keeps the draft permissions')
   assert.deepEqual(displacedEdits(reservedDir), [path.join(reservedDir, reservedCopy())], 'a write through an open descriptor is kept and flagged')
   fs.rmSync(path.join(reservedDir, reservedCopy()))
   for (const name of ['rejected-p9.md', 'rejected-p9-1.md']) fs.rmSync(path.join(processedDir, name))
 
   const rejectMe = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Vague chit chat about lunch that should never reach the wiki pages' })
-  judge.reviewInbox(vault, rel(rejectMe), { decision: 'reject', reason: 'not durable' })
+  assert.equal(judge.reviewInbox(vault, rel(rejectMe), { decision: 'reject', reason: 'not durable' }).archived, 'docs/inbox/ai/processed/rejected-harvest-2026-09-24-pi-p9.md')
+  const editedReject = inbox('harvest-2026-09-24-pi-p10.md', { summary: 'Session note edited while its rejection moves it to the archive' })
+  const { renameSync } = fs
+  fs.renameSync = (from, to) => { if (from === editedReject) fs.appendFileSync(from, 'Edited during the reject.\n'); return renameSync(from, to) }
+  let editedReport
+  try { editedReport = judge.reviewInbox(vault, rel(editedReject), { decision: 'reject', reason: 'not durable' }) } finally { fs.renameSync = renameSync }
+  assert.equal(editedReport.archived, null, 'a refused archive is reported, not claimed')
+  assert.match(fs.readFileSync(editedReject, 'utf8'), /Edited during the reject/)
+  fs.rmSync(editedReject)
   assert.equal(fs.existsSync(path.join(vault, 'docs/inbox/ai/processed/rejected-harvest-2026-09-24-pi-p9.md')), true)
 
   const viaTty = inbox('harvest-2026-09-24-claude-t1.md', { summary: 'Plumbus rule for the dinglebop cache warmer path accepted through a terminal' })
