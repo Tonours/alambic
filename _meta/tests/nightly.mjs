@@ -213,6 +213,8 @@ try {
   const { displacedEdits, writeChecked } = await import(path.join(root, '_meta/lib/write-journal.mjs'))
   const preflight = nightlyPreflight(vault, { push: true, env })
   assert.equal(preflight.ok, true, JSON.stringify(preflight))
+  const localPreflight = nightlyPreflight(vault, { commit: true, env })
+  assert.equal(localPreflight.head, git(['rev-parse', 'HEAD']), 'a local commit run records its parent too')
   fs.writeFileSync(path.join(vault, 'kb/extra-note.md'), fs.readFileSync(path.join(vault, promoted), 'utf8').replace(/^# .*$/m, '# Extra note'))
   fs.appendFileSync(path.join(vault, 'package.json'), '\n')
   const refused = nightlyCommit(vault, { push: true, preflight, env })
@@ -355,7 +357,7 @@ try {
   const { writeSync } = fs
   fs.writeSync = (fd, buffer, offset = 0, length = buffer.length - offset, ...rest) => writeSync(fd, buffer, offset, Math.min(length, 64), ...rest)
   let ownCommit
-  try { ownCommit = nightlyCommit(vault, { push: false, preflight, env, journal }) } finally { fs.writeSync = writeSync }
+  try { ownCommit = nightlyCommit(vault, { push: false, preflight: localPreflight, env, journal }) } finally { fs.writeSync = writeSync }
   assert.equal(ownCommit.ok, true, JSON.stringify(ownCommit))
   assert.equal(spawnSync('git', ['-C', vault, 'ls-files', '--error-unmatch', promoted]).status, 0, 'a short write never publishes a truncated index')
   assert.equal(git(['status', '--porcelain']), '', 'the real index follows the new commit')

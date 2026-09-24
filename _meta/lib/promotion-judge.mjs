@@ -25,6 +25,7 @@ export const REFUSE_BODY = [
 
 const PLACEHOLDER_SOURCE = /REPLACE|TODO|FIXME|example\.com|example\.invalid|repo\/path\/file/i
 const FREEFORM_DAILY_MAX = 3
+const PROMOTE_EXCERPT_MAX = 600
 const SESSION_SOURCE = /^(claude|codex|pi):/i
 export const HUMAN_REVIEWER = 'human:alambic-review'
 const UPDATE_SCORE_THRESHOLD = 45
@@ -274,15 +275,22 @@ function normalizeText(value) {
   const lines = []
   for (const line of String(value || '').split(/\r?\n/)) {
     const fence = /^\s*(```|~~~)/.test(line)
-    lines.push(fence || fenced || /^( {4}|\t)/.test(line) ? `\n${line.trimEnd()}\n` : line.replace(/\s+/g, ' ').trim())
+    lines.push(fence || fenced || /^( {4}|\t)/.test(line) ? `\n${line}\n` : line.replace(/\s+/g, ' ').trim())
     if (fence) fenced = !fenced
   }
   return lines.filter(Boolean).join(' ').trim()
 }
 
+const promoteExcerpt = (body) => body.replace(/\s+/g, ' ').trim()
+
 function coveredBy(root, targetPath, body) {
   if (normalizeText(body.replace(/^#\s+.+$/m, '')).length < 80) return null
-  try { const target = readRaw(root, targetPath); return normalizeText(target).includes(normalizeText(body)) ? sha256(target) : null } catch { return null }
+  try {
+    const target = readRaw(root, targetPath)
+    const excerpt = promoteExcerpt(body)
+    const promoted = excerpt.length <= PROMOTE_EXCERPT_MAX && target.replace(/\r\n/g, '\n').includes(`\n> ${excerpt}\n`)
+    return promoted || normalizeText(target).includes(normalizeText(body)) ? sha256(target) : null
+  } catch { return null }
 }
 
 export function judgeFreeformNote(root, filePath, { freeformBudgetRemaining = FREEFORM_DAILY_MAX, stateHome } = {}) {
@@ -480,7 +488,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   if (judgment.mode === 'update' && judgment.update_target) {
     const targetAbs = path.join(root, judgment.update_target)
     const before = fs.readFileSync(targetAbs, 'utf8')
-    const excerpt = body.replace(/\s+/g, ' ').trim().slice(0, 600)
+    const excerpt = promoteExcerpt(body).slice(0, PROMOTE_EXCERPT_MAX)
     const block = `\n\n## Sidekick promote ${today}\n\nPromoted signal from \`${judgment.path}\` (${reviewedBy === HUMAN_REVIEWER ? `${HUMAN_REVIEWER} ${reviewedAt}` : 'oracle:freeform-v2'}).\n\n> ${excerpt}\n`
     let after = before.replace(/\s*$/, '') + block
     if (/^updated:\s*\d{4}-\d{2}-\d{2}/m.test(after)) {

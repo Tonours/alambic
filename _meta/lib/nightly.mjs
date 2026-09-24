@@ -72,10 +72,11 @@ export function nightlyPreflight(root, { push = false, commit = push, env = proc
   if (!commit) return { ok: true, branch }
   const target = defaultBranch(root, env)
   if (branch !== target) return { ok: false, reason: `not on the default branch (${target})`, branch }
-  if (!push) return { ok: true, branch, target }
+  const head = git(root, ['rev-parse', 'HEAD'], env).out
+  if (!head) return { ok: false, reason: 'git rev-parse HEAD failed', branch }
+  if (!push) return { ok: true, branch, target, head }
   const fetched = git(root, ['fetch', '--quiet', 'origin'], env)
   if (!fetched.ok) return { ok: false, reason: `git fetch failed: ${fetched.err}` }
-  const head = git(root, ['rev-parse', 'HEAD'], env).out
   const upstream = git(root, ['rev-parse', `origin/${target}`], env).out
   if (head && head !== upstream && head === recordedCommit(root, env) && git(root, ['rev-parse', 'HEAD^'], env).out === upstream) {
     const own = changes(root, env, ['diff-tree', '--no-commit-id', '--name-status', '-r', '--no-renames', 'HEAD'])
@@ -84,7 +85,7 @@ export function nightlyPreflight(root, { push = false, commit = push, env = proc
       return reset.ok ? { ok: true, branch, target, head: upstream, resumed: head } : reset
     }
   }
-  if (!head || head !== upstream) return { ok: false, reason: `HEAD differs from origin/${target}`, branch }
+  if (head !== upstream) return { ok: false, reason: `HEAD differs from origin/${target}`, branch }
   return { ok: true, branch, target, head }
 }
 
