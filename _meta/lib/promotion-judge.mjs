@@ -279,7 +279,7 @@ function coveredBy(root, targetPath, body) {
     const raw = readRaw(root, targetPath)
     const target = `\n${raw.replace(/\r\n/g, '\n')}\n`
     const lines = body.replace(/\r\n/g, '\n').replace(/^(?:[ \t]*\n)+|\n+$/g, '')
-    const text = /(^|\n)[ \t][^\n]*$/.test(lines) ? lines : lines.trimEnd()
+    const text = /^([ \t]|```|~~~)/m.test(lines) ? lines : lines.trimEnd()
     return target.includes(`\n${text}\n`) || target.includes(promotedBlock(body)) ? sha256(raw) : null
   } catch { return null }
 }

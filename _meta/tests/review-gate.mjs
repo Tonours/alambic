@@ -141,6 +141,9 @@ try {
     inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n${tail}` })
     assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a shortened or unindented last code line is not a NOOP')
   }
+  fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n\`\`\`sh\nprintf value\\`))
+  inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n\`\`\`sh\nprintf value\\ ` })
+  assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a trailing space on the last line of an unclosed fence counts')
   const nested = (indent, gap) => `\`\`\`\`markdown\n\`\`\`yaml\nkey:\n${indent}enabled: true\n\`\`\`\n\`\`\`\`\n\n    doc = '''a\n${gap}    b'''`
   fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n${nested('  ', '\n')}`))
   for (const [indent, gap] of [['', '\n'], ['  ', '']]) {

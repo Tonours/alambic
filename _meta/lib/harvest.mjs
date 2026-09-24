@@ -404,7 +404,10 @@ function parseAnswer(stdout) {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start < 0 || end <= start) throw new Error('no JSON object in distiller output')
-  try { return JSON.parse(text.slice(start, end + 1)) } catch { throw new Error('distiller output is not valid JSON') }
+  let answer
+  try { answer = JSON.parse(text.slice(start, end + 1)) } catch { throw new Error('distiller output is not valid JSON') }
+  if ('skip' in Object(answer) && typeof answer.skip !== 'boolean') throw new Error('distiller skip must be a boolean')
+  return answer
 }
 
 function yamlString(value) { return JSON.stringify(String(value)) }
@@ -496,7 +499,7 @@ export function harvestDistill(root, { distiller = null, max = 5, stateDir = nul
       if (result.error) throw new Error(`distiller failed: ${result.error.code || result.error.message}`)
       if (result.status !== 0) throw new Error(`distiller exited ${result.status ?? result.signal}`)
       const answer = parseAnswer(result.stdout)
-      if (answer.skip) {
+      if (answer.skip === true) {
         report.skipped += 1
         retire(stateDir, name, 'skipped')
         continue
