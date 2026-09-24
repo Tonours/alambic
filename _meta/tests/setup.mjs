@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { HARNESSES, applySetup, desiredItems, doctorSetup, makeContext, parseSetupArgs, planSetup, runSetup, selectHarnesses, detectHarnesses, setupStatus } from '../lib/setup.mjs'
+import { HARNESSES, applySetup, desiredItems, doctorSetup, makeContext, parseSetupArgs, planSetup, runSetup, selectHarnesses, detectHarnesses, setupStatus, stableNode } from '../lib/setup.mjs'
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -527,6 +527,17 @@ try {
   const leftAgent = await setup(engine, ['--uninstall', '--yes', '--name', 'brain', '--json'], envP)
   assert(leftAgent.json.items.find((item) => item.id === 'launchd:schedule').result === 'left' && fs.existsSync(plistP), `uninstall keeps a plist that existed before setup: ${leftAgent.out}`)
 
+  const brew = path.join(temp, 'brew')
+  const versioned = path.join(brew, 'Cellar/node/26.8.2/bin/node')
+  fs.mkdirSync(path.dirname(versioned), { recursive: true })
+  fs.writeFileSync(versioned, '')
+  fs.mkdirSync(path.join(brew, 'opt'))
+  fs.symlinkSync('../Cellar/node/26.8.2', path.join(brew, 'opt/node'))
+  assert(stableNode(versioned) === path.join(brew, 'opt/node/bin/node'), 'a Homebrew Cellar node is recorded through its opt link')
+  fs.rmSync(path.join(brew, 'opt/node'))
+  fs.symlinkSync('../Cellar/node/27.0.0', path.join(brew, 'opt/node'))
+  assert(stableNode(versioned) === versioned, 'an opt link to another version keeps the running binary')
+  assert(stableNode('/usr/local/bin/node') === '/usr/local/bin/node', 'a node outside a Cellar is kept')
   console.log('setup: ok')
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })

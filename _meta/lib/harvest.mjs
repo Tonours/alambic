@@ -6,7 +6,7 @@ import path from 'node:path'
 import { alambicStateDir } from './state-dir.mjs'
 import { scanUnsafe } from './vault.mjs'
 import { REFUSE_BODY } from './promotion-judge.mjs'
-import { createExclusive, displacedDir, prepareDisplaced, vaultDir, withdraw } from './write-journal.mjs'
+import { createExclusive, displacedDir, prepareDisplaced, sameInode, vaultDir, withdraw } from './write-journal.mjs'
 
 export const HARNESSES = ['claude', 'codex', 'pi']
 export const HARVEST_ORIGIN = 'session-harvest'
@@ -459,7 +459,7 @@ function writeExclusive(dir, base, text, env) {
     }
     let landed = null
     try { landed = fs.realpathSync.native(path.dirname(file)) } catch {}
-    if (landed === real) return file
+    if (landed === real && sameInode(path.join(real, path.basename(file)), ino)) return file
     withdraw([file], ino, displaced, Buffer.from(text))
     throw new Error('docs/inbox/ai changed during the distill')
   }

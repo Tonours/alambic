@@ -104,8 +104,9 @@ block at 1200 tokens, marks it untrusted, and always exits 0. Codex runs new
 hooks only after you approve them in `/hooks`; `setup --status` shows
 `pending-trust` until then.
 
-Setup bakes in the absolute Node path. After a Node upgrade that moves the
-binary, `doctor` reports items as `outdated`; rerun `_meta/alambic setup --yes`.
+Setup bakes in the absolute Node path, through Homebrew's `opt/` link when
+Node comes from a Cellar. After a Node upgrade that moves the binary, `doctor`
+reports items as `outdated`; rerun `_meta/alambic setup --yes`.
 
 ### Several vaults
 

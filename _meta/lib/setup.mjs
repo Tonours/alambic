@@ -485,7 +485,14 @@ function planItem(context, item, recorded) {
   return action
 }
 
-export function makeContext({ vault, env, node = process.execPath, name = null, engine = vault }) {
+export function stableNode(node) {
+  const cellar = node.match(/^(.*)\/Cellar\/([^/]+)\/[^/]+\/bin\/node$/)
+  if (!cellar) return node
+  const linked = path.join(cellar[1], 'opt', cellar[2], 'bin', 'node')
+  try { return fs.realpathSync(linked) === fs.realpathSync(node) ? linked : node } catch { return node }
+}
+
+export function makeContext({ vault, env, node = stableNode(process.execPath), name = null, engine = vault }) {
   if (!path.isAbsolute(vault) || !path.isAbsolute(engine)) throw new Error('vault path must be absolute')
   try {
     fs.accessSync(node, fs.constants.X_OK)
@@ -834,7 +841,7 @@ function resolveVault(engine, options, env) {
   return vault
 }
 
-export async function runSetup({ vault, args, env = process.env, stdin = process.stdin, stdout = process.stdout, node = process.execPath }) {
+export async function runSetup({ vault, args, env = process.env, stdin = process.stdin, stdout = process.stdout, node = stableNode(process.execPath) }) {
   const options = parseSetupArgs(args)
   const context = makeContext({ vault: resolveVault(vault, options, env), engine: vault, env, node, name: options.name })
   const print = (value) => stdout.write(options.json ? `${JSON.stringify(value, null, 2)}\n` : `${value}\n`)

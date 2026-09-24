@@ -114,8 +114,9 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   the inode of the descriptor that created it, moves into the displaced
   directory and the source comes back from the displaced inode. A cleanup never
   unlinks by path: it renames into the displaced directory, then checks the
-  moved inode. A file that took the path goes back, our unedited bytes are
-  dropped, an edited copy stays flagged. `harvest distill` checks
+  moved inode. A file that took the path goes back; our copy stays there as a
+  backup named after the bytes we wrote, flagged once anything writes to it,
+  even through a descriptor opened before the undo. `harvest distill` checks
   `docs/inbox/ai` the same way after writing a draft. A copy alambic can no
   longer find stays where it landed; an untracked file under `kb/` or `ref/`
   refuses the next nightly preflight, but retrieval reads it until a human

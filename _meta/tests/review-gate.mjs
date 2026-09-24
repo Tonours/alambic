@@ -217,6 +217,17 @@ try {
   assert.equal(fs.readFileSync(raced, 'utf8'), saved)
   assert.deepEqual(displacedEdits(reservedDir).filter((file) => file.includes('rejected-p9-1')), [])
   fs.rmSync(archived)
+  let editor
+  onOpen((dest) => { if (dest === archived) fs.writeSync = (fd, ...rest) => { editor ??= openSync(archived, 'r+'); return writeSync(fd, ...rest) } })
+  let lateUndo
+  try { lateUndo = moveChecked(raced, [archived], judge.sha256(saved), process.env, () => false) } finally { unhook() }
+  assert.equal(lateUndo, false)
+  writeSync(editor, 'Late write. ')
+  fs.closeSync(editor)
+  const lateCopy = displacedEdits(reservedDir).filter((file) => file.includes('withdrawn-rejected-p9-1'))
+  assert.equal(lateCopy.length, 1, 'a write through a descriptor opened before the undo is kept and flagged')
+  assert.match(fs.readFileSync(lateCopy[0], 'utf8'), /^Late write\. /)
+  for (const name of fs.readdirSync(reservedDir).filter((entry) => entry.includes('withdrawn-rejected-p9-1'))) fs.rmSync(path.join(reservedDir, name))
   const journalDir = path.join(temp, 'journal-dir')
   fs.mkdirSync(journalDir)
   assert.throws(() => moveChecked(raced, [archived], judge.sha256(saved), { ...process.env, ALAMBIC_WRITE_JOURNAL: journalDir }), /EISDIR/)
@@ -257,7 +268,7 @@ try {
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), swapKb, 'an undo blocked by a recreated source still removes the copy from kb')
   assert.equal(fs.readFileSync(reclaimed, 'utf8'), 'Recreated by the editor.\n')
   const kept = fs.readdirSync(reservedDir).filter((name) => name.endsWith('pi-p12.md'))
-  assert.deepEqual(kept.map((name) => fs.readFileSync(path.join(reservedDir, name), 'utf8')), [reclaimedText], 'the reserved source survives the undo and the unedited copy is dropped')
+  assert.deepEqual(kept.map((name) => fs.readFileSync(path.join(reservedDir, name), 'utf8')), [reclaimedText, reclaimedText], 'both versions survive the undo')
   for (const name of kept) fs.rmSync(path.join(reservedDir, name))
   fs.rmSync(reclaimed)
   fs.chmodSync(raced, 0o600)

@@ -157,6 +157,22 @@ try {
   assert.match(swappedRun.failed[0]?.error || '', /changed during the distill/, JSON.stringify(swappedRun))
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBeforeSwap, 'a harvest inbox swapped during the write leaves nothing in kb')
   assert.equal(listQueue().length, 1, 'the entry stays queued')
+  const movedInbox = path.join(temp, 'inbox-ai-moved')
+  const draftsBeforeMove = new Set(fs.readdirSync(inboxAi))
+  fs.openSync = (file, ...rest) => {
+    const fd = openSync(file, ...rest)
+    if (String(file).startsWith(path.join(inboxAi, 'harvest-')) && !fs.existsSync(movedInbox)) { fs.renameSync(inboxAi, movedInbox); fs.mkdirSync(inboxAi) }
+    return fd
+  }
+  let movedRun
+  try { movedRun = harvestDistill(vault, { distiller: fake, stateDir: state, env }) } finally {
+    fs.openSync = openSync
+    fs.rmSync(inboxAi, { recursive: true })
+    fs.renameSync(movedInbox, inboxAi)
+  }
+  assert.match(movedRun.failed[0]?.error || '', /changed during the distill/, JSON.stringify(movedRun))
+  assert.equal(listQueue().length, 1, 'a harvest inbox moved away during the write keeps the entry queued')
+  for (const name of fs.readdirSync(inboxAi).filter((entry) => !draftsBeforeMove.has(entry))) fs.rmSync(path.join(inboxAi, name))
   const draftsBefore = new Set(fs.readdirSync(inboxAi))
   const { writeSync } = fs
   const drafts = new Set()

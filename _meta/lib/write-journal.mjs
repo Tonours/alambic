@@ -31,7 +31,7 @@ function reserve(file, expected, dir) {
   return null
 }
 
-function sameInode(file, ino) {
+export function sameInode(file, ino) {
   try { return fs.lstatSync(file).ino === ino } catch { return false }
 }
 
@@ -46,8 +46,7 @@ export function withdraw(candidates, ino, dir, mine) {
     try { fs.linkSync(moved, found); fs.unlinkSync(moved) } catch { fs.renameSync(moved, path.join(dir, `restore-${id}-${name}`)) }
     return
   }
-  if (fs.readFileSync(moved).equals(mine)) fs.unlinkSync(moved)
-  else fs.renameSync(moved, path.join(dir, `${digest(mine)}-${id}-withdrawn-${name}`))
+  fs.renameSync(moved, path.join(dir, `${digest(mine)}-${id}-withdrawn-${name}`))
 }
 
 export function createExclusive(file, bytes, dir, mode = 0o666) {
