@@ -136,6 +136,12 @@ try {
   assert.equal(judge.judgeFreeformNote(vault, inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n    printf '<%s>' value\\` })).decision, 'noop')
   inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n    printf '<%s>' value\\ ` })
   assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a trailing space on the last code line of a body counts')
+  const nested = (indent, gap) => `\`\`\`\`markdown\n\`\`\`yaml\nkey:\n${indent}enabled: true\n\`\`\`\n\`\`\`\`\n\n    doc = '''a\n${gap}    b'''`
+  fs.writeFileSync(targetFile, targetText.replace(body.trim(), `${body.trim()}\n\n${nested('  ', '\n')}`))
+  for (const [indent, gap] of [['', '\n'], ['  ', '']]) {
+    inbox('harvest-2026-09-24-codex-g1.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body.trim()}\n\n${nested(indent, gap)}` })
+    assert.notEqual(judge.judgeFreeformNote(vault, sameCode).decision, 'noop', 'a code change inside nested fences or a removed blank code line is not a NOOP')
+  }
   fs.rmSync(sameCode)
   fs.writeFileSync(targetFile, targetText)
   const crashScript = `import fs from 'node:fs'; const judge = await import(${JSON.stringify(path.join(root, '_meta/lib/promotion-judge.mjs'))}); const open = fs.openSync; fs.openSync = (dest, ...rest) => { if (String(dest).includes('processed/noop-')) process.exit(9); return open(dest, ...rest) }; judge.archiveNoop(${JSON.stringify(vault)}, ${JSON.stringify(noop)})`
@@ -363,6 +369,12 @@ try {
   fs.writeFileSync(codeUpdater, codeText)
   const replayed = judge.judgeFreeformNote(vault, codeUpdater)
   assert.equal(replayed.decision, 'noop', `a replayed update with code is a NOOP: ${replayed.decision} ${replayed.reason}`)
+  const promotedTarget = path.join(vault, 'kb/unrelated-topic.md')
+  const promotedText = fs.readFileSync(promotedTarget, 'utf8')
+  assert.match(promotedText, /<!-- alambic-body [0-9a-f]{16} -->/)
+  fs.writeFileSync(promotedTarget, promotedText.replace(/(<!-- alambic-body [0-9a-f]{16} -->\n\n> [^\n]*)commit\(\)/, '$1rollback()'))
+  assert.notEqual(judge.judgeFreeformNote(vault, codeUpdater).decision, 'noop', 'a kept marker whose quoted excerpt was edited is not a replay')
+  fs.writeFileSync(promotedTarget, promotedText)
   for (const edit of [pythonBlock(true), pythonBlock(false).replace('commit()', 'commit()  ')]) {
     fs.writeFileSync(codeUpdater, codeText.replace(pythonBlock(false), edit))
     assert.notEqual(judge.judgeFreeformNote(vault, codeUpdater).decision, 'noop', 'a code change after an accepted update is not taken for its replay')

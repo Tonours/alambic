@@ -269,24 +269,18 @@ export function reviewGate(judgment, text, stateHome) {
   return { ...judgment, decision: 'review_required', review: null, suggested_action: `alambic review --inbox ${judgment.path} --decision accept|reject --reason TEXT`, reason: `${judgment.reason} review_required` }
 }
 
-function normalizeText(value) {
-  let fenced = false
-  const lines = []
-  for (const line of String(value || '').split(/\r?\n/)) {
-    const fence = /^\s*(```|~~~)/.test(line)
-    lines.push(fence || fenced || /^( {4}|\t)/.test(line) ? `\n${line}\n` : line.replace(/\s+/g, ' ').trim())
-    if (fence) fenced = !fenced
-  }
-  return lines.filter(Boolean).join(' ')
-}
-
+const flatten = (value) => String(value || '').replace(/\s+/g, ' ').trim()
 const bodyMark = (body) => `<!-- alambic-body ${sha256(body).slice(0, 16)} -->`
+const promotedBlock = (body) => `${bodyMark(body)}\n\n> ${flatten(body).slice(0, 600)}\n`
 
 function coveredBy(root, targetPath, body) {
-  if (normalizeText(body.replace(/^#\s+.+$/m, '')).length < 80) return null
+  if (flatten(body.replace(/^#\s+.+$/m, '')).length < 80) return null
   try {
-    const target = readRaw(root, targetPath)
-    return target.includes(bodyMark(body)) || normalizeText(target).includes(normalizeText(body)) ? sha256(target) : null
+    const raw = readRaw(root, targetPath)
+    const target = raw.replace(/\r\n/g, '\n')
+    const text = body.replace(/\r\n/g, '\n').replace(/^\n+|\n+$/g, '')
+    const covered = /^([ \t]|```|~~~)/m.test(text) ? target.includes(text) : flatten(target).includes(flatten(text))
+    return covered || target.includes(promotedBlock(body)) ? sha256(raw) : null
   } catch { return null }
 }
 
@@ -485,8 +479,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   if (judgment.mode === 'update' && judgment.update_target) {
     const targetAbs = path.join(root, judgment.update_target)
     const before = fs.readFileSync(targetAbs, 'utf8')
-    const excerpt = body.replace(/\s+/g, ' ').trim().slice(0, 600)
-    const block = `\n\n## Sidekick promote ${today}\n\nPromoted signal from \`${judgment.path}\` (${reviewedBy === HUMAN_REVIEWER ? `${HUMAN_REVIEWER} ${reviewedAt}` : 'oracle:freeform-v2'}). ${bodyMark(body)}\n\n> ${excerpt}\n`
+    const block = `\n\n## Sidekick promote ${today}\n\nPromoted signal from \`${judgment.path}\` (${reviewedBy === HUMAN_REVIEWER ? `${HUMAN_REVIEWER} ${reviewedAt}` : 'oracle:freeform-v2'}). ${promotedBlock(body)}`
     let after = before.replace(/\s*$/, '') + block
     if (/^updated:\s*\d{4}-\d{2}-\d{2}/m.test(after)) {
       after = after.replace(/^updated:\s*\d{4}-\d{2}-\d{2}/m, `updated: ${today}`)
