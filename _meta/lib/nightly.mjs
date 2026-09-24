@@ -312,9 +312,12 @@ function nightlyLocked(root, { push, dryRun, env: baseEnv, distiller, journal })
 function evalGate(root, env, vault) {
   const modules = path.join(vault, 'node_modules')
   if (root !== vault && fs.existsSync(modules)) fs.symlinkSync(modules, path.join(root, 'node_modules'))
-  let listed = ''
-  try { listed = fs.readFileSync(path.join(root, '_meta/tests/run.sh'), 'utf8') } catch {}
-  const suites = [...new Set([...listed.matchAll(/eval --suite ([\w-]+)/g)].map((match) => match[1]))]
+  let listed
+  try { listed = fs.readFileSync(path.join(root, '_meta/tests/run.sh'), 'utf8') } catch { return { name: 'evals', ok: false, suites: 0, error: 'cannot read _meta/tests/run.sh' } }
+  const declared = listed.split('\n').filter((line) => /\beval\b.*--suite/.test(line))
+  const parsed = declared.map((line) => line.match(/\beval --suite (["']?)([\w-]+)\1\s*$/)?.[2])
+  if (!parsed.length || parsed.includes(undefined)) return { name: 'evals', ok: false, suites: 0, error: parsed.length ? 'unparsed eval suite declarations in _meta/tests/run.sh' : 'no eval suites declared in _meta/tests/run.sh' }
+  const suites = [...new Set(parsed)]
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-evals-'))
   const isolated = Object.fromEntries(Object.entries(env).filter(([key]) => key !== 'TYPESAFE_API_KEY' && !key.startsWith('ALAMBIC_')))
   try {

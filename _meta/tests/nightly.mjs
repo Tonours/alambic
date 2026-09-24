@@ -161,8 +161,16 @@ try {
   assert.match(redEval.reason, /red gates: evals/, JSON.stringify(redEval))
   assert.match(redEval.steps.find((item) => item.name === 'evals').error, /missing-suite/)
   assert.equal(redEval.commit, null, 'a red eval blocks the commit')
-  fs.writeFileSync(runner, listed)
-  git(['commit', '-q', '-am', 'known suites'])
+  for (const [label, text, error] of [['dynamic suite', `${listed}"$ROOT/_meta/alambic" eval --suite "$SUITE"\n`, /unparsed eval suite/], ['no suites', listed.split('\n').filter((line) => !/ eval --suite /.test(line)).join('\n'), /no eval suites/]]) {
+    fs.writeFileSync(runner, text)
+    git(['commit', '-q', '-am', label])
+    git(['push', '-q', 'origin', 'main'])
+    const blind = nightly()
+    assert.match(blind.reason || '', /red gates: evals/, label)
+    assert.match(blind.steps.find((item) => item.name === 'evals').error, error, label)
+  }
+  fs.writeFileSync(runner, listed.replace(/eval --suite ([\w-]+)/g, 'eval --suite "$1"'))
+  git(['commit', '-q', '-am', 'quoted suites'])
   git(['push', '-q', 'origin', 'main'])
   const compileSet = path.join(vault, '_meta/evals/attention-compile.tsv')
   const compileText = fs.readFileSync(compileSet, 'utf8')

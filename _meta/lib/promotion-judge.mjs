@@ -432,6 +432,13 @@ export function archiveNoop(root, judgment) {
   return { ok: true, mode: 'noop', path: judgment.path, changed: false }
 }
 
+function insertRelated(text, link) {
+  return text.replace(/^(## Related)[ \t]*(\r?\n|$)(?:[ \t]*\r?\n)*/m, (_, head, eol) => {
+    const nl = eol || '\n'
+    return `${head}${nl}${nl}- ${link}${nl}`
+  })
+}
+
 const RELATED_NOTES = ['capture-quarantine-before-kb', 'adr-alambic-autonomous-oracle-sidekick']
 function relatedLinks(root) {
   const links = RELATED_NOTES.filter((name) => fs.existsSync(path.join(root, 'kb', `${name}.md`))).map((name) => `- [[${name}]]`)
@@ -476,9 +483,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
     const links = [...body.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)].map((m) => m[1].trim())
     for (const link of links.slice(0, 5)) {
       if (!hasWikilink(after, link) && link !== path.basename(judgment.update_target, '.md')) {
-        if (/^## Related\s*$/m.test(after)) {
-          after = after.replace(/^(## Related)[ \t]*\n(?:[ \t]*\n)*/m, `$1\n\n- [[${link}]]\n`)
-        }
+        if (/^## Related\s*$/m.test(after)) after = insertRelated(after, `[[${link}]]`)
       }
     }
     if (scanUnsafe(after).length) return { ok: false, error: 'unsafe-after' }
@@ -589,7 +594,7 @@ export function applyStructuralWikilink(root, sourcePath, targetBasename) {
   const link = `[[${targetBasename}]]`
   let after
   if (/^## Related\s*$/m.test(before)) {
-    after = before.replace(/^(## Related)[ \t]*\n(?:[ \t]*\n)*/m, `$1\n\n- ${link}\n`)
+    after = insertRelated(before, link)
   } else {
     const trimmed = before.replace(/\s*$/, '')
     after = `${trimmed}\n\n## Related\n\n- ${link}\n`
