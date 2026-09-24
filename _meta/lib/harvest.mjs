@@ -487,11 +487,13 @@ export function harvestDistill(root, { distiller = null, max = 5, stateDir = nul
       input: distillPrompt(root, entry),
       encoding: 'utf8',
       timeout: timeoutMs,
+      killSignal: 'SIGKILL',
       maxBuffer: 1024 * 1024,
       cwd: os.tmpdir(),
       env: { ...env, ALAMBIC_HARVEST_CHILD: '1' },
     })
     try {
+      if (result.error) throw new Error(`distiller failed: ${result.error.code || result.error.message}`)
       if (result.status !== 0) throw new Error(`distiller exited ${result.status ?? result.signal}`)
       const answer = parseAnswer(result.stdout)
       if (answer.skip) {

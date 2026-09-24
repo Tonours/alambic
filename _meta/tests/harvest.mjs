@@ -196,6 +196,14 @@ try {
   fs.rmSync(path.join(inboxAi, shortDraft[0]))
   for (const item of listQueue()) fs.rmSync(path.join(state, 'harvest/queue', item.name))
 
+  fs.writeFileSync(fake, '#!/bin/sh\ntrap "" TERM\ncat >/dev/null\nsleep 1\necho SKIP\n', { mode: 0o755 })
+  fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: richer }] } })}`)
+  assert.equal(json(cli(['harvest', 'scan', '--session', claudeFile])).queued.length, 1)
+  const timedOut = harvestDistill(vault, { distiller: fake, stateDir: state, env, timeoutMs: 200 })
+  assert.deepEqual([timedOut.ok, timedOut.skipped, timedOut.failed.map((item) => item.error)], [false, 0, ['distiller failed: ETIMEDOUT']], 'a distiller that outlives its timeout fails even when it exits zero')
+  assert.equal(listQueue().length, 1, 'a timed-out candidate stays queued')
+  for (const item of listQueue()) fs.rmSync(path.join(state, 'harvest/queue', item.name))
+
   fs.writeFileSync(fake, '#!/bin/sh\ncat >/dev/null\necho SKIP\n', { mode: 0o755 })
   fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: richer }] } })}`)
   assert.equal(json(cli(['harvest', 'scan', '--session', claudeFile])).queued.length, 1)

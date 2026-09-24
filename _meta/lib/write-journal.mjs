@@ -25,10 +25,11 @@ export function prepareDisplaced(dir) {
 
 function reserve(file, expected, dir) {
   prepareDisplaced(dir)
-  const reserved = path.join(dir, `${expected}-${crypto.randomUUID()}-${path.basename(file)}`)
+  const name = `${expected}-${crypto.randomUUID()}-${path.basename(file)}`
+  const reserved = path.join(dir, `inflight-${name}`)
   try { fs.renameSync(file, reserved) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
   const bytes = fs.readFileSync(reserved)
-  if (digest(bytes) === expected) return { reserved, bytes, mode: fs.statSync(reserved).mode & 0o777 }
+  if (digest(bytes) === expected) return { reserved, backup: path.join(dir, name), bytes, mode: fs.statSync(reserved).mode & 0o777 }
   restore(reserved, file)
   return null
 }
@@ -80,15 +81,18 @@ const gitDisplaced = new Map()
 export function displacedDir(file, env = process.env) {
   const dir = path.dirname(path.resolve(file))
   if (!gitDisplaced.has(dir)) {
-    const located = spawnSync('git', ['rev-parse', '--git-path', 'alambic-displaced'], { cwd: dir, encoding: 'utf8', env: { ...env, GIT_OPTIONAL_LOCKS: '0' } })
+    const located = spawnSync('git', ['rev-parse', '--git-path', 'alambic-displaced'], { cwd: dir, encoding: 'utf8', env: { ...env, GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C', LANGUAGE: '' } })
+    if (located.status !== 0 && !/not a git repository/.test(located.stderr || '')) throw new Error('cannot locate the displaced directory: git rev-parse failed')
     gitDisplaced.set(dir, located.status === 0 ? path.resolve(dir, located.stdout.trim()) : path.join(alambicStateDir(null, env), 'displaced'))
   }
   return gitDisplaced.get(dir)
 }
 
 function swapChecked(file, temporary, expected, dir) {
-  if (!reserve(file, expected, dir)) return false
+  const held = reserve(file, expected, dir)
+  if (!held) return false
   fs.linkSync(temporary, file)
+  fs.renameSync(held.reserved, held.backup)
   return true
 }
 
@@ -138,7 +142,7 @@ export function moveChecked(file, dests, expected, env = process.env, accept = (
       real = fs.realpathSync.native(dest)
       if (!sameInode(real, ino)) throw new Error('the archive moved during the write')
       const accepted = accept(real)
-      if (accepted) journalRecord(file, expected, null, env)
+      if (accepted) { journalRecord(file, expected, null, env); fs.renameSync(held.reserved, held.backup) }
       else { undoArchive([real, dest], ino, held, file, dir); return false }
     } catch (error) {
       undoArchive([real, dest], ino, held, file, dir)

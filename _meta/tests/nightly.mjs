@@ -270,6 +270,13 @@ try {
   assert.throws(() => displacedEdits(path.join(displacedDir, copy)), /ENOTDIR/, 'an unreadable displaced directory blocks instead of looking empty')
   assert.match(nightlyCommit(vault, { push: false, preflight, env }).reason, /concurrent edits were preserved/)
   fs.rmSync(path.join(displacedDir, copy))
+  const gitless = path.join(vault, 'kb/gitless/note.md')
+  fs.mkdirSync(path.dirname(gitless), { recursive: true })
+  fs.writeFileSync(gitless, swapHead)
+  assert.throws(() => writeChecked(gitless, swapHead, `${swapHead}\nStep.\n`, { PATH: path.join(temp, 'no-git') }), /cannot locate the displaced directory/, 'a failed git lookup refuses the write instead of displacing outside nightly')
+  assert.equal(fs.readFileSync(gitless, 'utf8'), swapHead)
+  assert.deepEqual(fs.readdirSync(path.dirname(gitless)), ['note.md'], 'a refused write leaves no temporary file')
+  fs.rmSync(path.dirname(gitless), { recursive: true })
   fs.writeFileSync(swapped, swapHead)
   const displacedCount = () => fs.readdirSync(path.join(vault, '.git/alambic-displaced')).length
   assert.ok(displacedCount() > 0, 'nightly keeps the old inodes it replaced or archived')

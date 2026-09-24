@@ -123,6 +123,13 @@ try {
   assert.match(fs.readFileSync(withdrawn[0], 'utf8'), /Edited in the archive/)
   fs.rmSync(withdrawn[0])
   fs.writeFileSync(targetFile, targetText)
+  const crashScript = `import fs from 'node:fs'; const judge = await import(${JSON.stringify(path.join(root, '_meta/lib/promotion-judge.mjs'))}); const open = fs.openSync; fs.openSync = (dest, ...rest) => { if (String(dest).includes('processed/noop-')) process.exit(9); return open(dest, ...rest) }; judge.archiveNoop(${JSON.stringify(vault)}, ${JSON.stringify(noop)})`
+  assert.equal(spawnSync(process.execPath, ['--input-type=module', '-e', crashScript], { encoding: 'utf8', env: process.env }).status, 9)
+  assert.equal(fs.existsSync(dup), false)
+  const interruptedArchive = displacedEdits(withdrawnDir).filter((file) => path.basename(file).startsWith('inflight-'))
+  assert.equal(interruptedArchive.length, 1, 'a draft whose archive was interrupted is flagged, not taken for a backup')
+  assert.equal(fs.readFileSync(interruptedArchive[0], 'utf8'), judgedDup)
+  fs.renameSync(interruptedArchive[0], dup)
   const partial = inbox('harvest-2026-09-24-codex-s3.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body} However the rule no longer holds after version 4 because the cache format changed.` })
   assert.notEqual(judge.judgeFreeformNote(vault, partial).decision, 'noop', 'a note that adds a correction is not a noop')
   fs.rmSync(partial)
@@ -278,7 +285,7 @@ try {
   for (const name of kept) fs.rmSync(path.join(reservedDir, name))
   fs.rmSync(reclaimed)
   fs.chmodSync(raced, 0o600)
-  const reservedCopy = () => fs.readdirSync(reservedDir).find((name) => name.startsWith(judge.sha256(saved)))
+  const reservedCopy = () => fs.readdirSync(reservedDir).find((name) => name.replace(/^inflight-/, '').startsWith(judge.sha256(saved)) && name.endsWith(`-${path.basename(raced)}`))
   const lateWrite = (dest) => { if (dest === archived) fs.appendFileSync(path.join(reservedDir, reservedCopy()), 'Late write through an open descriptor.\n') }
   onOpen(lateWrite)
   try { assert.equal(moveChecked(raced, [racedDest, archived], judge.sha256(saved)), archived) } finally { unhook() }
