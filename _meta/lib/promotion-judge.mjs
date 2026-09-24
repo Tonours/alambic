@@ -213,9 +213,9 @@ function inboxReceiptFile(stateHome, digest) {
   return path.join(alambicStateDir(stateHome), 'reviews', `inbox-${digest}.json`)
 }
 
-export function writeInboxReceipt(stateHome, { inboxPath, text, decision, reason }) {
+export function writeInboxReceipt(stateHome, { inboxPath, text, decision, reason, sessionOrigin = false }) {
   const digest = sha256(text)
-  const payload = { version: 1, kind: 'inbox-review', inbox_path: inboxPath, inbox_sha256: digest, decision, reason, reviewer: HUMAN_REVIEWER, reviewed_at: new Date().toISOString() }
+  const payload = { version: 1, kind: 'inbox-review', inbox_path: inboxPath, inbox_sha256: digest, decision, reason, reviewer: HUMAN_REVIEWER, reviewed_at: new Date().toISOString(), ...(sessionOrigin ? { session_origin: true } : {}) }
   const receipt = { ...payload, receipt_sha256: sha256(JSON.stringify(payload)) }
   const file = inboxReceiptFile(stateHome, digest)
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
@@ -246,7 +246,7 @@ export function readInboxReceipt(stateHome, text) {
   }
 }
 
-export function reviewInbox(root, relativePath, { decision, reason, tty = false, stateHome, onReceipt = () => {} } = {}) {
+export function reviewInbox(root, relativePath, { decision, reason, tty = false, stateHome } = {}) {
   const relative = path.relative(root, path.resolve(root, String(relativePath || ''))).split(path.sep).join('/')
   if (!/^docs\/inbox\/(ai|manual)\/[^/]+\.md$/.test(relative)) throw new Error('review --inbox expects docs/inbox/{ai,manual}/NOTE.md')
   if (!['accept', 'reject'].includes(decision) || !String(reason || '').trim()) throw new Error('review decision requires accept|reject and a non-empty reason')
@@ -257,8 +257,7 @@ export function reviewInbox(root, relativePath, { decision, reason, tty = false,
   const { data } = parseMarkdownText(text)
   const sessionOrigin = isSessionOrigin(data, relative)
   if (decision === 'reject') vaultDir(root, 'docs/inbox/ai/processed')
-  const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason })
-  if (sessionOrigin) onReceipt(receipt)
+  const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason, sessionOrigin })
   const archived = decision === 'reject' ? archiveInboxSource(root, relative, 'rejected', sha256(text)) : null
   return { ok: true, path: relative, decision, session_origin: sessionOrigin, receipt, idempotent, archived: archived && path.relative(root, archived).split(path.sep).join('/') }
 }

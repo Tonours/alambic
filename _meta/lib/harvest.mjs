@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { alambicStateDir } from './state-dir.mjs'
 import { scanUnsafe } from './vault.mjs'
-import { REFUSE_BODY } from './promotion-judge.mjs'
+import { REFUSE_BODY, sha256 } from './promotion-judge.mjs'
 import { createExclusive, displacedDir, prepareDisplaced, sameInode, vaultDir, withdraw } from './write-journal.mjs'
 
 export const HARNESSES = ['claude', 'codex', 'pi']
@@ -300,15 +300,10 @@ function withFileLock(file, fn) {
   try { return fn() } finally { releaseOwned(lock, me) }
 }
 
-export function bumpMetrics(stateDir, delta, once = null) {
+export function bumpMetrics(stateDir, delta) {
   const file = harvestDir(stateDir, 'metrics.json')
   return withFileLock(file, () => {
     const metrics = { version: 1, ...Object.fromEntries(COUNTERS.map((key) => [key, 0])), ...readJson(file, {}) }
-    if (once) {
-      const counted = metrics.counted_reviews || []
-      if (counted.includes(once)) return metrics
-      metrics.counted_reviews = [...counted, once]
-    }
     for (const [key, value] of Object.entries(delta)) if (COUNTERS.includes(key) && value) metrics[key] += value
     metrics.updated_at = new Date().toISOString()
     writeJson(file, metrics)
@@ -454,7 +449,7 @@ export function renderHarvestNote(answer, entry, today = new Date().toISOString(
 
 function writeExclusive(dir, base, text, env) {
   const real = fs.realpathSync.native(dir)
-  const displaced = prepareDisplaced(displacedDir(path.join(dir, base), env), path.join(dir, base), env)
+  const displaced = prepareDisplaced(displacedDir(path.join(dir, base), env))
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const file = path.join(dir, `${base}${attempt ? `-${attempt}` : ''}.md`)
     let ino
@@ -557,6 +552,15 @@ export function harvestAck(root, { digest, stateDir = null, dryRun = false } = {
 
 export function harvestStatus(root, { stateDir = null } = {}) {
   const metrics = { ...Object.fromEntries(COUNTERS.map((key) => [key, 0])), ...readJson(harvestDir(stateDir, 'metrics.json'), {}) }
+  const reviews = path.join(stateDir || alambicStateDir(), 'reviews')
+  let receipts = []
+  try { receipts = fs.readdirSync(reviews).filter((name) => /^inbox-[0-9a-f]{64}\.json$/.test(name)) } catch {}
+  for (const name of receipts) {
+    const { receipt_sha256: stored, ...payload } = readJson(path.join(reviews, name), {})
+    if (payload.kind !== 'inbox-review' || payload.session_origin !== true || stored !== sha256(JSON.stringify(payload))) continue
+    if (payload.decision === 'accept') metrics.accepted += 1
+    if (payload.decision === 'reject') metrics.rejected += 1
+  }
   const reviewed = metrics.accepted + metrics.rejected
   const inbox = path.join(root, 'docs/inbox/ai')
   let pending = []

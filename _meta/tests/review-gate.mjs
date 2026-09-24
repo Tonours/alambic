@@ -148,29 +148,20 @@ try {
   assert.equal(fs.existsSync(escaping), true)
   fs.unlinkSync(processedDir)
   if (fs.existsSync(parked)) fs.renameSync(parked, processedDir)
-  const displacedLink = path.join(vault, 'displaced-link')
-  fs.symlinkSync(path.join(vault, 'kb'), displacedLink)
-  process.env.ALAMBIC_DISPLACED_DIR = displacedLink
-  try { assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /displaced directory must be a real directory/) } finally { delete process.env.ALAMBIC_DISPLACED_DIR }
-  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, 'a symlinked displaced directory never moves a draft into kb')
-  assert.equal(fs.existsSync(escaping), true)
-  const vaultAlias = path.join(temp, 'vault-alias')
-  fs.symlinkSync(vault, vaultAlias)
-  for (const shared of [path.join(vault, 'kb'), path.join(vaultAlias, 'kb')]) {
-    process.env.ALAMBIC_DISPLACED_DIR = shared
-    try { assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /displaced directory must be private/) } finally { delete process.env.ALAMBIC_DISPLACED_DIR }
-    assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, `a displaced directory set to ${path.basename(path.dirname(shared))}/kb never receives the draft`)
-    assert.equal(fs.existsSync(escaping), true)
-  }
-  fs.unlinkSync(vaultAlias)
   const kbMode = fs.statSync(path.join(vault, 'kb')).mode & 0o777
   fs.chmodSync(path.join(vault, 'kb'), 0o700)
   process.env.ALAMBIC_DISPLACED_DIR = path.join(vault, 'kb')
-  try { assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /must sit inside the git directory or the alambic state directory/) } finally { delete process.env.ALAMBIC_DISPLACED_DIR; fs.chmodSync(path.join(vault, 'kb'), kbMode) }
-  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, 'a private kb directory never receives the draft')
-  assert.equal(fs.existsSync(escaping), true)
-  fs.unlinkSync(displacedLink)
-  fs.rmSync(escaping)
+  let redirected
+  try { redirected = judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }) } finally { delete process.env.ALAMBIC_DISPLACED_DIR; fs.chmodSync(path.join(vault, 'kb'), kbMode) }
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, 'ALAMBIC_DISPLACED_DIR never sends a draft into a private kb')
+  assert.equal(redirected.archived, 'docs/inbox/ai/processed/rejected-harvest-2026-09-24-pi-p8.md')
+  fs.rmSync(path.join(vault, redirected.archived))
+  const insideState = inbox('harvest-2026-09-24-pi-p11.md', { summary: 'Session note reviewed while the state directory sits inside the vault' })
+  const refusedState = spawnSync(process.execPath, [path.join(root, '_meta/alambic.mjs'), 'review', '--inbox', rel(insideState), '--decision', 'reject', '--reason', 'not durable'], { encoding: 'utf8', env: { ...process.env, ALAMBIC_ROOT: vault, ALAMBIC_STATE_DIR: vault } })
+  assert.notEqual(refusedState.status, 0)
+  assert.match(refusedState.stderr, /state directory must live outside the vault/)
+  assert.equal(fs.existsSync(path.join(vault, 'reviews')), false, 'a state directory inside the vault never receives a receipt')
+  fs.rmSync(insideState)
 
   const raced = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Session note replaced by an atomic save before its archive' })
   const judged = fs.readFileSync(raced, 'utf8')
@@ -315,19 +306,23 @@ try {
   assert.equal(pty.status, 0, pty.stdout + pty.stderr)
   assert.match(pty.stdout, /reviewer: human:alambic-review/)
   const viaPipe = inbox('harvest-2026-09-24-claude-t2.md', { summary: 'Another pipe rejected note about the dinglebop cache warmer path' })
+  const counted = () => { const { accepted, rejected } = harvestStatus(vault).metrics; return [accepted, rejected] }
+  const [acceptedBefore, rejectedBefore] = counted()
   assert.equal(cli(['review', '--inbox', rel(viaPipe), '--decision', 'reject', '--reason', 'duplicate', '--json']).status, 0)
-  assert.deepEqual([harvestStatus(vault).metrics.accepted, harvestStatus(vault).metrics.rejected, harvestStatus(vault).review_acceptance_rate], [1, 1, 0.5])
-  const countedFirst = inbox('harvest-2026-09-24-claude-t4.md', { summary: 'Rejected note counted before its draft moves to the archive' })
-  let presentWhenCounted = null
-  judge.reviewInbox(vault, rel(countedFirst), { decision: 'reject', reason: 'duplicate', onReceipt: () => { presentWhenCounted = fs.existsSync(countedFirst) } })
-  assert.equal(presentWhenCounted, true, 'a review is counted before its draft is archived')
+  assert.deepEqual(counted(), [acceptedBefore, rejectedBefore + 1], 'a rejection is counted from its receipt')
+  const libraryReject = inbox('harvest-2026-09-24-claude-t4.md', { summary: 'Rejected note counted from its receipt without the command line' })
+  judge.reviewInbox(vault, rel(libraryReject), { decision: 'reject', reason: 'duplicate' })
+  assert.deepEqual(counted(), [acceptedBefore, rejectedBefore + 2], 'a library review is counted too, with no counter to lose')
+  const manual = inbox('plain-capture.md', { summary: 'Manual capture rejected outside the session harvest metrics', origin: false, sources: ['https://docs.example.org/cache'] })
+  judge.reviewInbox(vault, rel(manual), { decision: 'reject', reason: 'not session' })
+  assert.deepEqual(counted(), [acceptedBefore, rejectedBefore + 2], 'a non-session review is not a harvest metric')
   const interrupted = inbox('harvest-2026-09-24-claude-t3.md', { summary: 'Accepted note whose metric was lost when the review process died' })
   judge.reviewInbox(vault, rel(interrupted), { decision: 'accept', reason: 'checked before the crash', tty: true })
   for (let retry = 0; retry < 2; retry += 1) {
     const resumed = spawnSync('python3', ['-c', 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)', process.execPath, path.join(root, '_meta/alambic.mjs'), 'review', '--inbox', rel(interrupted), '--decision', 'accept', '--reason', 'checked before the crash'], { encoding: 'utf8', input: '', env: { ...process.env, ALAMBIC_ROOT: vault } })
     assert.equal(resumed.status, 0, resumed.stdout + resumed.stderr)
   }
-  assert.equal(harvestStatus(vault).metrics.accepted, 2, 'a retried review counts a lost metric once')
+  assert.deepEqual(counted(), [acceptedBefore + 1, rejectedBefore + 2], 'a retried review counts once')
   fs.rmSync(interrupted)
 
   fs.appendFileSync(path.join(vault, 'kb/unrelated-topic.md'), '\n## Related\n\n- [[capture-quarantine-before-kb]]\n')

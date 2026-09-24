@@ -400,9 +400,9 @@ try {
     const reason = option('--reason', '')
     if (args.length || !inboxFile) throw new Error('usage: alambic review --inbox FILE --decision accept|reject --reason TEXT [--json]')
     const { reviewInbox } = await import('./lib/promotion-judge.mjs')
-    const { bumpMetrics } = await import('./lib/harvest.mjs')
-    const onReceipt = (receipt) => bumpMetrics(null, { [decision === 'accept' ? 'accepted' : 'rejected']: 1 }, receipt.receipt_sha256)
-    const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY), onReceipt })
+    const { stateInsideVault } = await import('./lib/harvest.mjs')
+    if (stateInsideVault(ROOT)) throw new Error('the alambic state directory must live outside the vault')
+    const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
     if (json) output(report, true)
     else output(`inbox: ${report.path}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? '\nnext: sidekick --apply-freeform promotes it' : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)
   } else if (command === 'review') {

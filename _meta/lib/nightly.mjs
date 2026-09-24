@@ -232,7 +232,9 @@ export function resetToUpstream(root, env, head, upstream, branch) {
 
 export function nightlyCommit(root, { push, preflight, env, expectedTree = null, journal = null }) {
   const readEnv = { ...env, GIT_OPTIONAL_LOCKS: '0' }
-  const preserved = env.ALAMBIC_DISPLACED_DIR ? displacedEdits(env.ALAMBIC_DISPLACED_DIR) : []
+  const displaced = gitPath(root, readEnv, 'alambic-displaced')
+  if (!displaced) return { ok: false, reason: 'git rev-parse failed' }
+  const preserved = displacedEdits(displaced)
   if (preserved.length) return { ok: false, reason: 'concurrent edits were preserved during the run', paths: preserved.slice(0, 20) }
   const committed = withIndexLock(root, env, (held) => {
     const indexed = changes(root, readEnv, ['diff', '--cached', '--name-status', '--no-renames'])
@@ -292,17 +294,16 @@ export function runNightly(root, { push = false, dryRun = false, env: baseEnv = 
   }
 }
 
-function nightlyLocked(root, { push, dryRun, env: baseEnv, distiller, journal }) {
+function nightlyLocked(root, { push, dryRun, env, distiller, journal }) {
   const locked = withHarvestLock(null, () => {
     const report = { ok: false, dry_run: dryRun, push, steps: [] }
-    const preflight = nightlyPreflight(root, { push: push && !dryRun, commit: !dryRun, env: baseEnv })
+    const preflight = nightlyPreflight(root, { push: push && !dryRun, commit: !dryRun, env })
     report.preflight = preflight
     if (!preflight.ok) return { ...report, reason: `preflight: ${preflight.reason}` }
-    const displaced = gitPath(root, baseEnv, 'alambic-displaced')
+    const displaced = gitPath(root, env, 'alambic-displaced')
     if (!displaced) return { ...report, reason: 'preflight: git rev-parse failed' }
     const kept = displacedEdits(displaced)
     if (kept.length) return { ...report, reason: 'preflight: concurrent edits preserved by an earlier run, resolve and delete them', paths: kept.slice(0, 20) }
-    const env = { ...baseEnv, ALAMBIC_DISPLACED_DIR: displaced }
     if (preflight.resumed && !seedJournal(root, env, journal, preflight.head, preflight.resumed)) return { ...report, reason: 'preflight: git diff failed' }
     return runSteps(root, { push, dryRun, env, distiller, journal, report, preflight })
   })
