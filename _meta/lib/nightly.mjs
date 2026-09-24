@@ -232,11 +232,13 @@ export function nightlyCommit(root, { push, preflight, env, expectedTree = null,
       return { ok: true, tree: tree.out, files: index.map((item) => item.file) }
     })
     if (!built.ok || !built.files.length) return built.ok ? { ok: true, commit: null, pushed: false } : built
-    const parent = git(root, ['rev-parse', 'HEAD'], readEnv).out
+    const ref = `refs/heads/${preflight.branch}`
+    if (git(root, ['symbolic-ref', '-q', 'HEAD'], readEnv).out !== ref) return { ok: false, reason: 'the branch changed during the run' }
+    const parent = git(root, ['rev-parse', ref], readEnv).out
     const made = git(root, ['commit-tree', built.tree, '-p', parent, '-m', COMMIT_MESSAGE], readEnv)
     if (!made.ok) return { ok: false, reason: `git commit failed: ${made.err}` }
     const commit = made.out
-    if (!git(root, ['update-ref', '-m', `commit: ${COMMIT_MESSAGE}`, 'HEAD', commit, parent], readEnv).ok) return { ok: false, reason: 'HEAD moved during the run' }
+    if (!git(root, ['update-ref', '-m', `commit: ${COMMIT_MESSAGE}`, ref, commit, parent], readEnv).ok) return { ok: false, reason: 'HEAD moved during the run' }
     recordCommit(root, env, commit)
     const refresh = (indexEnv, next) => { fs.copyFileSync(held.index, next); return git(root, ['reset', '-q', '--', ...built.files], indexEnv).ok }
     if (!publishIndex(root, readEnv, held, refresh)) return { ok: false, commit, files: built.files, pushed: false, reason: 'git index update failed after commit' }

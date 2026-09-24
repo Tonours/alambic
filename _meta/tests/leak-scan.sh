@@ -14,7 +14,7 @@ patterns=$(mktemp)
 hits=$(mktemp)
 trap 'rm -f "$patterns" "$hits"' EXIT
 file="${ALAMBIC_LEAK_PATTERNS_FILE:-$ROOT/.leak-patterns}"
-if [ -n "${ALAMBIC_LEAK_PATTERNS_FILE:-}" ] || [ -e "$file" ]; then
+if [ -n "${ALAMBIC_LEAK_PATTERNS_FILE:-}" ] || [ -e "$file" ] || [ -L "$file" ]; then
   if [ ! -f "$file" ] || [ ! -r "$file" ]; then
     printf 'leak-scan: the pattern file is missing or unreadable\n' >&2
     exit 1

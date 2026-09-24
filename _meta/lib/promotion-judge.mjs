@@ -273,10 +273,10 @@ function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
 }
 
-function alreadyCovered(root, targetPath, body) {
+function coveredBy(root, targetPath, body) {
   const clean = normalizeText(body.replace(/^#\s+.+$/m, ''))
-  if (clean.length < 80) return false
-  try { return normalizeText(readRaw(root, targetPath)).includes(clean) } catch { return false }
+  if (clean.length < 80) return null
+  try { const target = readRaw(root, targetPath); return normalizeText(target).includes(clean) ? sha256(target) : null } catch { return null }
 }
 
 export function judgeFreeformNote(root, filePath, { freeformBudgetRemaining = FREEFORM_DAILY_MAX, stateHome } = {}) {
@@ -347,9 +347,9 @@ export function judgeFreeformContent(root, filePath, text, { freeformBudgetRemai
   const title = body.match(/^#\s+(.+)$/m)?.[1]?.trim() || path.basename(relative, '.md')
   const basename = slugifyBasename(title)
   const sessionOrigin = isSessionOrigin(data, relative)
-  const noop = Boolean(preferUpdate && oracles.no_secrets && alreadyCovered(root, top.path, body))
+  const covered = preferUpdate && oracles.no_secrets ? coveredBy(root, top.path, body) : null
 
-  if (noop) {
+  if (covered) {
     return {
       class: 'freeform_note',
       decision: 'noop',
@@ -357,6 +357,7 @@ export function judgeFreeformContent(root, filePath, text, { freeformBudgetRemai
       path: relative,
       session_origin: sessionOrigin,
       update_target: top.path,
+      target_sha256: covered,
       data,
       sha256: sha256(text),
       suggested_action: 'archive-as-noop',
@@ -419,8 +420,13 @@ export function consumeFreeformBudget(stateHome) {
 /**
  * Promote freeform inbox note: update existing kb note or create new one.
  */
+function coveredSha(root, targetPath) {
+  try { return sha256(readRaw(root, targetPath)) } catch { return null }
+}
+
 export function archiveNoop(root, judgment) {
   if (judgment.decision !== 'noop') return { ok: false, error: 'not-noop', path: judgment.path }
+  if (!judgment.update_target || coveredSha(root, judgment.update_target) !== judgment.target_sha256) return { ok: false, error: 'target-changed-since-judged', path: judgment.path }
   if (!archiveInboxSource(root, judgment.path, 'noop', judgment.sha256)) return { ok: false, error: 'changed-since-judged', path: judgment.path }
   return { ok: true, mode: 'noop', path: judgment.path, changed: false }
 }

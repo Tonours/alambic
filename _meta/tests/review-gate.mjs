@@ -97,6 +97,12 @@ try {
   assert.equal(judge.archiveNoop(vault, noop).error, 'changed-since-judged', 'a draft saved after its noop judgment is not archived')
   assert.match(fs.readFileSync(dup, 'utf8'), /Correction saved after the judge ran/)
   fs.writeFileSync(dup, judgedDup)
+  const targetFile = path.join(vault, noop.update_target)
+  const targetText = fs.readFileSync(targetFile, 'utf8')
+  fs.writeFileSync(targetFile, targetText.replace(/Zyxwv[\s\S]*$/, 'Rewritten by a human.\n'))
+  assert.equal(judge.archiveNoop(vault, noop).error, 'target-changed-since-judged', 'a noop whose target changed since the judgment is not archived')
+  assert.equal(fs.readFileSync(dup, 'utf8'), judgedDup)
+  fs.writeFileSync(targetFile, targetText)
   const partial = inbox('harvest-2026-09-24-codex-s3.md', { summary: 'Zyxwv quorble retention rule keeps the frobnicator warm between upgrades', text: `${body} However the rule no longer holds after version 4 because the cache format changed.` })
   assert.notEqual(judge.judgeFreeformNote(vault, partial).decision, 'noop', 'a note that adds a correction is not a noop')
   fs.rmSync(partial)
@@ -111,11 +117,18 @@ try {
   fs.symlinkSync(path.join(vault, 'kb'), processedDir)
   const kbBefore = fs.readdirSync(path.join(vault, 'kb')).sort()
   assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /real directory inside the vault/)
-  assert.throws(() => judge.archiveNoop(vault, { decision: 'noop', path: rel(escaping) }), /real directory inside the vault/)
+  assert.throws(() => judge.archiveNoop(vault, { ...noop, path: rel(escaping), sha256: judge.sha256(fs.readFileSync(escaping, 'utf8')) }), /real directory inside the vault/)
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, 'a symlinked archive never moves a draft into kb')
   assert.equal(fs.existsSync(escaping), true)
   fs.unlinkSync(processedDir)
   if (fs.existsSync(parked)) fs.renameSync(parked, processedDir)
+  const displacedLink = path.join(vault, 'displaced-link')
+  fs.symlinkSync(path.join(vault, 'kb'), displacedLink)
+  process.env.ALAMBIC_DISPLACED_DIR = displacedLink
+  try { assert.throws(() => judge.reviewInbox(vault, rel(escaping), { decision: 'reject', reason: 'not durable' }), /displaced directory must be a real directory/) } finally { delete process.env.ALAMBIC_DISPLACED_DIR }
+  assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), kbBefore, 'a symlinked displaced directory never moves a draft into kb')
+  assert.equal(fs.existsSync(escaping), true)
+  fs.unlinkSync(displacedLink)
   fs.rmSync(escaping)
 
   const raced = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Session note replaced by an atomic save before its archive' })
@@ -131,16 +144,19 @@ try {
   fs.writeFileSync(racedDest, 'taken\n')
   assert.throws(() => moveChecked(raced, [racedDest], judge.sha256(saved)), /no free archive name/)
   assert.equal(fs.readFileSync(raced, 'utf8'), saved, 'an archive with no free name restores the source')
-  assert.equal(moveChecked(raced, [racedDest, path.join(processedDir, 'rejected-p9-1.md')], judge.sha256(saved)), path.join(processedDir, 'rejected-p9-1.md'))
+  const reservedDir = path.join(state, 'displaced')
+  const archived = path.join(processedDir, 'rejected-p9-1.md')
+  const reservedCopy = () => fs.readdirSync(reservedDir).find((name) => name.startsWith(judge.sha256(saved)))
+  const lateWrite = (dest) => { if (dest === archived) fs.appendFileSync(path.join(reservedDir, reservedCopy()), 'Late write through an open descriptor.\n') }
+  const { writeFileSync, copyFileSync } = fs
+  fs.writeFileSync = (dest, ...rest) => { lateWrite(dest); return writeFileSync(dest, ...rest) }
+  fs.copyFileSync = (source, dest, ...rest) => { lateWrite(dest); return copyFileSync(source, dest, ...rest) }
+  try { assert.equal(moveChecked(raced, [racedDest, archived], judge.sha256(saved)), archived) } finally { Object.assign(fs, { writeFileSync, copyFileSync }) }
   assert.equal(fs.existsSync(raced), false)
   assert.deepEqual(fs.readdirSync(processedDir).filter((name) => name.includes('p9')).sort(), ['rejected-p9-1.md', 'rejected-p9.md'], 'the archive keeps no reserved copy')
-  const reservedDir = path.join(state, 'displaced')
-  const reservedCopy = fs.readdirSync(reservedDir).find((name) => name.startsWith(judge.sha256(saved)))
-  assert.ok(reservedCopy, 'the archived inode stays in the displaced directory')
-  fs.appendFileSync(path.join(reservedDir, reservedCopy), 'Late write through an open descriptor.\n')
-  assert.deepEqual(displacedEdits(reservedDir), [path.join(reservedDir, reservedCopy)], 'a late write after the archive is kept and flagged')
-  assert.equal(fs.readFileSync(path.join(processedDir, 'rejected-p9-1.md'), 'utf8'), saved, 'the archive holds the checked bytes')
-  fs.rmSync(path.join(reservedDir, reservedCopy))
+  assert.equal(fs.readFileSync(archived, 'utf8'), saved, 'the archive holds the checked bytes even when the inode changes before the copy')
+  assert.deepEqual(displacedEdits(reservedDir), [path.join(reservedDir, reservedCopy())], 'a write through an open descriptor is kept and flagged')
+  fs.rmSync(path.join(reservedDir, reservedCopy()))
   for (const name of ['rejected-p9.md', 'rejected-p9-1.md']) fs.rmSync(path.join(processedDir, name))
 
   const rejectMe = inbox('harvest-2026-09-24-pi-p9.md', { summary: 'Vague chit chat about lunch that should never reach the wiki pages' })

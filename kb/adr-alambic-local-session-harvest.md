@@ -82,13 +82,17 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   the new one is linked; a copy that changed after the check is kept, blocks
   the commit and blocks later runs until a human resolves it, so no edit is
   lost. Nightly never deletes a displaced copy; an intact copy is a backup and
-  does not block.
+  does not block. The displaced directory must be a real directory, never a
+  symlink.
 - Validate, lint and leak-scan run on an export of the snapshot tree, and
   nightly resumes only the unpushed commit SHA it recorded itself. A relative
   `ALAMBIC_LEAK_PATTERNS_FILE` resolves against the vault; a configured file
-  that is missing, or a present default that is not a readable file, refuses
-  the run, and leak-scan refuses it again when it
+  that is missing, or a present default (dangling link included) that is not a
+  readable file, refuses the run, and leak-scan refuses it again when it
   reads the rules.
+- Nightly commits to the branch ref preflight validated and refuses when HEAD
+  points elsewhere. Only committing runs check the snapshot export; a dry run
+  checks the live checkout.
 - Nightly holds `.git/index.lock` from its index check to the index refresh,
   and refreshes only the committed paths, so the user's index is never
   clobbered.
@@ -96,8 +100,10 @@ sources as inspectable, so a session-derived inbox note would have auto-applied.
   inside the vault and never overwrites an existing archive. It renames the
   draft to a reserved name first and archives it only when its bytes still
   match what the judge read (NOOP included), so a save landing before the
-  archive stays in the inbox. The archive is a copy; the original inode stays
-  displaced, so a late write through an open descriptor blocks the next run.
+  archive stays in the inbox. The archive is written from the verified buffer;
+  the original inode stays displaced, so a write through an open descriptor
+  blocks the next run. A NOOP also needs its update target unchanged since the
+  judgment.
 - Nightly also commits deletions under `docs/inbox/`, so a tracked inbox note
   archived by promotion or NOOP leaves a clean tree.
 

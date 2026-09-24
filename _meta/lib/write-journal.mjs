@@ -17,9 +17,11 @@ export function journalRecord(file, before, after, env = process.env) {
 
 function reserve(file, expected, dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  if (!fs.lstatSync(dir).isDirectory()) throw new Error('the displaced directory must be a real directory')
   const reserved = path.join(dir, `${expected}-${crypto.randomUUID()}-${path.basename(file)}`)
   try { fs.renameSync(file, reserved) } catch (error) { if (error.code === 'ENOENT') return null; throw error }
-  if (fileSha(reserved) === expected) return reserved
+  const bytes = fs.readFileSync(reserved)
+  if (digest(bytes) === expected) return { reserved, bytes }
   restore(reserved, file)
   return null
 }
@@ -70,14 +72,14 @@ export function displacedEdits(dir) {
 
 export function moveChecked(file, dests, expected, env = process.env) {
   if (!expected) return null
-  const reserved = reserve(file, expected, displacedDir(file, env))
-  if (!reserved) return null
+  const held = reserve(file, expected, displacedDir(file, env))
+  if (!held) return null
   for (const dest of dests) {
-    try { fs.copyFileSync(reserved, dest, fs.constants.COPYFILE_EXCL) } catch (error) { if (error.code === 'EEXIST') continue; throw error }
+    try { fs.writeFileSync(dest, held.bytes, { flag: 'wx' }) } catch (error) { if (error.code === 'EEXIST') continue; throw error }
     journalRecord(file, expected, null, env)
     return dest
   }
-  restore(reserved, file)
+  restore(held.reserved, file)
   throw new Error(`no free archive name for ${path.basename(file)}`)
 }
 
