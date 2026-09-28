@@ -106,6 +106,7 @@ try {
   const applied = judge.applyFreeformPromote(vault, judge.judgeFreeformNote(vault, session))
   assert.equal(applied.ok, true, JSON.stringify(applied))
   const created = fs.readFileSync(path.join(vault, applied.path), 'utf8')
+  assert.equal(Buffer.byteLength(created), createPlan.diff_bytes, 'the create plan must report the bytes the promotion writes')
   assert.match(created, /^reviewed_by: human:alambic-review$/m)
   assert.match(created, new RegExp(`^reviewed_at: ${accepted.receipt.reviewed_at.slice(0, 10)}$`, 'm'))
   assert.equal(fs.existsSync(session), false, 'promoted source leaves the inbox')

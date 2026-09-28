@@ -313,8 +313,9 @@ _meta/alambic review --inbox docs/inbox/ai/harvest-....md --decision accept --re
 
 Without `--decision`, `review --inbox` changes nothing and prints the promotion
 plan the freeform judge would follow: the action (`create`, `update` or
-`noop`), the target note, the judge's reason and the size in bytes of what the
-promotion adds. The same plan is printed with every decision.
+`noop`), the target note, the judge's reason and the number of bytes the
+promotion would write to `kb/` if accepted today, computed by the same code
+that applies it. The same plan is printed with every decision.
 
 `--harvest-hook` adds a Claude `SessionEnd` hook that queues the ended
 transcript in local state and returns at once. `harvest scan` scores new

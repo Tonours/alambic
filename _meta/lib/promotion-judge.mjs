@@ -254,11 +254,15 @@ export function inboxRelative(root, relativePath) {
 
 function promotionPlan(root, relative, text, stateHome) {
   const judgment = judgeFreeformContent(root, path.join(root, relative), text, { stateHome })
-  const action = ['auto_apply', 'review_required'].includes(judgment.decision) ? judgment.mode : 'noop'
-  const target = action === 'create' ? `kb/${judgment.create_basename}.md` : judgment.update_target || null
-  const body = judgment.oracles?.parse_ok ? parseMarkdownText(text).body : ''
-  const diffBytes = action === 'create' ? Buffer.byteLength(body.trim()) : action === 'update' ? Buffer.byteLength(promotedBlock(body)) : 0
-  return { action, target, reason: judgment.reason, diff_bytes: diffBytes }
+  if (!['auto_apply', 'review_required'].includes(judgment.decision)) return { action: 'noop', target: judgment.update_target || null, reason: judgment.reason, diff_bytes: 0 }
+  const { data, body } = parseMarkdownText(text)
+  const receipt = readInboxReceipt(stateHome, text)
+  const human = receipt?.decision === 'accept' || isSessionOrigin(data, relative)
+  const today = new Date().toISOString().slice(0, 10)
+  const reviewedBy = receipt?.decision === 'accept' ? receipt.reviewer : human ? HUMAN_REVIEWER : 'oracle:sidekick-freeform-v2'
+  const reviewedAt = receipt?.decision === 'accept' ? receipt.reviewed_at.slice(0, 10) : today
+  const write = promotionWrite(root, judgment, { body, data, reviewedBy, reviewedAt, accepted: human, today })
+  return { action: write.mode, target: write.target, reason: judgment.reason, diff_bytes: Buffer.byteLength(write.after) - Buffer.byteLength(write.before || '') }
 }
 
 export function planInboxPromotion(root, relativePath, { stateHome } = {}) {
@@ -496,39 +500,48 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   const reviewedBy = receipt?.decision === 'accept' ? receipt.reviewer : 'oracle:sidekick-freeform-v2'
   const reviewedAt = receipt?.decision === 'accept' ? receipt.reviewed_at.slice(0, 10) : today
 
+  const write = promotionWrite(root, judgment, { body, data, reviewedBy, reviewedAt, accepted: receipt?.decision === 'accept', today })
+  const targetAbs = path.join(root, write.target)
+  if (write.mode === 'update') {
+    if (scanUnsafe(write.after).length) return { ok: false, error: 'unsafe-after' }
+    if (!writeChecked(targetAbs, write.before, write.after)) return { ok: false, error: 'concurrent-edit', path: write.target }
+    archiveInboxSource(root, judgment.path, 'updated', sha256(text))
+    invalidateManifest(root)
+    return { ok: true, mode: 'update', path: write.target, changed: true }
+  }
+  if (scanUnsafe(write.after).length) return { ok: false, error: 'unsafe-create' }
+  if (!writeChecked(targetAbs, null, write.after)) return { ok: false, error: 'concurrent-edit', path: write.target }
+  applyIndexEntry(root, write.basename)
+  archiveInboxSource(root, judgment.path, 'created', sha256(text))
+  invalidateManifest(root)
+  return { ok: true, mode: 'create', path: write.target, changed: true, basename: write.basename }
+}
+
+function promotionWrite(root, judgment, { body, data, reviewedBy, reviewedAt, accepted, today }) {
   if (judgment.mode === 'update' && judgment.update_target) {
-    const targetAbs = path.join(root, judgment.update_target)
-    const before = fs.readFileSync(targetAbs, 'utf8')
+    const before = fs.readFileSync(path.join(root, judgment.update_target), 'utf8')
     const block = `\n\n## Sidekick promote ${today}\n\nPromoted signal from \`${judgment.path}\` (${reviewedBy === HUMAN_REVIEWER ? `${HUMAN_REVIEWER} ${reviewedAt}` : 'oracle:freeform-v2'}). ${promotedBlock(body)}`
     let after = before.replace(/\s*$/, '') + block
     if (/^updated:\s*\d{4}-\d{2}-\d{2}/m.test(after)) {
       after = after.replace(/^updated:\s*\d{4}-\d{2}-\d{2}/m, `updated: ${today}`)
     }
-    if (receipt?.decision === 'accept') after = setFrontmatterField(setFrontmatterField(after, 'reviewed_by', reviewedBy), 'reviewed_at', reviewedAt)
-    // Merge inbound wikilinks from source body into Related if present
+    if (accepted) after = setFrontmatterField(setFrontmatterField(after, 'reviewed_by', reviewedBy), 'reviewed_at', reviewedAt)
     const links = [...body.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)].map((m) => m[1].trim())
     for (const link of links.slice(0, 5)) {
       if (!hasWikilink(after, link) && link !== path.basename(judgment.update_target, '.md')) {
         if (/^## Related\s*$/m.test(after)) after = insertRelated(after, `[[${link}]]`)
       }
     }
-    if (scanUnsafe(after).length) return { ok: false, error: 'unsafe-after' }
-    if (!writeChecked(targetAbs, before, after)) return { ok: false, error: 'concurrent-edit', path: judgment.update_target }
-    archiveInboxSource(root, judgment.path, 'updated', sha256(text))
-    invalidateManifest(root)
-    return { ok: true, mode: 'update', path: judgment.update_target, changed: true }
+    return { mode: 'update', target: judgment.update_target, before, after }
   }
 
-  // Create
   const basename = judgment.create_basename || slugifyBasename(judgment.title || 'note')
   const targetRel = `kb/${basename}.md`
-  const targetAbs = path.join(root, targetRel)
-  if (fs.existsSync(targetAbs)) {
-    // Fallback to update if race
-    return applyFreeformPromote(root, { ...judgment, mode: 'update', update_target: targetRel }, { stateHome })
+  if (fs.existsSync(path.join(root, targetRel))) {
+    return promotionWrite(root, { ...judgment, mode: 'update', update_target: targetRel }, { body, data, reviewedBy, reviewedAt, accepted, today })
   }
 
-  const sources = Array.isArray(data.sources) ? data.sources : []
+  const sources = Array.isArray(data.sources) ? [...data.sources] : []
   if (!sources.includes(judgment.path)) sources.unshift(judgment.path)
 
   const front = [
@@ -554,12 +567,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
     ...relatedLinks(root),
   ].join('\n')
 
-  if (scanUnsafe(front).length) return { ok: false, error: 'unsafe-create' }
-  if (!writeChecked(targetAbs, null, front)) return { ok: false, error: 'concurrent-edit', path: targetRel }
-  applyIndexEntry(root, basename)
-  archiveInboxSource(root, judgment.path, 'created', sha256(text))
-  invalidateManifest(root)
-  return { ok: true, mode: 'create', path: targetRel, changed: true, basename }
+  return { mode: 'create', target: targetRel, before: null, after: front, basename }
 }
 
 function archiveInboxSource(root, relativePath, mode, expected, accept = () => true) {
