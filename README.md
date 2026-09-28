@@ -91,6 +91,10 @@ _meta/bootstrap-obsidian.sh      # optional, but doctor fails until you run it
 _meta/alambic doctor
 ```
 
+`doctor` also reports inbox hygiene: how many drafts wait under `docs/inbox/`
+(archived `processed/` copies excluded), the oldest one's age in days, and how
+many are older than 14 days. A stale inbox is a warning, never a failure.
+
 From a clone, `_meta/alambic init <dir> [--install]` works the same way.
 Private patterns, inbox captures, caches, the maintainer's `docs/plan/` and
 `docs/research/`, and the maintainer-only `review-dispatch.yml` workflow never

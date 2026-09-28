@@ -297,6 +297,26 @@ export function listStagedMarkdown(root, options = {}) {
   return [...new Set(files)].sort()
 }
 
+export const INBOX_STALE_DAYS = 14
+
+export function inboxHygiene(root, { now = Date.now() } = {}) {
+  const day = 24 * 60 * 60 * 1000
+  try {
+    const ages = listStagedMarkdown(root)
+      .filter((file) => !path.relative(root, file).split(path.sep).includes('processed'))
+      .map((file) => Math.floor((now - fs.statSync(file).mtimeMs) / day))
+    const older = ages.filter((age) => age > INBOX_STALE_DAYS).length
+    return {
+      count: ages.length,
+      oldest_days: ages.length ? Math.max(...ages) : 0,
+      older_than_14_days: older,
+      warnings: older ? [`${older} inbox note(s) older than ${INBOX_STALE_DAYS} days: review, promote or discard them`] : [],
+    }
+  } catch (error) {
+    return { count: 0, oldest_days: 0, older_than_14_days: 0, warnings: [`inbox scan failed: ${error.message}`] }
+  }
+}
+
 function isInboxSource(source) {
   const clean = String(source).replace(/:\d+(?:-\d+)?$/, '')
   return clean === 'docs/inbox' || clean.startsWith('docs/inbox/')

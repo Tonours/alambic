@@ -34,6 +34,7 @@ node "$ROOT/_meta/tests/prompt-hook.mjs" "$ROOT"
 node "$ROOT/_meta/tests/hook-adapters.mjs" "$ROOT"
 node "$ROOT/_meta/tests/path-encoding.mjs" "$ROOT"
 node "$ROOT/_meta/tests/eval-gates.mjs" "$ROOT"
+node "$ROOT/_meta/tests/doctor.mjs" "$ROOT"
 python3 "$ROOT/_meta/tests/checkbox-pty.py" "$ROOT"
 "$ROOT/_meta/alambic" eval --suite attention-ranking
 "$ROOT/_meta/alambic" eval --suite attention-compile

@@ -17,6 +17,7 @@ import {
   checkObsidianBootstrap,
   checkSources,
   contextPack,
+  inboxHygiene,
   lintVault,
   listStagedMarkdown,
   queryVault,
@@ -308,6 +309,7 @@ try {
     const obsidian = checkObsidianBootstrap(ROOT)
     const { doctorSetup } = await import('./lib/setup.mjs')
     const setup = doctorSetup(ROOT)
+    const inbox = inboxHygiene(ROOT)
     const report = {
       ok: validation.ok && sources.ok && obsidian.ok,
       root: ROOT,
@@ -315,6 +317,7 @@ try {
       validation,
       sources,
       obsidian,
+      inbox,
       setup,
     }
     if (json) output(report, true)
@@ -328,6 +331,8 @@ try {
         `obsidian: ${obsidian.installed ? (obsidian.ok ? 'ok' : 'misconfigured') : 'not installed'}`,
       ]
       if (obsidian.issues.length) lines.push(...obsidian.issues.map((issue) => `  - ${issue}`))
+      lines.push(`inbox: ${inbox.count} staged, oldest ${inbox.oldest_days} days, ${inbox.older_than_14_days} older than 14 days`)
+      lines.push(...inbox.warnings.map((warning) => `  - warning: ${warning}`))
       lines.push(`setup: ${setup.installed ? (setup.warnings.length ? 'warnings' : 'ok') : 'not installed (run _meta/alambic setup)'}`)
       lines.push(...setup.warnings.map((warning) => `  - warning: ${warning}`))
       output(lines.join('\n'))
