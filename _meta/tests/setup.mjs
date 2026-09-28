@@ -398,10 +398,15 @@ try {
   const unretired = await setup(vault, ['--uninstall', '--yes', '--json'], envFor(home12))
   assert(unretired.json.items.find((item) => item.id === 'cursor:hook')?.result === 'removed' && JSON.stringify(readJson(legacy12.hooksFile).hooks.beforeSubmitPrompt) === JSON.stringify([legacy12.user]), 'uninstall must remove a recorded cursor:hook and keep user entries')
 
-  const DEFAULT_ITEMS_SHA = '628d9c5b2b8652615a75c2b45f04c4400f67ca7b828076cdde9409b735572168'
+  const DEFAULT_ITEMS_SHA = '2246dd7d55a60ea1995897805e64967d2c78ad4b18be8083c6aedcf0c90d31ba'
   const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: process.execPath, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true } }).map(({ fingerprint, ...item }) => item)
   assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(process.execPath, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'default setup items drifted from their frozen fingerprint')
   assert(claudeSkill.includes('\n# alambic vault\n') && claudeSkill.includes('description: Query the alambic vault (a compiled'), 'default skill must keep its alambic identity')
+  const skillDescription = claudeSkill.match(/^description: (.*)$/m)?.[1] || ''
+  const whenToUse = skillDescription.match(/Use when ([^.]+)\./)?.[1] || ''
+  const triggers = ['decid', 'convention', 'runbook', 'incident', 'research', 'repository'].filter((word) => whenToUse.includes(word))
+  assert(skillDescription.length > 0 && skillDescription.length <= 1024, `skill description must fit 1024 characters (got ${skillDescription.length})`)
+  assert(triggers.length >= 3, `the skill when-to-use clause must name concrete triggers: "${whenToUse}"`)
   for (const args of [['--vault', vault], ['--name', 'Bad'], ['--name', 'x'.repeat(40)], ['--name', 'brain', '--prompt-hook'], ['--name']]) {
     threw = false
     try { parseSetupArgs(args) } catch { threw = true }

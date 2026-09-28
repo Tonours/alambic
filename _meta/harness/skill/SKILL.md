@@ -1,6 +1,6 @@
 ---
 name: {{NAME}}
-description: Query the {{LABEL}} (a compiled Markdown wiki of sourced notes) for past decisions, conventions, incidents and research before rediscovering them. Use when durable memory may matter; skip for trivial edits, live state, or secrets.
+description: Query the {{LABEL}} (a compiled Markdown wiki of sourced notes) before rediscovering what it may already record. Use when the user asks how or why something was decided, which convention, runbook or fix applies, or what an earlier incident or research found, and when you start work in a repository or topic the vault may cover. Skip for trivial edits, live system state, or secrets.
 ---
 
 # {{LABEL}}
