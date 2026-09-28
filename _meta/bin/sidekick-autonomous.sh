@@ -15,7 +15,6 @@ LOG_PREFIX="[sidekick]"
 MAX_ACTIONS="${ALAMBIC_SIDEKICK_MAX:-8}"
 MAX_FREEFORM="${ALAMBIC_SIDEKICK_MAX_FREEFORM:-3}"
 APPLY="${ALAMBIC_SIDEKICK_APPLY:-0}"
-# 0 = dry-run (default); 1 = structural+freeform oracle promote (races CI)
 MODE="${ALAMBIC_SIDEKICK_MODE:-all}"
 
 obv() {
