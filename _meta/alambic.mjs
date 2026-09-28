@@ -47,13 +47,16 @@ function ensureState() {
     const file = path.join(dir, `${cursor}.json`)
     if (!fs.existsSync(file)) atomicJson(file, { version: 1, cursor: null, updated_at: null })
   }
-  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
-  for (const sub of ['candidates', 'proposals']) {
-    for (const entry of fs.readdirSync(path.join(dir, sub))) {
-      const file = path.join(dir, sub, entry)
-      if (fs.statSync(file).mtimeMs < cutoff) fs.rmSync(file)
-    }
+  const day = 24 * 60 * 60 * 1000
+  let purged = 0
+  const purgeOlderThan = (file, days) => {
+    if (fs.statSync(file).mtimeMs >= Date.now() - days * day) return
+    fs.rmSync(file)
+    purged += 1
   }
+  for (const entry of fs.readdirSync(path.join(dir, 'candidates'))) purgeOlderThan(path.join(dir, 'candidates', entry), 7)
+  for (const entry of fs.readdirSync(path.join(dir, 'proposals'))) purgeOlderThan(path.join(dir, 'proposals', entry), fs.existsSync(path.join(dir, 'reviews', entry)) ? 7 : 30)
+  if (purged) process.stderr.write(`alambic: purged ${purged} expired state file(s): candidates and receipted proposals after 7 days, unreceipted proposals after 30 days\n`)
   return dir
 }
 function atomicJson(file, value) {
