@@ -337,7 +337,9 @@ refuses on a dirty tree, so it cannot serve as the cleanup step.
 
 ## Evals
 
-`npm test` runs every suite, tuning, capability, and regression gates included.
+`npm test` runs every suite. The capability and regression gates fail on any
+recorded failure, such as an expected note missing from the top results or an
+unexpected abstention; the tuning gate enforces its score thresholds.
 The retrieval sets in `_meta/evals/` are labeled against the starter notes and
 frozen by sha256, together with the probes-v2 floor. They catch regressions on
 those notes; they say nothing about quality on yours. Once a label points at a
