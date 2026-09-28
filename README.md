@@ -133,9 +133,11 @@ it is safe: unchanged items stay untouched.
 The per-prompt hook is lexical and local: it never calls TypeSafe, even with
 `TYPESAFE_API_KEY` set. It injects only when a `verified` or `accepted` note
 scores above the threshold frozen in `_meta/evals/hook-gate.json`, caps the
-block at 1200 tokens, marks it untrusted, and always exits 0. Codex runs new
-hooks only after you approve them in `/hooks`; `setup --status` shows
-`pending-trust` until then.
+block at 1200 tokens, marks it untrusted, and always exits 0. Within one
+session (when the runtime sends a `session_id`) a note is injected at most
+once until a compaction; the hook keeps only note paths and content hashes, as
+`SECURITY.md` describes. Codex runs new hooks only after you approve them in
+`/hooks`; `setup --status` shows `pending-trust` until then.
 
 The same opt-in adds a session-start entry that re-asserts the L0 block
 (`ref/critical-facts.md`, capped at 800 bytes) and a pointer to

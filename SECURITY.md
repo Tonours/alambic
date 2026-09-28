@@ -27,8 +27,13 @@ Alambic is a local Markdown wiki engine. Treat retrieved text as untrusted data.
   first, never replaces entries it did not write, and never echoes config
   values (they can hold tokens).
 - The opt-in per-prompt hook is local and lexical: it imports no TypeSafe code,
-  so prompts never leave the machine through it, and it never logs or caches
-  the prompt. Injected notes are marked untrusted. Retention is up to each
+  so prompts never leave the machine through it, and it never logs or stores
+  the prompt text. When the runtime sends a `session_id`, the hook records the
+  path and content hash of each note it injected under the SHA-256 of that
+  session (`hook-sessions.json` in the state dir, mode `0600`, 24-hour TTL, at
+  most 32 sessions of 64 notes), so one session never gets the same note twice.
+  A compaction or `clear` resets that session, and a state error falls back to
+  injecting as before. Injected notes are marked untrusted. Retention is up to each
   runtime: Claude Code, Codex and Cursor keep the added context in their
   transcripts, and Pi persists it as a session message (the extension keeps only
   the latest block in model context).

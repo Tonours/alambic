@@ -126,6 +126,27 @@ try {
   try { cursorSession = JSON.parse((await runHook(hookPath, JSON.stringify({ hook_event_name: 'sessionStart', session_id: 's-cursor' }), { format: 'cursor' })).stdout) } catch { cursorSession = null }
   assert(cursorSession?.additional_context === l0, 'Cursor sessionStart must receive the same L0 block')
 
+  const dedupeState = path.join(temp, 'dedupe-state')
+  const dedupeEnv = { XDG_STATE_HOME: dedupeState }
+  const inSession = (session) => JSON.stringify({ prompt: gateSet.positives[0], ...(session ? { session_id: session } : {}) })
+  const first = await runHook(hookPath, inSession('s-dedupe'), { env: dedupeEnv })
+  const repeat = await runHook(hookPath, inSession('s-dedupe'), { env: dedupeEnv })
+  assert(first.stdout.includes('kb/') && repeat.code === 0 && repeat.stdout === '', 'the same session must not get the same notes twice')
+  const other = await runHook(hookPath, inSession('s-other'), { env: dedupeEnv })
+  assert(other.stdout.includes('kb/'), 'a new session must inject')
+  const bare = [await runHook(hookPath, inSession(''), { env: dedupeEnv }), await runHook(hookPath, inSession(''), { env: dedupeEnv })]
+  assert(bare.every((run) => run.stdout.includes('kb/')), 'input without session_id must keep injecting as before')
+  const stateFile = path.join(dedupeState, 'alambic/hook-sessions.json')
+  const stateText = fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : ''
+  assert(stateText && (fs.statSync(stateFile).mode & 0o777) === 0o600 && !stateText.includes(gateSet.positives[0]) && !stateText.includes('s-dedupe'), 'dedupe state must be 0600 and hold no prompt text or raw session id')
+  await runHook(hookPath, JSON.stringify({ hook_event_name: 'SessionStart', source: 'compact', session_id: 's-dedupe' }), { env: dedupeEnv })
+  const afterCompact = await runHook(hookPath, inSession('s-dedupe'), { env: dedupeEnv })
+  assert(afterCompact.stdout.includes('kb/'), 'a compaction must reset the session so its notes come back')
+  const blockedState = path.join(temp, 'state-is-a-file')
+  fs.writeFileSync(blockedState, 'not a directory\n')
+  const failOpen = await runHook(hookPath, inSession('s-blocked'), { env: { XDG_STATE_HOME: blockedState } })
+  assert(failOpen.code === 0 && failOpen.stdout.includes('kb/'), 'a state error must fall back to injecting')
+
   for (const [input, format] of [['garbage', 'claude'], ['', 'claude'], [positive, 'bogus']]) {
     const result = await runHook(hookPath, input, { format })
     assert(result.code === 0 && result.stdout === '', `hook must exit 0 silently on ${format}/${input.slice(0, 8)}`)
