@@ -3,11 +3,12 @@ type: reference
 status: verified
 summary: "Any harness (Claude, Codex, Pi, Grok, Cursor) reaches alambic through the same read-only CLI and optional stdio MCP—never via harness-specific forks or required Obsidian."
 created: 2026-08-19
-updated: 2026-09-23
+updated: 2026-09-28
 verified_at: 2026-08-19
 confidence: high
 sources:
   - "README.md"
+  - "_meta/operations.md"
   - "CLAUDE.md"
   - "AGENTS.md"
   - "_meta/mcp/server.mjs"
