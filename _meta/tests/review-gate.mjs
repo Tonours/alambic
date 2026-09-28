@@ -64,8 +64,32 @@ try {
   assert.notEqual(refused.status, 0, 'CLI accept without a TTY is refused')
   assert.throws(() => judge.reviewInbox(vault, '../outside.md', { decision: 'reject', reason: 'x' }), /expects docs\/inbox/)
 
+  const updateDraft = inbox('harvest-2026-09-24-codex-s2.md', { summary: 'capture-quarantine-before-kb.md durable note for the review gate tests' })
+  const derived = (rel) => rel.startsWith('_meta/.cache') || rel === '_meta/derived-graph.json'
+  const treeText = () => JSON.stringify([vault, state].flatMap((dir) => (fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).map(String) : [])
+    .filter((relPath) => !derived(relPath) && fs.statSync(path.join(dir, relPath)).isFile()).sort()
+    .map((relPath) => [dir, relPath, fs.readFileSync(path.join(dir, relPath), 'utf8')])))
+  const beforePreview = treeText()
+  const createPreview = cli(['review', '--inbox', rel(session), '--json'])
+  assert.equal(createPreview.status, 0, createPreview.stderr)
+  const createPlan = JSON.parse(createPreview.stdout).plan
+  assert.equal(createPlan?.action, 'create', createPreview.stdout)
+  assert.match(createPlan.target, /^kb\/[a-z0-9-]+\.md$/)
+  assert.ok(createPlan.reason && createPlan.diff_bytes > 0, 'a create plan names its reason and diff size')
+  const updatePreview = cli(['review', '--inbox', rel(updateDraft), '--json'])
+  const updatePlan = JSON.parse(updatePreview.stdout).plan
+  assert.deepEqual([updatePlan?.action, updatePlan?.target], ['update', 'kb/capture-quarantine-before-kb.md'], updatePreview.stdout)
+  assert.ok(updatePlan.reason && updatePlan.diff_bytes > 0, 'an update plan names its reason and diff size')
+  const textPreview = cli(['review', '--inbox', rel(updateDraft)])
+  assert.equal(textPreview.status, 0, textPreview.stderr)
+  for (const line of [/^plan: update kb\/capture-quarantine-before-kb\.md$/m, /^reason: oracle:freeform-v2 /m, /^diff: \d+ bytes$/m, /^decision: pending/m]) assert.match(textPreview.stdout, line)
+  assert.match(cli(['review', '--inbox', rel(session)]).stdout, /^plan: create kb\/[a-z0-9-]+\.md$/m)
+  assert.equal(treeText(), beforePreview, 'previewing the promotion plan must not change any file before the decision')
+  fs.rmSync(updateDraft)
+
   const accepted = judge.reviewInbox(vault, rel(session), { decision: 'accept', reason: 'verified the retention rule', tty: true })
   assert.equal(accepted.receipt.reviewer, 'human:alambic-review')
+  assert.equal(accepted.plan?.action, 'create', 'the decision report carries the promotion plan')
   assert.equal(judge.reviewInbox(vault, rel(session), { decision: 'accept', reason: 'again', tty: true }).idempotent, true)
   assert.throws(() => judge.reviewInbox(vault, rel(session), { decision: 'reject', reason: 'changed my mind' }), /immutable/)
   const receiptFile = path.join(state, 'reviews', `inbox-${accepted.receipt.inbox_sha256}.json`)

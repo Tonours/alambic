@@ -407,13 +407,20 @@ try {
     const inboxFile = option('--inbox', '')
     const decision = option('--decision', '')
     const reason = option('--reason', '')
-    if (args.length || !inboxFile) throw new Error('usage: alambic review --inbox FILE --decision accept|reject --reason TEXT [--json]')
-    const { reviewInbox } = await import('./lib/promotion-judge.mjs')
+    if (args.length || !inboxFile) throw new Error('usage: alambic review --inbox FILE [--decision accept|reject --reason TEXT] [--json]')
+    const { inboxRelative, planInboxPromotion, reviewInbox } = await import('./lib/promotion-judge.mjs')
     const { stateInsideVault } = await import('./lib/harvest.mjs')
     if (stateInsideVault(ROOT)) throw new Error('the alambic state directory must live outside the vault')
-    const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
-    if (json) output(report, true)
-    else output(`inbox: ${report.path}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? '\nnext: sidekick --apply-freeform promotes it' : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)
+    const planText = (plan) => `plan: ${plan.action}${plan.target ? ` ${plan.target}` : ''}\nreason: ${plan.reason}\ndiff: ${plan.diff_bytes} bytes`
+    if (!decision && !reason) {
+      const report = { ok: true, path: inboxRelative(ROOT, inboxFile), preview: true, plan: planInboxPromotion(ROOT, inboxFile) }
+      if (json) output(report, true)
+      else output(`inbox: ${report.path}\n${planText(report.plan)}\ndecision: pending (rerun with --decision accept|reject --reason TEXT)`)
+    } else {
+      const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
+      if (json) output(report, true)
+      else output(`inbox: ${report.path}\n${planText(report.plan)}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? '\nnext: sidekick --apply-freeform promotes it' : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)
+    }
   } else if (command === 'review') {
     const json = has('--json')
     const proposalFile = option('--proposal', '')

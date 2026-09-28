@@ -246,9 +246,28 @@ export function readInboxReceipt(stateHome, text) {
   }
 }
 
-export function reviewInbox(root, relativePath, { decision, reason, tty = false, stateHome } = {}) {
+export function inboxRelative(root, relativePath) {
   const relative = path.relative(root, path.resolve(root, String(relativePath || ''))).split(path.sep).join('/')
   if (!/^docs\/inbox\/(ai|manual)\/[^/]+\.md$/.test(relative)) throw new Error('review --inbox expects docs/inbox/{ai,manual}/NOTE.md')
+  return relative
+}
+
+function promotionPlan(root, relative, text, stateHome) {
+  const judgment = judgeFreeformContent(root, path.join(root, relative), text, { stateHome })
+  const action = ['auto_apply', 'review_required'].includes(judgment.decision) ? judgment.mode : 'noop'
+  const target = action === 'create' ? `kb/${judgment.create_basename}.md` : judgment.update_target || null
+  const body = judgment.oracles?.parse_ok ? parseMarkdownText(text).body : ''
+  const diffBytes = action === 'create' ? Buffer.byteLength(body.trim()) : action === 'update' ? Buffer.byteLength(promotedBlock(body)) : 0
+  return { action, target, reason: judgment.reason, diff_bytes: diffBytes }
+}
+
+export function planInboxPromotion(root, relativePath, { stateHome } = {}) {
+  const relative = inboxRelative(root, relativePath)
+  return promotionPlan(root, relative, readRaw(root, relative), stateHome)
+}
+
+export function reviewInbox(root, relativePath, { decision, reason, tty = false, stateHome } = {}) {
+  const relative = inboxRelative(root, relativePath)
   if (!['accept', 'reject'].includes(decision) || !String(reason || '').trim()) throw new Error('review decision requires accept|reject and a non-empty reason')
   if (reason.length > 500 || scanUnsafe(reason).length) throw new Error('review reason is unsafe or exceeds 500 characters')
   if (decision === 'accept' && !tty) throw new Error('review --inbox accept needs an interactive terminal (human review)')
@@ -256,10 +275,11 @@ export function reviewInbox(root, relativePath, { decision, reason, tty = false,
   if (scanUnsafe(text).length) throw new Error('inbox note contains unsafe content')
   const { data } = parseMarkdownText(text)
   const sessionOrigin = isSessionOrigin(data, relative)
+  const plan = promotionPlan(root, relative, text, stateHome)
   if (decision === 'reject') vaultDir(root, 'docs/inbox/ai/processed')
   const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason, sessionOrigin })
   const archived = decision === 'reject' ? archiveInboxSource(root, relative, 'rejected', sha256(text)) : null
-  return { ok: true, path: relative, decision, session_origin: sessionOrigin, receipt, idempotent, archived: archived && path.relative(root, archived).split(path.sep).join('/') }
+  return { ok: true, path: relative, decision, session_origin: sessionOrigin, plan, receipt, idempotent, archived: archived && path.relative(root, archived).split(path.sep).join('/') }
 }
 
 export function reviewGate(judgment, text, stateHome) {

@@ -302,8 +302,14 @@ skipped and dedupe stays lexical. macOS only; the
 ```bash
 npm run harvest:scan   # preview: Claude, Codex, Pi sessions
 npm run harvest        # counters, acceptance rate, pending drafts
+_meta/alambic review --inbox docs/inbox/ai/harvest-....md   # promotion plan only
 _meta/alambic review --inbox docs/inbox/ai/harvest-....md --decision accept --reason "..."
 ```
+
+Without `--decision`, `review --inbox` changes nothing and prints the promotion
+plan the freeform judge would follow: the action (`create`, `update` or
+`noop`), the target note, the judge's reason and the size in bytes of what the
+promotion adds. The same plan is printed with every decision.
 
 `--harvest-hook` adds a Claude `SessionEnd` hook that queues the ended
 transcript in local state and returns at once. `harvest scan` scores new
