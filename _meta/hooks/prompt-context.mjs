@@ -28,7 +28,8 @@ export function shouldSkip(prompt) {
 export function gate(pack) {
   if (!pack || pack.abstained) return []
   const notes = (pack.results || []).filter((result) => DURABLE_STATUS.has(result.status))
-  if (!notes.length || notes[0].score < MIN_TOP_SCORE) return []
+  const direct = notes.filter((note) => !note.graph)
+  if (!direct.length || Math.max(...direct.map((note) => note.score)) < MIN_TOP_SCORE) return []
   return notes.slice(0, MAX_NOTES)
 }
 
