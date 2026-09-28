@@ -18,8 +18,20 @@ function assert(condition, message) {
 const xdg = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-loop-xdg-'))
 process.env.XDG_STATE_HOME = xdg
 
-// Live vault pulse without evals (fast)
-const pulse = runLivingLoopPulse(ROOT, {
+const liveInbox = path.join(ROOT, 'docs/inbox/ai')
+const readIfFile = (file) => (fs.existsSync(file) && fs.statSync(file).isFile() ? fs.readFileSync(file, 'utf8') : null)
+const liveSnapshot = () => JSON.stringify({
+  inbox: fs.existsSync(liveInbox) ? fs.readdirSync(liveInbox).sort().map((name) => [name, readIfFile(path.join(liveInbox, name))]) : null,
+  pulse: readIfFile(path.join(ROOT, '_meta/loop-pulse.latest.json')),
+})
+const liveBefore = liveSnapshot()
+
+const liveRoot = path.resolve(ROOT)
+const vaultCopy = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-loop-vault-')), 'vault')
+const skippedTopLevel = new Set(['node_modules', '.git', '.workflow', '.pi'].map((name) => path.join(liveRoot, name)))
+fs.cpSync(liveRoot, vaultCopy, { recursive: true, filter: (source) => !skippedTopLevel.has(source) })
+
+const pulse = runLivingLoopPulse(vaultCopy, {
   seedProposals: true,
   runEvals: false,
   writeInbox: true,
@@ -37,13 +49,13 @@ assert(pulse.living_loop.apply_mode === 'class-a-ci-class-b-off', 'apply_mode na
 assert(typeof pulse.checklist.hygiene_ready === 'boolean', 'hygiene_ready required')
 assert(pulse.checklist.supervision_ready === false || pulse.checklist.supervision_ready === true, 'supervision flag')
 assert(Array.isArray(pulse.next_actions) && pulse.next_actions.length > 0, 'next actions')
-assert(fs.existsSync(path.join(ROOT, '_meta/loop-pulse.latest.json')), 'repo pulse file')
+assert(fs.existsSync(path.join(vaultCopy, '_meta/loop-pulse.latest.json')), 'repo pulse file')
 assert(pulse.inbox_queue && fs.existsSync(pulse.inbox_queue), 'inbox queue card')
 
 // Idempotent seed: second run should skip already-seeded
-const graph = buildGraph(ROOT, { force: true, writeCache: false })
-const lint = checkGraphLint(ROOT, { graph })
-const second = seedShadowProposalsFromGraphLint(ROOT, lint, { maxProposals: 3 })
+const graph = buildGraph(vaultCopy, { force: true, writeCache: false })
+const lint = checkGraphLint(vaultCopy, { graph })
+const second = seedShadowProposalsFromGraphLint(vaultCopy, lint, { maxProposals: 3 })
 assert(second.created.length === 0 || second.skipped.length > 0, 'second seed should skip or create remaining only')
 
 // Proposal shape must be reviewable (no unknown fields)
@@ -67,5 +79,8 @@ if (fs.existsSync(proposalDir)) {
 // Must not claim human supervision without receipts
 assert(pulse.living_loop.reviews === 0 || typeof pulse.living_loop.reviews === 'number', 'reviews numeric')
 assert(pulse.checklist.supervision_ready === false || pulse.living_loop.reviews >= 20, 'supervision_ready only if enough reviews')
+
+assert(liveSnapshot() === liveBefore, 'the pulse test must not write into the live vault (docs/inbox/ai, _meta/loop-pulse.latest.json)')
+fs.rmSync(path.dirname(vaultCopy), { recursive: true, force: true })
 
 if (!process.exitCode) process.stdout.write('loop-pulse tests: ok\n')

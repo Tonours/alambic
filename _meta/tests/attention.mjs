@@ -223,13 +223,18 @@ try {
   const environmentDataKey = environmentKeyName(youtubeDataHandle)
   const priorEnvironmentDataKey = process.env[environmentDataKey]
   delete process.env[environmentDataKey]
+  const priorKeychainAccount = process.env.ALAMBIC_ATTENTION_KEYCHAIN_ACCOUNT
+  process.env.ALAMBIC_ATTENTION_KEYCHAIN_ACCOUNT = 'ambient-account-fixture'
   const macKeysBlocked = new MacOSKeychainKeyStore({
     allowKeychain: false,
     run() { throw new Error('Keychain must not be called when allowKeychain is false') },
   })
   assert.equal(macKeysBlocked.get(youtubeDataHandle), null)
-  const macKeys = new MacOSKeychainKeyStore({ run: fakeKeychain(keychainEntries), allowKeychain: true })
+  const macKeys = new MacOSKeychainKeyStore({ account: 'alambic.attention.v1', run: fakeKeychain(keychainEntries), allowKeychain: true })
   assert.equal(typeof macKeys.get(youtubeDataHandle), 'string')
+  const ambientKeys = new MacOSKeychainKeyStore({ run: fakeKeychain(new Map([[`${youtubeDataHandle}:ambient-account-fixture`, randomKey()]])), allowKeychain: true })
+  assert.equal(ambientKeys.account, 'ambient-account-fixture')
+  assert.equal(typeof ambientKeys.get(youtubeDataHandle), 'string')
   process.env[environmentDataKey] = 'sYdXki6S_E2tRB0oGZRHKyTZQrcBEzUlXrVX9QGoOb4'
   const environmentKeys = new MacOSKeychainKeyStore({
     allowKeychain: false,
@@ -246,7 +251,7 @@ try {
   ]
   const priorYoutubeOauth = Object.fromEntries(youtubeOauthNames.map((name) => [name, process.env[name]]))
   for (const name of youtubeOauthNames) delete process.env[name]
-  const macCredentials = new MacOSKeychainCredentialProvider({ run: fakeKeychain(keychainEntries), allowKeychain: true })
+  const macCredentials = new MacOSKeychainCredentialProvider({ account: 'alambic.attention.v1', run: fakeKeychain(keychainEntries), allowKeychain: true })
   assert.deepEqual(await macCredentials.inspect('youtube-liked'), { account_alias: 'youtube-primary', scopes: ['https://www.googleapis.com/auth/youtube.readonly'] })
   assert.deepEqual(await macCredentials.client('youtube-liked'), { client_id: 'client-id-fixture', client_secret: 'client-secret-fixture', refresh_token: 'refresh-token-fixture' })
   const envOnlyCredentials = new MacOSKeychainCredentialProvider({
@@ -265,6 +270,8 @@ try {
     if (priorYoutubeOauth[name] === undefined) delete process.env[name]
     else process.env[name] = priorYoutubeOauth[name]
   }
+  if (priorKeychainAccount === undefined) delete process.env.ALAMBIC_ATTENTION_KEYCHAIN_ACCOUNT
+  else process.env.ALAMBIC_ATTENTION_KEYCHAIN_ACCOUNT = priorKeychainAccount
   const { inspectAttentionEnv } = await import('../lib/attention/credentials.mjs')
   const envProbe = inspectAttentionEnv({
     ALAMBIC_YOUTUBE_CLIENT_ID: 'x',

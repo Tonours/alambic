@@ -2,6 +2,12 @@
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 unset TYPESAFE_API_KEY
+for name in $(compgen -e); do
+  case "$name" in
+    ALAMBIC_LEAK_*) ;;
+    ALAMBIC_*) unset "$name" ;;
+  esac
+done
 
 "$ROOT/_meta/alambic" validate --mode strict
 "$ROOT/_meta/alambic" sources --check
