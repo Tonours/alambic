@@ -478,6 +478,13 @@ export function resolveDistiller(explicit, env = process.env) {
   return found.status === 0 ? DEFAULT_DISTILLER : null
 }
 
+const DISTILLER_ENV_DENY = new Set(['TYPESAFE_API_KEY', 'GH_TOKEN', 'GITHUB_TOKEN'])
+
+function distillerEnv(env) {
+  const kept = Object.entries(env).filter(([key]) => !DISTILLER_ENV_DENY.has(key) && !key.startsWith('ALAMBIC_'))
+  return { ...Object.fromEntries(kept), ALAMBIC_HARVEST_CHILD: '1' }
+}
+
 export function harvestDistill(root, { distiller = null, max = 5, stateDir = null, timeoutMs = 180000, env = process.env, dryRun = false } = {}) {
   assertStateOutside(root, stateDir)
   const command = resolveDistiller(distiller, env)
@@ -493,7 +500,7 @@ export function harvestDistill(root, { distiller = null, max = 5, stateDir = nul
       killSignal: 'SIGKILL',
       maxBuffer: 1024 * 1024,
       cwd: os.tmpdir(),
-      env: { ...env, ALAMBIC_HARVEST_CHILD: '1' },
+      env: distillerEnv(env),
     })
     try {
       if (result.error) throw new Error(`distiller failed: ${result.error.code || result.error.message}`)

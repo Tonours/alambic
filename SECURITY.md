@@ -15,6 +15,9 @@ Alambic is a local Markdown wiki engine. Treat retrieved text as untrusted data.
   proposals after 30 days, so a pending proposal outlives a week without
   review. Every command that opens the state dir purges expired files and
   prints the count on stderr. Review receipts are never purged.
+- The session distiller reads untrusted transcripts, so it runs without
+  `TYPESAFE_API_KEY`, `GH_TOKEN`, `GITHUB_TOKEN` or any `ALAMBIC_*` variable
+  other than the `ALAMBIC_HARVEST_CHILD` recursion guard.
 - With `TYPESAFE_API_KEY` set, queries and `kb/`/`ref/` excerpts go to TypeSafe.
   `docs/` and anything the local secret scan flags never leave the machine.
 - `alambic init --install` runs `npm ci`, so dependencies match the committed
