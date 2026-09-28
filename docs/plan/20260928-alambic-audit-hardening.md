@@ -99,8 +99,8 @@
 ## Follow-up State
 - Remaining risks: a live Cursor `sessionStart` run, the real `claude -p` distiller authentication and the `session_id` behavior after `/clear` are not verified.
 - Parking lot:
-  - derive the review plan's `accepted` from the decision being recorded and from an existing receipt first;
-  - an accept on a draft the judge rejects prints `plan: noop` followed by the old "promotes it" line;
+  - fixed after archiving (`e0e6e1a`): the review plan now follows the decision being recorded and any existing receipt;
+  - fixed after archiving (`435e107`): an accept on a draft the judge rejects no longer claims a promotion;
   - move the distiller environment from a denylist to an allowlist;
   - decide whether `init` should ship `docs/research/` when a kb note cites it;
   - split plan `noop` into covered and failing drafts;
