@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Local sidekick helper. Default is dry-run so a laptop cannot race the
-# GitHub Actions writer (`alambic-sidekick-daily`).
 # Opt-in local apply: ALAMBIC_SIDEKICK_APPLY=1 (emergency only).
 # Never prints secrets. Never freeform-creates kb notes. Never pushes.
 

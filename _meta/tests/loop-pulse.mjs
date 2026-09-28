@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -42,11 +43,21 @@ const pulse = runLivingLoopPulse(vaultCopy, {
 
 assert(pulse.version === 1, 'pulse version')
 assert(pulse.checklist.apply_still_disabled === true, 'Class B distill --apply must stay disabled')
-assert(pulse.checklist.class_a === 'ci-writer', 'Class A labeled as CI writer')
+assert(pulse.checklist.class_a === 'local-nightly', 'Class A labeled as the local nightly writer')
 assert(pulse.checklist.class_b === 'disabled', 'Class B labeled disabled')
-assert(pulse.living_loop.apply_class_a === 'ci-writer', 'living_loop Class A is CI writer')
+assert(pulse.living_loop.apply_class_a === 'local-nightly', 'living_loop Class A is the local nightly writer')
 assert(pulse.living_loop.apply_class_b === 'disabled', 'living_loop Class B is disabled')
-assert(pulse.living_loop.apply_mode === 'class-a-ci-class-b-off', 'apply_mode names both classes')
+assert(pulse.living_loop.apply_mode === 'class-a-local-nightly-class-b-off', 'apply_mode names both classes')
+assert(pulse.next_actions.some((action) => /local nightly/.test(action)), 'pulse next actions name the local nightly writer')
+const cliEnv = { ...process.env, ALAMBIC_ROOT: vaultCopy, XDG_STATE_HOME: xdg }
+for (const command of ['status', 'loop']) {
+  const run = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), command, '--json'], { env: cliEnv, encoding: 'utf8' })
+  let report = null
+  try { report = JSON.parse(run.stdout) } catch { report = null }
+  assert(report?.living_loop?.apply_class_a === 'local-nightly' && report?.living_loop?.apply_mode === 'class-a-local-nightly-class-b-off', `${command} --json labels Class A as the local nightly writer`)
+  assert(report?.next_actions?.some((action) => /local nightly/.test(action)), `${command} --json next actions name the local nightly writer`)
+  if (command === 'loop') assert(report?.checklist?.class_a === 'local-nightly', 'loop --json checklist labels Class A as the local nightly writer')
+}
 assert(typeof pulse.checklist.hygiene_ready === 'boolean', 'hygiene_ready required')
 assert(pulse.checklist.supervision_ready === false || pulse.checklist.supervision_ready === true, 'supervision flag')
 assert(Array.isArray(pulse.next_actions) && pulse.next_actions.length > 0, 'next actions')

@@ -580,8 +580,8 @@ try {
           eval_feedback_total: evalFeedbackTotal,
           eval_feedback: evalFeedback,
           apply_unlock: applyUnlock,
-          apply_mode: 'class-a-ci-class-b-off',
-          apply_class_a: 'ci-writer',
+          apply_mode: 'class-a-local-nightly-class-b-off',
+          apply_class_a: 'local-nightly',
           apply_class_b: applyUnlock ? 'unlocked' : 'disabled',
           last_pulse: latest ? { source: latest.source, generated_at: latest.pulse.generated_at, hygiene_ready: latest.pulse.checklist?.hygiene_ready ?? null, fresh: freshness.fresh } : null,
         },
@@ -591,7 +591,7 @@ try {
           'Before non-trivial work: _meta/alambic context --max-tokens 2500 "<question>"',
           'After retrieval outcomes: _meta/alambic feedback --status hit|miss|stale|wrong',
           'Automated hygiene: _meta/alambic loop --ci  (or the GitHub Actions ci workflow)',
-          applyUnlock ? 'Class B unlock is YES — still prefer review receipts before any distill --apply experiment' : 'Class A/A2: GitHub Actions writer; Class B distill --apply remains DISABLED (shadow-apply-gate)',
+          applyUnlock ? 'Class B unlock is YES — still prefer review receipts before any distill --apply experiment' : 'Class A/A2: local nightly writer (alambic nightly --push); Class B distill --apply remains DISABLED (shadow-apply-gate)',
         ],
       }
       if (command === 'loop') {
@@ -610,7 +610,7 @@ try {
           feedback_ge_10: feedbackTotal >= 10,
           human_feedback_ge_10: feedbackTotal >= 10,
           pending_reviews_zero: pending.length === 0,
-          class_a: 'ci-writer',
+          class_a: 'local-nightly',
           class_b: applyUnlock ? 'unlocked' : 'disabled',
           apply_still_disabled: !applyUnlock,
           pulse_fresh: Boolean(freshness.fresh),
@@ -629,7 +629,7 @@ try {
           `human feedback: total=${report.living_loop.feedback_total} hit=${feedback.hit || 0} miss=${feedback.miss || 0} stale=${feedback.stale || 0} wrong=${feedback.wrong || 0}`,
           `eval feedback: total=${evalFeedbackTotal} (does not count toward apply gate)`,
           `last pulse: ${report.living_loop.last_pulse ? `${report.living_loop.last_pulse.generated_at} fresh=${report.living_loop.last_pulse.fresh}` : 'none — run loop --ci'}`,
-          `apply: Class A CI-writer / Class B ${applyUnlock ? 'unlocked' : 'disabled'} (unlock=${applyUnlock ? 'YES' : 'NO'})`,
+          `apply: Class A local nightly / Class B ${applyUnlock ? 'unlocked' : 'disabled'} (unlock=${applyUnlock ? 'YES' : 'NO'})`,
           `inbox staged md: ${report.inbox_staged}`,
         ]
         if (report.lint) {

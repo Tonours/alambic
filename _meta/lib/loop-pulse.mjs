@@ -126,8 +126,8 @@ export function runLivingLoopPulse(root, {
       human_feedback: humanFeedback,
       eval_feedback_total: evalFeedbackTotal,
       eval_feedback: evalFeedback,
-      apply_mode: 'class-a-ci-class-b-off',
-      apply_class_a: 'ci-writer',
+      apply_mode: 'class-a-local-nightly-class-b-off',
+      apply_class_a: 'local-nightly',
       apply_class_b: 'disabled',
     },
     checklist: {
@@ -138,7 +138,7 @@ export function runLivingLoopPulse(root, {
       reviews_ge_20: reviewNames.length >= 20,
       human_feedback_ge_10: humanFeedbackTotal >= 10,
       pending_reviews_zero: pending.length === 0,
-      class_a: 'ci-writer',
+      class_a: 'local-nightly',
       class_b: 'disabled',
       apply_still_disabled: true,
       // Hygiene can be CI-owned; human supervision cannot.
@@ -400,6 +400,6 @@ function buildNextActions({ pending, reviewNames, humanFeedbackTotal, seeded, gr
   }
   const gaps = graphLint?.co_occurrence_gaps?.length || 0
   if (gaps) actions.push(`Graph co-occurrence gaps open: ${gaps} (warnings only)`)
-  actions.push('Class A/A2 writes belong to GitHub Actions; Class B distill --apply stays off without shadow-apply-gate + current-work YES')
+  actions.push('Class A/A2 writes belong to the local nightly (alambic nightly --push); Class B distill --apply stays off without shadow-apply-gate + current-work YES')
   return actions
 }
