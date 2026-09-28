@@ -314,6 +314,7 @@ try {
   }
   assert.deepEqual(fs.readdirSync(path.join(vault, 'kb')).sort(), swapKb, 'a swapped archive directory leaves nothing in kb')
   assert.equal(fs.existsSync(swapped), true)
+  assert.equal(judge.planInboxPromotion(vault, rel(swapped)).action, 'noop', 'a draft that already has a reject receipt previews as noop')
   fs.rmSync(swapped)
   const occupied = inbox('harvest-2026-09-24-pi-p13.md', { summary: 'Session note whose archive directory is swapped after the write' })
   const humanNote = path.join(vault, 'kb/rejected-harvest-2026-09-24-pi-p13.md')
@@ -437,6 +438,24 @@ try {
   assert.equal(fs.readFileSync(path.join(vault, applied.path), 'utf8'), created, 'noop never touches kb')
   const metrics = harvestStatus(vault).metrics
   assert.equal(metrics.noop, 1)
+
+  const manualUpdate = inbox('manual-target-update.md', { summary: 'adr-alambic-autonomous-oracle-sidekick.md durable note for the review gate tests', origin: false, sources: ['https://docs.example.org/manual-update'], text: 'Retry budgets and backoff jitter keep the sync worker stable when the network flaps during a long import. '.repeat(3) })
+  const manualPreview = judge.planInboxPromotion(vault, rel(manualUpdate))
+  const manualTarget = path.join(vault, manualPreview.target || 'kb/missing.md')
+  const manualBefore = fs.readFileSync(manualTarget, 'utf8')
+  const manualDecision = judge.reviewInbox(vault, rel(manualUpdate), { decision: 'accept', reason: 'manual update fixture', tty: true })
+  const manualApplied = judge.applyFreeformPromote(vault, judge.judgeFreeformNote(vault, manualUpdate))
+  assert.deepEqual([manualDecision.plan.action, manualApplied.ok, manualApplied.path], ['update', true, manualPreview.target], JSON.stringify({ plan: manualDecision.plan, manualApplied }))
+  assert.equal(Buffer.byteLength(fs.readFileSync(manualTarget, 'utf8')) - Buffer.byteLength(manualBefore), manualDecision.plan.diff_bytes, 'an accepted update plan must report the bytes the apply writes')
+  assert.deepEqual(manualPreview, manualDecision.plan, 'the preview without a decision must match the plan recorded with the accept')
+
+  const unsafeDraft = inbox('manual-unsafe.md', { summary: 'Unsafe manual draft for the review preview check', origin: false, sources: ['https://docs.example.org/unsafe'], text: `${body} token ${'gh'}${'p_'}${'A'.repeat(30)}` })
+  const unsafePlan = judge.planInboxPromotion(vault, rel(unsafeDraft))
+  assert.equal(unsafePlan.action, 'noop', 'an unsafe draft previews as noop')
+  assert.match(unsafePlan.reason, /no_secrets/)
+  assert.equal(JSON.stringify(unsafePlan).includes('A'.repeat(30)), false, 'the plan never echoes draft content')
+  fs.rmSync(unsafeDraft)
+
   console.log('review-gate: ok')
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })

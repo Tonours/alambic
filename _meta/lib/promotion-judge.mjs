@@ -252,16 +252,22 @@ export function inboxRelative(root, relativePath) {
   return relative
 }
 
-function promotionPlan(root, relative, text, stateHome) {
+function reviewerFields(receipt, { human, today }) {
+  if (receipt?.decision === 'accept') return { reviewedBy: receipt.reviewer, reviewedAt: receipt.reviewed_at.slice(0, 10), accepted: true }
+  if (human) return { reviewedBy: HUMAN_REVIEWER, reviewedAt: today, accepted: true }
+  return { reviewedBy: 'oracle:sidekick-freeform-v2', reviewedAt: today, accepted: false }
+}
+
+function promotionPlan(root, relative, text, stateHome, decision = null) {
   const judgment = judgeFreeformContent(root, path.join(root, relative), text, { stateHome })
-  if (!['auto_apply', 'review_required'].includes(judgment.decision)) return { action: 'noop', target: judgment.update_target || null, reason: judgment.reason, diff_bytes: 0 }
-  const { data, body } = parseMarkdownText(text)
   const receipt = readInboxReceipt(stateHome, text)
-  const human = receipt?.decision === 'accept' || isSessionOrigin(data, relative)
+  const rejected = (decision || receipt?.decision) === 'reject'
+  if (rejected || !['auto_apply', 'review_required'].includes(judgment.decision)) {
+    return { action: 'noop', target: judgment.update_target || null, reason: rejected ? `rejected in review; judge: ${judgment.reason}` : judgment.reason, diff_bytes: 0 }
+  }
+  const { data, body } = parseMarkdownText(text)
   const today = new Date().toISOString().slice(0, 10)
-  const reviewedBy = receipt?.decision === 'accept' ? receipt.reviewer : human ? HUMAN_REVIEWER : 'oracle:sidekick-freeform-v2'
-  const reviewedAt = receipt?.decision === 'accept' ? receipt.reviewed_at.slice(0, 10) : today
-  const write = promotionWrite(root, judgment, { body, data, reviewedBy, reviewedAt, accepted: human, today })
+  const write = promotionWrite(root, judgment, { body, data, today, ...reviewerFields(receipt, { human: true, today }) })
   return { action: write.mode, target: write.target, reason: judgment.reason, diff_bytes: Buffer.byteLength(write.after) - Buffer.byteLength(write.before || '') }
 }
 
@@ -279,7 +285,7 @@ export function reviewInbox(root, relativePath, { decision, reason, tty = false,
   if (scanUnsafe(text).length) throw new Error('inbox note contains unsafe content')
   const { data } = parseMarkdownText(text)
   const sessionOrigin = isSessionOrigin(data, relative)
-  const plan = promotionPlan(root, relative, text, stateHome)
+  const plan = promotionPlan(root, relative, text, stateHome, decision)
   if (decision === 'reject') vaultDir(root, 'docs/inbox/ai/processed')
   const { receipt, idempotent } = writeInboxReceipt(stateHome, { inboxPath: relative, text, decision, reason, sessionOrigin })
   const archived = decision === 'reject' ? archiveInboxSource(root, relative, 'rejected', sha256(text)) : null
@@ -497,10 +503,7 @@ export function applyFreeformPromote(root, judgment, { stateHome } = {}) {
   if (scanUnsafe(text).length) return { ok: false, error: 'unsafe-source' }
   const receipt = readInboxReceipt(stateHome, text)
   if (isSessionOrigin(data, judgment.path) && receipt?.decision !== 'accept') return { ok: false, error: 'review-required', path: judgment.path }
-  const reviewedBy = receipt?.decision === 'accept' ? receipt.reviewer : 'oracle:sidekick-freeform-v2'
-  const reviewedAt = receipt?.decision === 'accept' ? receipt.reviewed_at.slice(0, 10) : today
-
-  const write = promotionWrite(root, judgment, { body, data, reviewedBy, reviewedAt, accepted: receipt?.decision === 'accept', today })
+  const write = promotionWrite(root, judgment, { body, data, today, ...reviewerFields(receipt, { human: false, today }) })
   const targetAbs = path.join(root, write.target)
   if (write.mode === 'update') {
     if (scanUnsafe(write.after).length) return { ok: false, error: 'unsafe-after' }
