@@ -278,8 +278,11 @@ A file you edit during the run is never overwritten. The run refuses it, or
 keeps your copy in `.git/alambic-displaced/` and stops until you resolve it.
 Outside git the copies land in `displaced/` under the alambic state dir. No
 environment variable moves them, and a failed git lookup refuses the write.
-Every write alambic makes, in nightly or by hand, keeps the replaced file
-there. Copies that still match the sha in their name are backups; delete them
+Every write to vault content (`kb/`, `ref/` and inbox drafts) that enrich,
+harvest, the sidekick or a promotion makes, in nightly or by hand, keeps the
+replaced file there. The living-loop pulse (`_meta/loop-pulse.latest.json`) and
+the `docs/inbox/ai/loop-queue-*.md` cards are gitignored artifacts, rewritten
+in place without a copy. Copies that still match the sha in their name are backups; delete them
 when you like. Alambic never deletes a file it cannot verify: a stray copy
 left under `kb/` or `ref/` blocks the next run until you remove it.
 
