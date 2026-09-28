@@ -338,6 +338,16 @@ try {
   const { spawn } = await import('node:child_process')
   await Promise.all(Array.from({ length: 6 }, () => new Promise((resolve, reject) => spawn(process.execPath, ['-e', bumper], { stdio: 'inherit' }).on('exit', (code) => code === 0 ? resolve() : reject(new Error(`bumper exited ${code}`))))))
   assert.equal(JSON.parse(fs.readFileSync(path.join(lockState, 'harvest/metrics.json'), 'utf8')).accepted, 120, 'concurrent metric bumps are not lost')
+  const writeFileSync = fs.writeFileSync
+  let swept = 0
+  fs.writeFileSync = (file, ...rest) => {
+    const dir = path.dirname(String(file))
+    if (!swept && path.basename(String(file)) === 'owner.json' && /\.lock\.new-[^/]+$/.test(dir)) { swept += 1; fs.rmSync(dir, { recursive: true, force: true }) }
+    return writeFileSync(file, ...rest)
+  }
+  try { harvestLib.bumpMetrics(lockState, { accepted: 1 }) } finally { fs.writeFileSync = writeFileSync }
+  assert.equal(swept, 1, 'the sweep race was simulated')
+  assert.equal(JSON.parse(fs.readFileSync(path.join(lockState, 'harvest/metrics.json'), 'utf8')).accepted, 121, 'a lock attempt whose temp dir a concurrent sweep removed retries instead of crashing')
   const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 1500)'], { stdio: 'ignore' })
   const metricsLock = path.join(lockState, 'harvest/metrics.json.lock')
   fs.mkdirSync(metricsLock)
@@ -351,7 +361,7 @@ try {
   await holderExit
   assert.equal(blocked, 0, 'the waiting bump succeeds once the owner exits')
   assert.ok(Date.now() - waitedFrom >= 1200, 'an old lock with a live owner is never stolen')
-  assert.equal(JSON.parse(fs.readFileSync(path.join(lockState, 'harvest/metrics.json'), 'utf8')).accepted, 121)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(lockState, 'harvest/metrics.json'), 'utf8')).accepted, 122)
 
   const dense = Array.from({ length: 100 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', text: `${richer} step ${index}` }))
   assert.ok(harvestLib.buildExcerpt(dense).excerpt.length <= 6000, 'the excerpt respects its bound')

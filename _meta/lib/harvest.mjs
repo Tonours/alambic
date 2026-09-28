@@ -223,8 +223,8 @@ function createOwned(dir, owner) {
   if (fs.existsSync(dir)) return false
   let temporary
   try { temporary = fs.mkdtempSync(`${dir}.new-`) } catch (error) { if (error.code === 'ENOENT') return false; throw error }
-  fs.writeFileSync(path.join(temporary, 'owner.json'), JSON.stringify(owner), { mode: 0o600 })
   try {
+    fs.writeFileSync(path.join(temporary, 'owner.json'), JSON.stringify(owner), { mode: 0o600 })
     fs.renameSync(temporary, dir)
     return true
   } catch (error) {
