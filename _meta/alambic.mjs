@@ -424,7 +424,7 @@ try {
     } else {
       const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
       if (json) output(report, true)
-      else output(`inbox: ${report.path}\n${planText(report.plan)}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? '\nnext: sidekick --apply-freeform promotes it' : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)
+      else output(`inbox: ${report.path}\n${planText(report.plan)}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? (report.plan.action === 'noop' ? '\nnext: nothing to promote as the draft stands; see the plan reason' : '\nnext: sidekick --apply-freeform promotes it') : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)
     }
   } else if (command === 'review') {
     const json = has('--json')

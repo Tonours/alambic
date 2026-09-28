@@ -456,6 +456,12 @@ try {
   assert.equal(JSON.stringify(unsafePlan).includes('A'.repeat(30)), false, 'the plan never echoes draft content')
   fs.rmSync(unsafeDraft)
 
+  const untagged = path.join(vault, 'docs/inbox/ai/harvest-2026-09-26-claude-u1.md')
+  fs.writeFileSync(untagged, `---\ntype: finding\nstatus: draft\nsummary: "Untagged session draft that the judge cannot promote"\nsources:\n  - "codex:u1"\norigin: session-harvest\ntrust: untrusted-session-data\ncreated: 2026-09-26\nupdated: 2026-09-26\n---\n\n# Untagged\n\n${body}\n`)
+  const untaggedRun = spawnSync('python3', ['-c', 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)', process.execPath, path.join(root, '_meta/alambic.mjs'), 'review', '--inbox', rel(untagged), '--decision', 'accept', '--reason', 'checked in a terminal'], { encoding: 'utf8', input: '', env: { ...process.env, ALAMBIC_ROOT: vault } })
+  assert.equal(untaggedRun.status, 0, untaggedRun.stdout + untaggedRun.stderr)
+  assert.match(untaggedRun.stdout, /plan: noop/)
+  assert.doesNotMatch(untaggedRun.stdout, /promotes it/, 'an accept the judge will not promote must not claim a promotion')
   console.log('review-gate: ok')
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })
