@@ -82,13 +82,20 @@ function sha256(value) {
 // leak markers, plans, and regenerated runtime artifacts.
 const INBOX_SKELETON = new Set(['README.md', '.gitkeep'])
 const INIT_SKIP = new Set(['.git', 'node_modules', '.obsidian', '.trash', '.pi', '.workflow', '.leak-patterns', 'PLAN.md', '.cache', 'loop-pulse.latest.json', 'derived-graph.json', '.DS_Store'])
+const MAINTAINER_ONLY = ['docs/plan/', 'docs/research/', '.github/workflows/review-dispatch.yml']
+
+function publishable(rel) {
+  const posix = rel.split(path.sep).join('/')
+  if (MAINTAINER_ONLY.some((entry) => posix === entry || (entry.endsWith('/') && posix.startsWith(entry)))) return false
+  return !posix.startsWith('docs/inbox/') || INBOX_SKELETON.has(path.posix.basename(posix))
+}
 
 function scaffoldFiles(from) {
   // Publishable set = tracked + untracked-not-ignored (same set leak-scan audits).
   const git = spawnSync('git', ['-C', from, 'ls-files', '-z', '-co', '--exclude-standard'], { encoding: 'utf8' })
   const listed = git.status === 0 ? git.stdout.split('\0').filter((rel) => rel && !rel.startsWith('node_modules/') && fs.existsSync(path.join(from, rel))) : []
   // An engine nested under a parent repo's ignored path lists nothing: walk instead.
-  if (listed.includes('_meta/alambic.mjs')) return listed
+  if (listed.includes('_meta/alambic.mjs')) return listed.filter(publishable)
   const out = []
   const walk = (dir) => {
     for (const entry of fs.readdirSync(path.join(from, dir), { withFileTypes: true })) {
@@ -96,7 +103,7 @@ function scaffoldFiles(from) {
       const rel = path.join(dir, entry.name)
       if (entry.isDirectory()) walk(rel)
       // Inbox staging is personal capture; ship only its skeleton.
-      else if (entry.isFile() && (!rel.startsWith(`docs${path.sep}inbox${path.sep}`) || INBOX_SKELETON.has(entry.name))) out.push(rel)
+      else if (entry.isFile() && publishable(rel)) out.push(rel)
     }
   }
   walk('')

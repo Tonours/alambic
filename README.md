@@ -92,7 +92,9 @@ _meta/alambic doctor
 ```
 
 From a clone, `_meta/alambic init <dir> [--install]` works the same way.
-Private patterns, inbox captures, and caches never get copied.
+Private patterns, inbox captures, caches, the maintainer's `docs/plan/` and
+`docs/research/`, and the maintainer-only `review-dispatch.yml` workflow never
+get copied, whether the source is a git checkout or a plain copy.
 
 Open the folder as its own Obsidian vault, never nested inside another one.
 
