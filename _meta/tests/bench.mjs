@@ -2,9 +2,10 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import process from 'node:process'
 
-const HERE = path.dirname(new URL(import.meta.url).pathname)
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 const args = process.argv.slice(2)
 function option(flag, fallback) {
   const index = args.indexOf(flag)

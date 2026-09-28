@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { typesafeHealth } from './typesafe-judge.mjs'
 import { buildManifest, buildRoutingCatalog, contextPack, readVaultDocument, retrievalHealth } from './vault.mjs'
 
@@ -24,6 +26,7 @@ export function compactRoute(route) {
 }
 
 export async function runRetrievalCommand({ root, command, args, cli = 'alambic', agentEntry = DEFAULT_AGENT_ENTRY }) {
+  if (!fs.existsSync(path.join(root, 'kb'))) throw new Error(`no kb/ under ${root}; not an alambic vault (check ALAMBIC_ROOT)`)
   const semanticVault = () => import('./semantic-vault.mjs')
   const has = (flag) => {
     const index = args.indexOf(flag)

@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   APIConnectionError,
   APIError,
@@ -102,7 +103,7 @@ writeNote(kb, 'delivery-observability.md', {
   body: 'Record deployment failure, recovery state, and the terminal verification result.',
 })
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 for (const file of [...fs.readdirSync(path.join(repoRoot, '_meta/lib')).map((name) => path.join(repoRoot, '_meta/lib', name)), path.join(repoRoot, '_meta/alambic.mjs'), path.join(repoRoot, '_meta/mcp/server.mjs')]) {
   if (!file.endsWith('.mjs')) continue
   assert.equal(/^import[^\n]*['"]@typesafe-ai\/sdk['"]/m.test(fs.readFileSync(file, 'utf8')), false, `${path.relative(repoRoot, file)} must load @typesafe-ai/sdk lazily inside askJev, never at module top`)
@@ -538,7 +539,7 @@ for (const value of [queryVault(tmp, 'delivery'), contextPack(tmp, 'delivery', {
 const cliAudit = path.join(tmp, 'cli-provider-audit.jsonl')
 const cliState = path.join(tmp, 'cli-state')
 fs.mkdirSync(cliState, { recursive: true })
-const cli = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../alambic.mjs')
+const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../alambic.mjs')
 const { TYPESAFE_API_KEY: ignoredTypesafeKey, ...environmentWithoutTypesafeKey } = process.env
 void ignoredTypesafeKey
 for (const command of [

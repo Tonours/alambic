@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   AGENT_PROMPT,
   checkObsidianBootstrap,
@@ -10,7 +11,7 @@ import {
   validateVault,
 } from '../lib/vault.mjs'
 
-const root = process.argv[2] || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const root = process.argv[2] || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const errors = []
 
 function check(name, fn) {

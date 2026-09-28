@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import process from 'node:process'
 import { contextPackWithJev, queryVaultWithJev } from '../lib/semantic-vault.mjs'
 import { buildManifest } from '../lib/vault.mjs'
@@ -96,7 +97,7 @@ if (flags.includes('--sample')) {
 const samples = []
 for (let index = 0; index < runs; index += 1) {
   const sampleAudit = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-bench-')), 'audit.jsonl')
-  const child = spawnSync(process.execPath, [new URL(import.meta.url).pathname, vaultArg, probesArg, ...flags, '--sample'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, ALAMBIC_TYPESAFE_AUDIT_FILE: sampleAudit } })
+  const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), vaultArg, probesArg, ...flags, '--sample'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, ALAMBIC_TYPESAFE_AUDIT_FILE: sampleAudit } })
   fs.rmSync(path.dirname(sampleAudit), { recursive: true, force: true })
   if (child.status !== 0) throw new Error(`mcp-bench sample failed: ${child.stderr.slice(0, 300)}`)
   samples.push(JSON.parse(child.stdout))

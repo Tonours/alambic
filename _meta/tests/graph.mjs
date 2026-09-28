@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { buildGraph, loadGraph, graphAdjacencyMap } from '../lib/graph-builder.mjs'
 import { expandForContext, extractSteinerSubgraph } from '../lib/graph-traversal.mjs'
 import { checkGraphLint } from '../lib/graph-linter.mjs'
@@ -9,7 +10,7 @@ import { recordExecutionTrace } from '../lib/graph-distiller.mjs'
 import { contextPack, queryVault } from '../lib/vault.mjs'
 
 const rootArg = process.argv[2]
-const ROOT = rootArg || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const ROOT = rootArg || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 function assert(condition, message) {
   if (!condition) {

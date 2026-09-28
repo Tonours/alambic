@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import { buildKnowledgeGraph, contextPack, evaluateRagContract, fuseRankedResults, lintVault, queryVault, readVaultDocument, routeVaultKnowledge, scanUnsafe } from '../lib/vault.mjs'
 import { buildGraph, loadGraph } from '../lib/graph-builder.mjs'
@@ -10,7 +11,7 @@ import { rankAttentionCandidates } from '../lib/attention/ranking.mjs'
 import { readAttentionPolicy } from '../lib/attention/schema.mjs'
 import { applyPassageJudgments, queryVaultWithJev } from '../lib/semantic-vault.mjs'
 
-const [suite = 'retrieval', root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')] = process.argv.slice(2)
+const [suite = 'retrieval', root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')] = process.argv.slice(2)
 
 function fail(message) { process.stderr.write(`eval ${suite}: ${message}\n`); process.exitCode = 1 }
 

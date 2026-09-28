@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { choice, noul, score } from '@typesafe-ai/sdk'
 import { expandTopics, queryVaultWithJev } from '../lib/semantic-vault.mjs'
@@ -74,7 +75,7 @@ try {
   if (!expansion.semantic.available) throw new Error(`typesafe live topic expansion failed: ${expansion.semantic.reason}`)
   if (!expansion.topics.includes('recovery')) throw new Error(`typesafe live topic expansion missed the French recovery topic: ${JSON.stringify(expansion.topics)}`)
 
-  const cli = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../alambic.mjs')
+  const cli = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../alambic.mjs')
   const sessionRun = spawnSync(process.execPath, [cli, 'session', '--json', '--max-tokens', '1200', 'synthetic deployment failure rollback terminal verification'], {
     encoding: 'utf8',
     env: { ...process.env, ALAMBIC_ROOT: tmp, XDG_STATE_HOME: path.join(tmp, 'state') },

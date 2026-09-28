@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { judgeFreshStamp } from '../lib/promotion-judge.mjs'
 import { runSidekick } from '../lib/sidekick.mjs'
 import { contextPack } from '../lib/vault.mjs'
@@ -16,7 +17,7 @@ function assert(condition, message) {
   }
 }
 
-const ROOT = process.argv[2] || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const ROOT = process.argv[2] || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const CLI = path.join(ROOT, '_meta/alambic.mjs')
 
 // ---- L0 on live vault (default path must stay bit-identical) ----

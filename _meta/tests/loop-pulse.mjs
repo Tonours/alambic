@@ -2,11 +2,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { runLivingLoopPulse, seedShadowProposalsFromGraphLint } from '../lib/loop-pulse.mjs'
 import { buildGraph } from '../lib/graph-builder.mjs'
 import { checkGraphLint } from '../lib/graph-linter.mjs'
 
-const ROOT = process.argv[2] || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const ROOT = process.argv[2] || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 function assert(condition, message) {
   if (!condition) {

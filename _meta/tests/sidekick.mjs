@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   applyFreeformPromote,
   applyStructuralWikilink,
@@ -226,7 +227,7 @@ const staleJ = judgeStaleSuccessor(tmp, { verifiedPath: 'kb/still-verified.md', 
 assert(staleJ.decision === 'auto_apply', `stale successor auto_apply ${JSON.stringify(staleJ.oracles)}`)
 
 // Live vault dry-run must not throw
-const ROOT = process.argv[2] || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const ROOT = process.argv[2] || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const live = await runSidekick(ROOT, {
   dryRun: true,
   applyStructural: false,

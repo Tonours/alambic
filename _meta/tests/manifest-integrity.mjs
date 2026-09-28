@@ -2,6 +2,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 function resolveExisting(candidates) {
   for (const candidate of candidates) {
@@ -14,7 +15,7 @@ function resolveExisting(candidates) {
   return null
 }
 
-const root = process.argv[2] || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const root = process.argv[2] || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const manifests = []
 
 function walk(dir) {

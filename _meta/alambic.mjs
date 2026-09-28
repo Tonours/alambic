@@ -4,6 +4,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { alambicStateDir } from './lib/state-dir.mjs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import process from 'node:process'
 // Cold-path speed: attention/sidekick/loop-pulse modules load only on the
 // commands that need them. Read commands (query/context/route/read/health)
@@ -27,7 +28,7 @@ import {
 import { buildGraph } from './lib/graph-builder.mjs'
 import { checkGraphLint } from './lib/graph-linter.mjs'
 
-const ROOT = process.env.ALAMBIC_ROOT ? path.resolve(process.env.ALAMBIC_ROOT) : path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+const ROOT = process.env.ALAMBIC_ROOT ? path.resolve(process.env.ALAMBIC_ROOT) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
 const command = args.shift() || 'help'
 const RETRIEVAL_COMMANDS = new Set(['query', 'context', 'read', 'health', 'routing-catalog', 'route', 'session'])
@@ -699,7 +700,7 @@ try {
   } else if (command === 'eval') {
     const suite = option('--suite', 'retrieval')
     const runner = new URL('./tests/eval.mjs', import.meta.url)
-    process.argv = ['node', runner.pathname, suite, ROOT]
+    process.argv = ['node', fileURLToPath(runner), suite, ROOT]
     await import(`${runner.href}?run=${Date.now()}`)
   } else if (command === 'refresh') {
     const sub = args.shift() || 'status'

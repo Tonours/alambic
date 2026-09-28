@@ -7,8 +7,9 @@ import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = path.resolve(process.argv[2] || path.join(path.dirname(new URL(import.meta.url).pathname), '../..'))
+const root = path.resolve(process.argv[2] || path.join(path.dirname(fileURLToPath(import.meta.url)), '../..'))
 const evals = path.join(root, '_meta/evals')
 const today = new Date().toISOString().slice(0, 10)
 const sha = (file) => crypto.createHash('sha256').update(fs.readFileSync(path.join(evals, file))).digest('hex')

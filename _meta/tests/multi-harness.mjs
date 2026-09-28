@@ -4,11 +4,12 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import process from 'node:process'
 import { spawnSync } from 'node:child_process'
 import { queryVault, contextPack, routeVaultKnowledge, ALLOWED_TOP_LEVEL_DIRS } from '../lib/vault.mjs'
 
-const root = process.argv[2] || path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const root = process.argv[2] || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 function fail(message) {
   process.stderr.write(`multi-harness test: ${message}\n`)

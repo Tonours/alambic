@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import process from 'node:process'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -13,7 +14,7 @@ import { contextPack, readVaultDocument, retrievalHealth } from '../lib/vault.mj
 
 const ROOT = process.env.ALAMBIC_ROOT
   ? path.resolve(process.env.ALAMBIC_ROOT)
-  : path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 const server = new McpServer({ name: 'alambic', version: '1.0.0' })
 
@@ -96,7 +97,7 @@ server.registerTool('vault_health', {
   annotations: { readOnlyHint: true, openWorldHint: false, destructiveHint: false, idempotentHint: true },
 }, async () => result({ ...retrievalHealth(ROOT), typesafe: await typesafeHealth() }))
 
-const CLI = path.join(path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..'), '_meta/alambic')
+const CLI = path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..'), '_meta/alambic')
 
 const captureSchema = z.object({
   text: z.string().trim().min(1).max(12000),
