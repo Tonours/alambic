@@ -92,7 +92,15 @@ function writeSessions(file, sessions) {
   fs.renameSync(temporary, file)
 }
 
-async function unseenInSession(session, notes) {
+function noteDigest(root, note) {
+  try {
+    return digest(fs.readFileSync(path.join(root, note.path)))
+  } catch {
+    return digest(String(note.excerpt || ''))
+  }
+}
+
+async function unseenInSession(root, session, notes) {
   if (!notes.length) return notes
   try {
     const file = await dedupeFile()
@@ -100,9 +108,10 @@ async function unseenInSession(session, notes) {
     const key = digest(session)
     const entry = sessions[key]
     const seen = entry && Date.now() - entry.at < DEDUPE_TTL_MS ? entry.notes || {} : {}
-    const fresh = notes.filter((note) => seen[note.path] !== digest(String(note.excerpt || '')))
+    const digests = new Map(notes.map((note) => [note.path, noteDigest(root, note)]))
+    const fresh = notes.filter((note) => seen[note.path] !== digests.get(note.path))
     if (!fresh.length) return fresh
-    const merged = Object.entries({ ...seen, ...Object.fromEntries(fresh.map((note) => [note.path, digest(String(note.excerpt || ''))])) }).slice(-DEDUPE_MAX_NOTES)
+    const merged = Object.entries({ ...seen, ...Object.fromEntries(fresh.map((note) => [note.path, digests.get(note.path)])) }).slice(-DEDUPE_MAX_NOTES)
     sessions[key] = { at: Date.now(), notes: Object.fromEntries(merged) }
     writeSessions(file, sessions)
     return fresh
@@ -129,7 +138,7 @@ export async function buildContext(prompt, { root = ROOT, canary = '', session =
   if (shouldSkip(prompt)) return ''
   const { contextPack } = await import('../lib/vault.mjs')
   const notes = gate(contextPack(root, prompt, { maxTokens: 1100 }))
-  return renderContext(session ? await unseenInSession(session, notes) : notes, canary)
+  return renderContext(session ? await unseenInSession(root, session, notes) : notes, canary)
 }
 
 async function buildSessionContext({ root = ROOT, canary = '' } = {}) {

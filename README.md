@@ -139,7 +139,8 @@ The per-prompt hook is lexical and local: it never calls TypeSafe, even with
 scores above the threshold frozen in `_meta/evals/hook-gate.json`, caps the
 block at 1200 tokens, marks it untrusted, and always exits 0. Within one
 session (when the runtime sends a `session_id`) a note is injected at most
-once until a compaction; the hook keeps only note paths and content hashes, as
+once until it changes or the session compacts; the hook keeps only note paths
+and content hashes, as
 `SECURITY.md` describes. Codex runs new hooks only after you approve them in
 `/hooks`; `setup --status` shows `pending-trust` until then.
 

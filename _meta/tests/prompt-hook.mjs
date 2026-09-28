@@ -139,6 +139,8 @@ try {
   const stateFile = path.join(dedupeState, 'alambic/hook-sessions.json')
   const stateText = fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : ''
   assert(stateText && (fs.statSync(stateFile).mode & 0o777) === 0o600 && !stateText.includes(gateSet.positives[0]) && !stateText.includes('s-dedupe'), 'dedupe state must be 0600 and hold no prompt text or raw session id')
+  const recordedNotes = Object.values(JSON.parse(stateText).sessions).flatMap((entry) => Object.entries(entry.notes))
+  assert(recordedNotes.length > 0 && recordedNotes.every(([notePath, value]) => value === crypto.createHash('sha256').update(fs.readFileSync(path.join(vault, notePath))).digest('hex')), 'dedupe must key on the whole note content, not on the query-dependent excerpt')
   await runHook(hookPath, JSON.stringify({ hook_event_name: 'SessionStart', source: 'compact', session_id: 's-dedupe' }), { env: dedupeEnv })
   const afterCompact = await runHook(hookPath, inSession('s-dedupe'), { env: dedupeEnv })
   assert(afterCompact.stdout.includes('kb/'), 'a compaction must reset the session so its notes come back')
