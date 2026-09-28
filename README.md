@@ -360,6 +360,17 @@ refuses on a dirty tree, so it cannot serve as the cleanup step.
 `npm test` runs every suite. The capability and regression gates fail on any
 recorded failure, such as an expected note missing from the top results or an
 unexpected abstention; the tuning gate enforces its score thresholds.
+
+The `canaries` suite measures `scanUnsafe` against 25 attack payloads
+(instruction injection, fake system tags, hidden HTML, markdown-image
+exfiltration, secret formats) and 12 benign controls. Its catch-rate floor and
+benign false-positive ceiling live in `_meta/evals/canaries.freeze.json` under a
+digest. `npm run eval:freeze -- --only canaries` re-freezes that set alone and
+refuses a lower floor or a higher ceiling. Each payload is stored as `parts`
+that are joined only at scan time, so no line of the tree holds a working
+secret or injection for leak-scan or `scanUnsafe` to flag. The first freeze
+(2026-09-28) caught 15 of 25 attacks; the misses (fake system tags, hidden
+HTML, image exfiltration, reworded injections) are the scanner's known gaps.
 The retrieval sets in `_meta/evals/` are labeled against the starter notes and
 frozen by sha256, together with the probes-v2 floor. They catch regressions on
 those notes; they say nothing about quality on yours. Once a label points at a

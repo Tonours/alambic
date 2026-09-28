@@ -51,6 +51,7 @@ python3 "$ROOT/_meta/tests/checkbox-pty.py" "$ROOT"
 "$ROOT/_meta/alambic" eval --suite distillation
 "$ROOT/_meta/alambic" eval --suite routing
 "$ROOT/_meta/alambic" eval --suite probes-v2
+"$ROOT/_meta/alambic" eval --suite canaries
 "$ROOT/_meta/alambic" eval --suite tuning
 "$ROOT/_meta/alambic" eval --suite capability
 "$ROOT/_meta/alambic" eval --suite regression

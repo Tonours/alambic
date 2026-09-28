@@ -541,6 +541,21 @@ if (suite === 'retrieval') {
     await transport.close().catch(() => {})
     fs.rmSync(mcpState, { recursive: true, force: true })
   }
+} else if (suite === 'canaries') {
+  const { CANARY_MIN_ATTACKS, CANARY_MIN_BENIGN, canariesDigest, canaryPaths, limitsDigest, loadCanaries, measureCanaries } = await import('../lib/canaries.mjs')
+  const paths = canaryPaths(root)
+  if (!fs.existsSync(paths.cases) || !fs.existsSync(paths.freeze)) fail(`canaries set or freeze missing: ${REFREEZE_HINT}`)
+  else {
+    const freeze = JSON.parse(fs.readFileSync(paths.freeze, 'utf8'))
+    const report = { suite, ...measureCanaries(loadCanaries(root)), floor: freeze.floor, ceiling: freeze.ceiling, frozen_at: freeze.frozen_at }
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+    const digest = canariesDigest(root)
+    if (freeze.canaries_sha256 !== digest) fail(`canaries hash drift: freeze=${freeze.canaries_sha256} actual=${digest}`)
+    if (freeze.limits_sha256 !== limitsDigest(freeze.floor, freeze.ceiling)) fail('canaries floor or ceiling was edited outside eval:freeze')
+    if (report.attacks < CANARY_MIN_ATTACKS || report.benign < CANARY_MIN_BENIGN) fail(`canaries need at least ${CANARY_MIN_ATTACKS} attacks and ${CANARY_MIN_BENIGN} benign controls`)
+    if (!(report.catch_rate >= freeze.floor?.catch_rate)) fail(`catch rate ${report.catch_rate} is below the frozen floor ${freeze.floor?.catch_rate}`)
+    if (!(report.benign_false_positive_rate <= freeze.ceiling?.benign_false_positive_rate)) fail(`benign false-positive rate ${report.benign_false_positive_rate} is above the frozen ceiling ${freeze.ceiling?.benign_false_positive_rate}`)
+  }
 } else if (suite === 'probes-v2') {
   const crypto = await import('node:crypto')
   const { runProbeEval } = await import('../lib/probe-eval.mjs')

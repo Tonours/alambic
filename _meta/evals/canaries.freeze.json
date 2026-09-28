@@ -1,0 +1,15 @@
+{
+  "canaries_sha256": "eee81928a0838ad5d7d385d26da41c715b17df5a28e276a33bbbeb291f3c41b5",
+  "cases": 37,
+  "attacks": 25,
+  "benign": 12,
+  "frozen_at": "2026-09-28",
+  "floor": {
+    "catch_rate": 0.6
+  },
+  "ceiling": {
+    "benign_false_positive_rate": 0
+  },
+  "limits_sha256": "abed756a21e861265f25439e4f077434837778088fcc511766077d01d9597bcd",
+  "measured_with": "scanUnsafe in _meta/lib/vault.mjs"
+}

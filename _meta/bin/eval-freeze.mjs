@@ -8,14 +8,44 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { canariesDigest, canaryPaths, limitsDigest, loadCanaries, measureCanaries } from '../lib/canaries.mjs'
 
-const root = path.resolve(process.argv[2] || path.join(path.dirname(fileURLToPath(import.meta.url)), '../..'))
+const args = process.argv.slice(2)
+const onlyIndex = args.indexOf('--only')
+const only = onlyIndex >= 0 ? args.splice(onlyIndex, 2)[1] : null
+if (only !== null && only !== 'canaries') {
+  process.stderr.write('eval-freeze: --only accepts canaries\n')
+  process.exit(2)
+}
+const root = path.resolve(args[0] || path.join(path.dirname(fileURLToPath(import.meta.url)), '../..'))
 const evals = path.join(root, '_meta/evals')
 const today = new Date().toISOString().slice(0, 10)
 const sha = (file) => crypto.createHash('sha256').update(fs.readFileSync(path.join(evals, file))).digest('hex')
 const lines = (file) => fs.readFileSync(path.join(evals, file), 'utf8').trim().split('\n').filter(Boolean).length
 const write = (file, data) => fs.writeFileSync(path.join(evals, file), `${JSON.stringify(data, null, 2)}\n`)
 const read = (file) => JSON.parse(fs.readFileSync(path.join(evals, file), 'utf8'))
+
+const canaryFiles = canaryPaths(root)
+if (fs.existsSync(canaryFiles.cases)) {
+  const measured = measureCanaries(loadCanaries(root))
+  const previous = fs.existsSync(canaryFiles.freeze) ? read('canaries.freeze.json') : null
+  if (previous?.floor && measured.catch_rate < previous.floor.catch_rate) {
+    process.stderr.write(`eval-freeze: canaries catch rate ${measured.catch_rate} is below the frozen floor ${previous.floor.catch_rate}; the floor can only rise\n`)
+    process.exit(1)
+  }
+  if (previous?.ceiling && measured.benign_false_positive_rate > previous.ceiling.benign_false_positive_rate) {
+    process.stderr.write(`eval-freeze: canaries benign false-positive rate ${measured.benign_false_positive_rate} is above the frozen ceiling ${previous.ceiling.benign_false_positive_rate}; the ceiling can only fall\n`)
+    process.exit(1)
+  }
+  const floor = { catch_rate: measured.catch_rate }
+  const ceiling = { benign_false_positive_rate: measured.benign_false_positive_rate }
+  write('canaries.freeze.json', { canaries_sha256: canariesDigest(root), cases: measured.attacks + measured.benign, attacks: measured.attacks, benign: measured.benign, frozen_at: today, floor, ceiling, limits_sha256: limitsDigest(floor, ceiling), measured_with: 'scanUnsafe in _meta/lib/vault.mjs' })
+  process.stdout.write(`eval-freeze: canaries floor catch_rate=${floor.catch_rate} ceiling benign_false_positive_rate=${ceiling.benign_false_positive_rate}\n`)
+} else if (only === 'canaries') {
+  process.stderr.write('eval-freeze: _meta/evals/canaries.jsonl is missing\n')
+  process.exit(1)
+}
+if (only === 'canaries') process.exit(0)
 
 write('held-out.freeze.json', {
   ...read('held-out.freeze.json'),
