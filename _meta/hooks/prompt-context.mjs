@@ -111,7 +111,8 @@ async function unseenInSession(root, session, notes) {
     const digests = new Map(notes.map((note) => [note.path, noteDigest(root, note)]))
     const fresh = notes.filter((note) => seen[note.path] !== digests.get(note.path))
     if (!fresh.length) return fresh
-    const merged = Object.entries({ ...seen, ...Object.fromEntries(fresh.map((note) => [note.path, digests.get(note.path)])) }).slice(-DEDUPE_MAX_NOTES)
+    const freshPaths = new Set(fresh.map((note) => note.path))
+    const merged = [...Object.entries(seen).filter(([notePath]) => !freshPaths.has(notePath)), ...fresh.map((note) => [note.path, digests.get(note.path)])].slice(-DEDUPE_MAX_NOTES)
     sessions[key] = { at: Date.now(), notes: Object.fromEntries(merged) }
     writeSessions(file, sessions)
     return fresh
