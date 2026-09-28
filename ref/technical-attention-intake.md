@@ -23,7 +23,7 @@ sources:
   - "https://developers.reddit.com/docs/capabilities/server/reddit-api"
   - "https://docs.x.com/x-api/posts/bookmarks/introduction"
 created: 2026-09-23
-updated: 2026-09-24
+updated: 2026-09-28
 tags:
   - attention
   - capture
@@ -35,7 +35,7 @@ tags:
 # Technical Attention Intake
 
 `_meta/alambic attention` is a local *shadow* queue for deliberate technical
-signals: YouTube likes, Reddit saved/upvoted items, X bookmarks, and an optional
+signals: YouTube likes, Reddit saved items, X bookmarks, and an optional
 Chrome-history source. It is deliberately narrower than browser surveillance:
 there is no Android app, accessibility capture, cookie/session scraping,
 clipboard capture, Google-activity scraping, or automatic promotion to the
@@ -71,7 +71,7 @@ vault.
 | --- | --- | --- | --- |
 | YouTube liked | `fixture-green` | `scheduled-ready` | OAuth read-only; technical filter uses **title + snippet description** (not channel name alone). CI collect when YouTube secrets set; else local `_meta/bin/attention-daily-grok.sh` or `attention collect`. |
 | Reddit saved | `fixture-green` | `manual-browser-ready` | Use only visible, accessible Saved cards through the forced-dry-run ingest path; API OAuth remains separately blocked. |
-| Reddit upvoted | `fixture-green` | `blocked-auth` | Explicit human OAuth checkpoint and a read-only dry probe. |
+| Reddit upvoted | `schema-only` | `not ingestible` | No connector and no ingest path exist. The `reddit-upvoted` enum stays only because the frozen `_meta/evals/attention-ranking.json` references it. |
 | X bookmarks | `fixture-green` | **API-ready when `ALAMBIC_X_*` set**; else manual/drop | Official X API v2 `GET /2/users/:id/bookmarks` (OAuth 2.0 user-context, scopes `bookmark.read` `tweet.read` `users.read`). Env: `ALAMBIC_X_CLIENT_ID` + `ALAMBIC_X_REFRESH_TOKEN` (optional secret / static access token). Crypto keys still required. Drop-folder NDJSON remains as supplement. |
 | Chrome history | `fixture-green` | **multi-device live** when local sync `cache_guid` resolves and foreign originators exist | Local SQLite History copy; only visits with `originator_cache_guid` ≠ this machine’s sync cache_guid. Not Android-labelled — multi-device foreign only. Crypto keys `ALAMBIC_ATTENTION_CHROME_HISTORY_{DATA,HMAC}_KEY`. |
 

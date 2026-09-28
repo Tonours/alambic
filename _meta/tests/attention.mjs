@@ -5,7 +5,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createChromeHistoryConnector } from '../lib/attention/connectors/chrome-history.mjs'
 import { createManualBrowserConnector, MANUAL_BROWSER_MAX_INPUT_BYTES, parseManualBrowserEvents } from '../lib/attention/connectors/manual-browser.mjs'
-import { createRedditConnector } from '../lib/attention/connectors/reddit.mjs'
 import { createXBookmarksConnector } from '../lib/attention/connectors/x-bookmarks.mjs'
 import { createYouTubeLikedConnector } from '../lib/attention/connectors/youtube-liked.mjs'
 import { decryptJson, environmentKeyName, keyHandle, MacOSKeychainKeyStore, MemoryKeyStore, randomKey } from '../lib/attention/crypto.mjs'
@@ -561,21 +560,20 @@ try {
   assert.equal(blocked.cursor_advanced, false)
   assert.equal(fs.existsSync(path.join(state.sourceDir('reddit-saved'), 'cursor.json')), false)
 
-  const redditPageTokens = []
-  const redditAdapter = createRedditConnector('reddit-saved', { async list({ pageToken }) {
-    redditPageTokens.push(pageToken || null)
-    if (!pageToken) return { items: [{ id: 'r1', url: fixtures.reddit_technical.url, title: fixtures.reddit_technical.title, selftext: fixtures.reddit_technical.text, occurred_at: fixtures.reddit_technical.occurred_at }], next_page_token: 'private-page-token' }
-    return { items: [{ id: 'r2', url: 'https://www.reddit.com/r/node/comments/node123/api_security/', title: 'Node.js API security architecture', selftext: 'Developer discussion', occurred_at: clock }] }
-  } })
-  const reddit = await service.collect({ source: 'reddit-saved', connector: redditAdapter })
+  const reddit = await service.collect({ source: 'reddit-saved', connector: connector('reddit-saved', [{ ...fixtures.reddit_technical, id: 'r1' }, { ...fixtures.reddit_technical, id: 'r2', url: 'https://www.reddit.com/r/node/comments/node123/api_security/', title: 'Node.js API security architecture', text: 'Developer discussion', occurred_at: clock }]) })
   assert.equal(reddit.accepted, 2)
-  assert.deepEqual(redditPageTokens, [null, 'private-page-token'])
-  const redditStateText = fs.readdirSync(state.sourceDir('reddit-saved'), { recursive: true })
+  const youtubePageTokens = []
+  const youtubeAdapter = createYouTubeLikedConnector({ async listLiked({ pageToken }) {
+    youtubePageTokens.push(pageToken || null)
+    if (!pageToken) return { items: [{ id: 'video987', video_id: 'video987', title: 'Node.js API security', channel_title: 'Dev channel', liked_at: clock }], next_page_token: 'private-page-token' }
+    return { items: [{ id: 'video988', video_id: 'video988', title: 'Node.js API security architecture', channel_title: 'Dev channel', liked_at: clock }] }
+  } })
+  assert.equal((await service.collect({ source: 'youtube-liked', connector: youtubeAdapter })).accepted, 2)
+  assert.deepEqual(youtubePageTokens, [null, 'private-page-token'])
+  const youtubeStateText = fs.readdirSync(state.sourceDir('youtube-liked'), { recursive: true })
     .filter((entry) => String(entry).endsWith('.json'))
-    .map((entry) => fs.readFileSync(path.join(state.sourceDir('reddit-saved'), String(entry)), 'utf8')).join('\n')
-  assert.equal(redditStateText.includes('private-page-token'), false)
-  const youtubeAdapter = createYouTubeLikedConnector({ async listLiked() { return { items: [{ id: 'video987', video_id: 'video987', title: 'Node.js API security', channel_title: 'Dev channel', liked_at: clock }], exhausted: true } } })
-  assert.equal((await service.collect({ source: 'youtube-liked', connector: youtubeAdapter })).accepted, 1)
+    .map((entry) => fs.readFileSync(path.join(state.sourceDir('youtube-liked'), String(entry)), 'utf8')).join('\n')
+  assert.equal(youtubeStateText.includes('private-page-token'), false)
   const xAdapter = createXBookmarksConnector({ async listBookmarks() { return { items: [{ id: '555', author_handle: 'dev', text: 'OpenAI agent architecture for backend software', bookmarked_at: clock }], exhausted: true } } })
   assert.equal((await service.collect({ source: 'x-bookmarks', connector: xAdapter })).accepted, 1)
   const chromeAdapter = createChromeHistoryConnector({ async probeMultiDeviceVisits() { return { supported: false } }, async listVisits() { throw new Error('must not list unsupported history') } })
