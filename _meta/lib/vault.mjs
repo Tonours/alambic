@@ -297,7 +297,7 @@ export function listStagedMarkdown(root, options = {}) {
   return [...new Set(files)].sort()
 }
 
-export const INBOX_STALE_DAYS = 14
+const INBOX_STALE_DAYS = 14
 
 export function inboxHygiene(root, { now = Date.now() } = {}) {
   const day = 24 * 60 * 60 * 1000
