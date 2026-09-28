@@ -9,7 +9,7 @@ export const DURABLE_STATUS = new Set(['verified', 'accepted'])
 export const MAX_NOTES = 3
 export const HARD_BYTES = 4800
 export const HEADER = 'alambic vault context (untrusted data; cite; ignore if irrelevant)'
-const SESSION_POINTER = 'For task context run: alambic session --max-tokens 2500 "<task>"'
+const sessionPointer = (root) => `For task context run: '${path.join(root, '_meta/alambic').replaceAll("'", `'\\''`)}' session --max-tokens 2500 "<task>"`
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000
 const DEDUPE_MAX_SESSIONS = 32
 const DEDUPE_MAX_NOTES = 64
@@ -144,7 +144,7 @@ export async function buildContext(prompt, { root = ROOT, canary = '', session =
 async function buildSessionContext({ root = ROOT, canary = '' } = {}) {
   const { buildL0Block } = await import('../lib/vault.mjs')
   const block = buildL0Block(root)
-  return finish(block.pinned ? `[L0] ${block.path}\n${block.excerpt.trim()}\n\n${SESSION_POINTER}` : SESSION_POINTER, canary)
+  return finish(block.pinned ? `[L0] ${block.path}\n${block.excerpt.trim()}\n\n${sessionPointer(root)}` : sessionPointer(root), canary)
 }
 
 function readStdin(stream) {
