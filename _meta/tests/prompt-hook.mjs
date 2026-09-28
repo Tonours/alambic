@@ -116,6 +116,15 @@ try {
   assert(text.stdout.startsWith(hook.HEADER), 'text format wrong')
   const negative = await runHook(hookPath, JSON.stringify({ prompt: quietNegative }))
   assert(negative.code === 0 && negative.stdout === '', 'negative prompt must print nothing')
+  const compact = await runHook(hookPath, JSON.stringify({ hook_event_name: 'SessionStart', source: 'compact', session_id: 's-compact' }), { format: 'claude' })
+  let reasserted = null
+  try { reasserted = JSON.parse(compact.stdout).hookSpecificOutput } catch { reasserted = null }
+  assert(compact.code === 0 && reasserted?.hookEventName === 'SessionStart', 'SessionStart compact must answer as SessionStart')
+  const l0 = reasserted?.additionalContext || ''
+  assert(l0.startsWith(hook.HEADER) && l0.includes('ref/critical-facts.md') && l0.includes('alambic session') && Buffer.byteLength(l0) <= hook.HARD_BYTES, 'SessionStart must re-assert the untrusted L0 block and the session pointer within budget')
+  let cursorSession = null
+  try { cursorSession = JSON.parse((await runHook(hookPath, JSON.stringify({ hook_event_name: 'sessionStart', session_id: 's-cursor' }), { format: 'cursor' })).stdout) } catch { cursorSession = null }
+  assert(cursorSession?.additional_context === l0, 'Cursor sessionStart must receive the same L0 block')
 
   for (const [input, format] of [['garbage', 'claude'], ['', 'claude'], [positive, 'bogus']]) {
     const result = await runHook(hookPath, input, { format })

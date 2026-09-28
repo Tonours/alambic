@@ -116,7 +116,7 @@ level, with absolute paths:
 | skill | on | `alambic` skill: `$CLAUDE_CONFIG_DIR/skills` for Claude, `~/.agents/skills` for the others |
 | MCP | on | `claude mcp add` / `codex mcp add`, `opencode.json`, `~/.cursor/mcp.json` (Pi has no MCP) |
 | CLI shim | on | `~/.local/bin/alambic` |
-| per-prompt context | off | a hook that adds up to 3 matching notes to each prompt |
+| per-prompt context | off | a hook that adds up to 3 matching notes to each prompt, plus the L0 block after a Claude Code compaction and at Cursor session start |
 
 Without a terminal and without `--yes`, setup only prints its plan. Rerunning
 it is safe: unchanged items stay untouched.
@@ -136,6 +136,15 @@ scores above the threshold frozen in `_meta/evals/hook-gate.json`, caps the
 block at 1200 tokens, marks it untrusted, and always exits 0. Codex runs new
 hooks only after you approve them in `/hooks`; `setup --status` shows
 `pending-trust` until then.
+
+The same opt-in adds a session-start entry that re-asserts the L0 block
+(`ref/critical-facts.md`, capped at 800 bytes) and a pointer to
+`alambic session`, under the same header and budget: Claude Code gets it from
+a `SessionStart` hook with matcher `compact`, so after each compaction, and
+Cursor gets it from `sessionStart`. Cursor has no per-prompt entry, because its
+`beforeSubmitPrompt` output cannot add context. Rerunning setup removes a
+Cursor `beforeSubmitPrompt` entry that an older setup wrote, and leaves your
+own entries alone.
 
 Setup bakes in the absolute Node path, through Homebrew's `opt/` link when
 Node comes from a Cellar. After a Node upgrade that moves the binary, `doctor`

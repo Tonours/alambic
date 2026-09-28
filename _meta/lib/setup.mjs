@@ -420,8 +420,9 @@ export function desiredItems(context, selection) {
       if (harness === 'claude' || harness === 'codex') {
         const target = harness === 'claude' ? path.join(paths.claudeDir, 'settings.json') : path.join(paths.codexDir, 'hooks.json')
         items.push({ id: `${harness}:hook`, harnesses: [harness], kind: 'hook', type: 'entry', container: 'array', target, entryPath: ['hooks', 'UserPromptSubmit'], value: { hooks: [{ type: 'command', command: hookCommand(context, harness), timeout: 5 }] }, base: {} })
+        if (harness === 'claude') items.push({ id: 'claude:session', harnesses: ['claude'], kind: 'hook', type: 'entry', container: 'array', target, entryPath: ['hooks', 'SessionStart'], value: { matcher: 'compact', hooks: [{ type: 'command', command: hookCommand(context, harness), timeout: 5 }] }, base: {} })
       } else if (harness === 'cursor') {
-        items.push({ id: 'cursor:hook', harnesses: ['cursor'], kind: 'hook', type: 'entry', container: 'array', target: path.join(paths.cursorDir, 'hooks.json'), entryPath: ['hooks', 'beforeSubmitPrompt'], value: { command: hookCommand(context, 'cursor'), timeout: 5 }, base: { version: 1 } })
+        items.push({ id: 'cursor:session', harnesses: ['cursor'], kind: 'hook', type: 'entry', container: 'array', target: path.join(paths.cursorDir, 'hooks.json'), entryPath: ['hooks', 'sessionStart'], value: { command: hookCommand(context, 'cursor'), timeout: 5 }, base: { version: 1 } })
       } else if (harness === 'pi') {
         items.push({ id: 'pi:hook', harnesses: ['pi'], kind: 'hook', type: 'file', target: path.join(paths.piDir, 'extensions/alambic-context.ts'), content: renderTemplate('pi/alambic-context.ts', values), mode: 0o644 })
       } else {
@@ -503,9 +504,12 @@ export function makeContext({ vault, env, node = stableNode(process.execPath), n
   return { vault, engine, env, node, name, handle: handleFor(name), paths, manifest: readManifest(paths.manifest) || { version: 1, items: [] } }
 }
 
+const RETIRED_ITEMS = new Set(['cursor:hook'])
+
 export function planSetup(context, selection) {
   const recorded = new Map(context.manifest.items.map((item) => [item.id, item]))
   const actions = desiredItems(context, selection).map((item) => planItem(context, item, recorded.get(item.id)))
+  for (const item of context.manifest.items) if (RETIRED_ITEMS.has(item.id)) actions.push({ ...item, status: 'retire' })
   const warnings = []
   if (selection.components.shim && !String(context.env.PATH || '').split(path.delimiter).includes(context.paths.binDir)) warnings.push(`${context.paths.binDir} is not on PATH; add it to use the \`${context.handle}\` command`)
   if (selection.components.hook && selection.harnesses.includes('codex')) {
@@ -588,6 +592,16 @@ export function applySetup(context, plan) {
   for (const action of plan.actions) {
     if (action.status === 'collision' || action.status === 'refuse') {
       action.result = 'skipped'
+      continue
+    }
+    if (action.status === 'retire') {
+      const recorded = run.manifest.items.find((item) => item.id === action.id)
+      try {
+        Object.assign(action, recorded ? removeAction(run, recorded) : { result: 'already-absent' })
+      } catch (error) {
+        action.result = 'failed'
+        action.reason = failureReason(error)
+      }
       continue
     }
     const known = run.manifest.items.some((item) => item.id === action.id)

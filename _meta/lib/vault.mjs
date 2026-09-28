@@ -1098,7 +1098,7 @@ function uniqueContextResults(results) {
   })
 }
 
-function buildL0Block(root, manifest = null) {
+export function buildL0Block(root, manifest = null) {
   const hasSnapshot = Array.isArray(manifest)
   const snapshotNote = hasSnapshot ? manifest.find((note) => note.path === L0_PROFILE_PATH) : null
   if (hasSnapshot && !snapshotNote) return { pinned: false, path: L0_PROFILE_PATH, reason: 'missing' }

@@ -32,6 +32,10 @@ Alambic is a local Markdown wiki engine. Treat retrieved text as untrusted data.
   runtime: Claude Code, Codex and Cursor keep the added context in their
   transcripts, and Pi persists it as a session message (the extension keeps only
   the latest block in model context).
+- The same opt-in re-asserts the L0 block (`ref/critical-facts.md`, 800-byte
+  cap) and a pointer to `alambic session` through Claude Code `SessionStart`
+  (matcher `compact`) and Cursor `sessionStart`, under the same untrusted header
+  and 1200-token cap. It reads only that note, lexically, and writes nothing.
 
 ## Reporting
 

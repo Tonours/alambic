@@ -168,7 +168,9 @@ try {
   assert(claudeHook.timeout === 5 && spawnSync('/bin/sh', ['-c', claudeHook.command], { encoding: 'utf8' }).stdout.trim() === 'hook:--format|claude', 'claude hook command broken')
   assert(readJson(path.join(home, '.codex/hooks.json')).hooks.UserPromptSubmit[0].hooks[0].command.endsWith('--format codex'), 'codex hook wrong')
   const cursorHooks = readJson(path.join(home, '.cursor/hooks.json'))
-  assert(cursorHooks.version === 1 && cursorHooks.hooks.beforeSubmitPrompt[0].command.endsWith('--format cursor') && cursorHooks.hooks.beforeSubmitPrompt[0].timeout === 5, 'cursor hook wrong')
+  assert(cursorHooks.version === 1 && !cursorHooks.hooks.beforeSubmitPrompt && cursorHooks.hooks.sessionStart[0].command.endsWith('--format cursor') && cursorHooks.hooks.sessionStart[0].timeout === 5, 'cursor hook must use sessionStart, never beforeSubmitPrompt')
+  const claudeSession = readJson(path.join(home, '.claude/settings.json')).hooks.SessionStart[0]
+  assert(claudeSession.matcher === 'compact' && claudeSession.hooks[0].timeout === 5 && claudeSession.hooks[0].command === claudeHook.command, 'claude SessionStart compact hook wrong')
   assert(fs.readFileSync(path.join(home, '.pi/agent/extensions/alambic-context.ts'), 'utf8').includes(JSON.stringify(path.join(vault, '_meta/hooks/prompt-context.mjs'))), 'pi extension wrong')
   assert(fs.existsSync(path.join(home, '.config/opencode/plugins/alambic-context.js')), 'opencode plugin missing')
   assert(mode(path.join(home, '.claude/settings.json')) === 0o600, 'new config files must be 0600')
@@ -246,7 +248,7 @@ try {
   assert(removedById['agents:skill'].result === 'kept' && fs.existsSync(path.join(home, '.agents/skills/alambic/SKILL.md')), 'drifted skill must be kept')
   assert(removedById['claude:skill'].result === 'removed' && !fs.existsSync(path.join(home, '.claude/skills/alambic')), 'owned skill and its dir must be removed')
   const afterSettings = readJson(settingsFile)
-  assert(afterSettings.theme === 'dark' && afterSettings.hooks.Stop && !afterSettings.hooks.UserPromptSubmit, 'uninstall must keep foreign settings')
+  assert(afterSettings.theme === 'dark' && afterSettings.hooks.Stop && !afterSettings.hooks.UserPromptSubmit && !afterSettings.hooks.SessionStart, 'uninstall must keep foreign settings and remove both hooks')
   assert(!readJson(path.join(home, '.cursor/hooks.json')).hooks, 'emptied hook container on our path should be pruned')
   assert(!('alambic' in readJson(path.join(home, '.claude.json')).mcpServers) && calls('claude').some((entry) => entry.argv[1] === 'remove'), 'claude mcp must be removed')
   assert(removed.code === 1, 'uninstall with a kept item exits 1')
@@ -363,7 +365,40 @@ try {
   await setup(vault, ['--yes', '--harness', 'codex', '--prompt-hook', '--no-mcp', '--json'], envFor(home9))
   assert(doctorSetup(vault, envFor(home9)).warnings.join() === 'codex:hook: pending-trust', 'doctor must report pending-trust only')
 
-  const DEFAULT_ITEMS_SHA = '5282d4916238467307a8dc3c014613b4f16bfb697bc613bd0369fa36597cdc95'
+  const home10 = freshHome('home10')
+  const optOut = await setup(vault, ['--yes', '--harness', 'claude,cursor', '--no-mcp', '--no-shim', '--json'], envFor(home10))
+  assert(optOut.code === 0 && !fs.existsSync(path.join(home10, '.claude/settings.json')) && !fs.existsSync(path.join(home10, '.cursor/hooks.json')), 'session hooks must stay off without --prompt-hook')
+  const seedLegacyCursor = (legacyHome) => {
+    const context = makeContext({ vault, env: envFor(legacyHome) })
+    const session = desiredItems(context, { harnesses: ['cursor'], components: { hook: true } }).find((item) => item.id === 'cursor:session')
+    assert(session?.entryPath.join('.') === 'hooks.sessionStart', 'cursor must get the sessionStart hook')
+    const legacy = { command: session.value.command, timeout: 5 }
+    const user = { command: 'user-tool --check', timeout: 3 }
+    const hooksFile = path.join(legacyHome, '.cursor/hooks.json')
+    fs.mkdirSync(path.dirname(hooksFile), { recursive: true })
+    fs.writeFileSync(hooksFile, `${JSON.stringify({ version: 1, hooks: { beforeSubmitPrompt: [user, legacy] } }, null, 2)}\n`)
+    const manifestFile = path.join(legacyHome, '.local/state/alambic/setup.json')
+    fs.mkdirSync(path.dirname(manifestFile), { recursive: true, mode: 0o700 })
+    const record = { id: 'cursor:hook', harnesses: ['cursor'], kind: 'hook', type: 'entry', target: hooksFile, entryPath: ['hooks', 'beforeSubmitPrompt'], container: 'array', fingerprint: crypto.createHash('sha256').update(JSON.stringify(legacy)).digest('hex'), preState: 'absent', installed_at: '2026-09-01T00:00:00.000Z' }
+    fs.writeFileSync(manifestFile, `${JSON.stringify({ version: 1, vault, node: process.execPath, items: [record] }, null, 2)}\n`, { mode: 0o600 })
+    return { hooksFile, manifestFile, legacy, user }
+  }
+  const home11 = freshHome('home11')
+  const legacy11 = seedLegacyCursor(home11)
+  const cursorOnly = ['--harness', 'cursor', '--prompt-hook', '--no-mcp', '--no-skill', '--no-shim', '--json']
+  const retireDry = await setup(vault, cursorOnly, envFor(home11))
+  assert(byId(retireDry.json)['cursor:hook']?.status === 'retire' && readJson(legacy11.hooksFile).hooks.beforeSubmitPrompt.length === 2, 'dry-run must list the retired cursor:hook and write nothing')
+  const retired = await setup(vault, ['--yes', ...cursorOnly], envFor(home11))
+  const migrated = readJson(legacy11.hooksFile)
+  assert(retired.code === 0 && byId(retired.json)['cursor:hook']?.result === 'removed', `rerun must retire the old cursor hook: ${retired.out}`)
+  assert(JSON.stringify(migrated.hooks.beforeSubmitPrompt) === JSON.stringify([legacy11.user]) && migrated.hooks.sessionStart?.[0]?.command === legacy11.legacy.command, 'retire must keep user entries and install sessionStart')
+  assert(!readJson(legacy11.manifestFile).items.some((item) => item.id === 'cursor:hook'), 'the retired id must leave the manifest')
+  const home12 = freshHome('home12')
+  const legacy12 = seedLegacyCursor(home12)
+  const unretired = await setup(vault, ['--uninstall', '--yes', '--json'], envFor(home12))
+  assert(unretired.json.items.find((item) => item.id === 'cursor:hook')?.result === 'removed' && JSON.stringify(readJson(legacy12.hooksFile).hooks.beforeSubmitPrompt) === JSON.stringify([legacy12.user]), 'uninstall must remove a recorded cursor:hook and keep user entries')
+
+  const DEFAULT_ITEMS_SHA = '628d9c5b2b8652615a75c2b45f04c4400f67ca7b828076cdde9409b735572168'
   const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: process.execPath, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true } }).map(({ fingerprint, ...item }) => item)
   assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(process.execPath, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'default setup items drifted from their frozen fingerprint')
   assert(claudeSkill.includes('\n# alambic vault\n') && claudeSkill.includes('description: Query the alambic vault (a compiled'), 'default skill must keep its alambic identity')
