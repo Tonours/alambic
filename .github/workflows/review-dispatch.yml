@@ -9,16 +9,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: tailscale/github-action@v3
+      - uses: tailscale/github-action@84a3f23bb4d843bcf4da6cf824ec1be473daf4de # v3.2.3
         with:
           oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
           tags: tag:ci
-      - run: |
+      - env:
+          REVIEW_SSH_KEY: ${{ secrets.REVIEW_SSH_KEY }}
+          REVIEW_KNOWN_HOSTS: ${{ secrets.REVIEW_KNOWN_HOSTS }}
+        run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.REVIEW_SSH_KEY }}" > ~/.ssh/review_dispatch
+          printf '%s\n' "$REVIEW_SSH_KEY" > ~/.ssh/review_dispatch
           chmod 600 ~/.ssh/review_dispatch
-          printf '%s\n' "${{ secrets.REVIEW_KNOWN_HOSTS }}" > ~/.ssh/review_known_hosts
+          printf '%s\n' "$REVIEW_KNOWN_HOSTS" > ~/.ssh/review_known_hosts
           chmod 600 ~/.ssh/review_known_hosts
           set +e
           ssh -i ~/.ssh/review_dispatch -o UserKnownHostsFile=~/.ssh/review_known_hosts \
