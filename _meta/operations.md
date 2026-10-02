@@ -33,6 +33,7 @@ many are older than 14 days. A stale inbox is a warning, never a failure.
 _meta/alambic setup                  # checkbox picker in a terminal
 _meta/alambic setup --yes            # detected harnesses, defaults, no prompt
 _meta/alambic setup --yes --harness claude,codex --prompt-hook
+_meta/alambic setup --yes --harness claude --mcp --mcp-project ~/work/my-project
 _meta/alambic setup --status         # installed, drifted, outdated, pending-trust
 _meta/alambic setup --uninstall --yes
 ```
@@ -40,7 +41,7 @@ _meta/alambic setup --uninstall --yes
 | Component | Default | What it writes |
 | --- | --- | --- |
 | skill | on | `alambic` skill: `$CLAUDE_CONFIG_DIR/skills` for Claude, `~/.agents/skills` for the others |
-| MCP | on | `claude mcp add` / `codex mcp add`, `opencode.json`, `~/.cursor/mcp.json` (Pi has no MCP) |
+| MCP | off | with `--mcp`: `claude mcp add` / `codex mcp add`, `opencode.json`, `~/.cursor/mcp.json` (Pi has no MCP) |
 | CLI shim | on | `~/.local/bin/alambic` |
 | per-prompt context | off | a hook that adds up to 3 matching notes to each prompt, plus the L0 block after a Claude Code compaction and at Cursor session start |
 
@@ -57,9 +58,72 @@ it is safe: unchanged items stay untouched.
   behind, emptied.
 - Setup bakes in the absolute Node path, through Homebrew's `opt/` link when
   Node comes from a Cellar. After a Node upgrade that moves the binary,
-  `doctor` reports items as `outdated`; rerun `_meta/alambic setup --yes`.
+  `doctor` reports items as `outdated`; rerun `_meta/alambic setup --yes`
+  (add `--mcp` to refresh a previously registered MCP).
 
 Per-agent notes and the hook templates live in `_meta/harness/`.
+
+### Claude MCP scopes and session profiles
+
+Each live agent session can launch its own configured stdio MCP process.
+Installing the skill and CLI is sufficient for on-demand vault access;
+`setup` now leaves MCP unchecked by default. `--no-mcp` also skips it and
+does not remove an existing registration.
+
+```bash
+# Private to a coding project; skill/CLI still point to this vault.
+_meta/alambic setup --yes --harness claude --mcp --mcp-project ~/work/my-project
+# A shared .mcp.json in the selected directory (normal Claude approval applies).
+_meta/alambic setup --yes --harness claude --mcp-scope project --mcp-project ~/work/my-project
+# Explicitly opt in for every project/session.
+_meta/alambic setup --yes --harness claude --mcp-scope user
+```
+
+`--mcp-scope` and `--mcp-project` opt in to MCP and apply to Claude only;
+selecting other harnesses with `--mcp` still uses their existing scopes.
+For a new Claude entry, the default is `local`, targeting this vault unless
+`--mcp-project` is given. In a Git repository, Claude's local scope uses the
+main checkout, shared by its subdirectories and worktrees. Project scope
+writes `.mcp.json` in the selected physical directory. These placements were
+checked with Claude Code 2.1.287; see [Claude's scope reference](https://code.claude.com/docs/en/mcp#mcp-installation-scopes).
+Local scope inside a Git repository requires Git 2.36+ for its NUL-delimited
+worktree lookup ([Git 2.36 release notes](https://raw.githubusercontent.com/git/git/v2.36.0/Documentation/RelNotes/2.36.0.txt)).
+Project and user scopes do not use this lookup.
+
+Setup records the address. Later `setup --mcp`, `--status`, `doctor` and
+uninstall use that address even from another directory. Legacy records
+without a scope are interpreted as `user`. An unavailable project remains
+in the journal and is reported as drifted; restore it before uninstalling.
+
+To migrate an existing named global install, remove only its Claude MCP
+before selecting a new address:
+
+```bash
+_meta/alambic setup --uninstall --only-mcp --harness claude --name brain --yes
+_meta/alambic setup --yes --harness claude --name brain --mcp --mcp-project ~/work/my-project
+```
+
+Omit `--name brain` for the default install. Skills, CLI shims, hooks,
+schedules and other harnesses' MCP entries survive the targeted uninstall.
+`left` means the entry predated setup; `kept` means it changed or its project
+is unavailable. Such entries remain intact. A preserved global entry still
+applies in other projects; inspect it before removing it explicitly with
+Claude's own CLI. Existing sessions need to finish or restart before their
+already-running MCP processes disappear.
+
+Automation and reviewers can select a strict profile at launch:
+
+```bash
+# No configured MCPs, including global Chrome/other vault servers.
+claude --mcp-config /path/to/alambic/_meta/harness/claude-mcp-none.json --strict-mcp-config
+# Only entries in this selected profile.
+claude --mcp-config /path/to/my-project/.mcp.json --strict-mcp-config
+```
+
+The [strict flag](https://code.claude.com/docs/en/cli-reference) ignores other
+MCP configurations. Keep Chrome in a separate user-managed profile and load
+that profile for browser missions. The default harvest distiller supplies
+an explicit empty JSON config and the strict flag, independent of its cwd.
 
 ### Per-prompt hook
 

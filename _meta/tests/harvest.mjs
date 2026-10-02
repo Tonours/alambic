@@ -112,6 +112,21 @@ try {
   for (const file of [linked, fifo, renamed, path.join(claudeDir, 'up')]) fs.rmSync(file)
 
   const fake = path.join(temp, 'fake-distiller.sh')
+  const defaultBin = path.join(temp, 'default-distiller-bin')
+  const argvFile = path.join(temp, 'default-distiller-argv.json')
+  fs.mkdirSync(defaultBin)
+  fs.writeFileSync(path.join(defaultBin, 'claude'), `#!${process.execPath}\nconst fs = require('fs')\nfs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)))\nfs.readFileSync(0, 'utf8')\nconsole.log('{"skip":true}')\n`, { mode: 0o755 })
+  const { harvestDistill } = await import(path.join(root, '_meta/lib/harvest.mjs'))
+  const defaultState = path.join(temp, 'default-distiller-state')
+  fs.mkdirSync(path.join(defaultState, 'harvest/queue'), { recursive: true })
+  const defaultEntry = listQueue()[0]
+  fs.writeFileSync(path.join(defaultState, 'harvest/queue', defaultEntry.name), JSON.stringify(defaultEntry.entry))
+  const defaultRun = harvestDistill(vault, { stateDir: defaultState, env: { ...env, PATH: `${defaultBin}${path.delimiter}${env.PATH}` } })
+  assert.equal(defaultRun.skipped, 1, JSON.stringify(defaultRun))
+  const defaultArgs = JSON.parse(fs.readFileSync(argvFile, 'utf8'))
+  const configIndex = defaultArgs.indexOf('--mcp-config')
+  assert.ok(configIndex >= 0 && defaultArgs[configIndex + 2] === '--strict-mcp-config', 'default distiller requires an explicit strict empty MCP profile')
+  assert.deepEqual(JSON.parse(defaultArgs[configIndex + 1]), { mcpServers: {} }, 'the default child must not inherit session MCP servers')
   const answer = { type: 'finding', title: 'Lexical cache keeps raw fields', summary: 'The lexical cache must store raw and sources or queries crash on stale entries.', tags: ['retrieval', 'Cache!'], sources: ['https://docs.example.org/cache', 'file:///etc/passwd'], body: `${'Evidence and context for the cache fix. '.repeat(8)}`, reviewed_by: 'human:fake', status: 'verified' }
   fs.writeFileSync(fake, `#!/bin/sh\ncat > "${temp}/prompt.txt"\nprintf '%s' '${JSON.stringify(answer)}'\n`, { mode: 0o755 })
   const distilled = json(cli(['harvest', 'distill', '--distiller', fake]))
@@ -141,7 +156,6 @@ try {
   for (const item of listQueue()) fs.rmSync(path.join(state, 'harvest/queue', item.name))
   fs.appendFileSync(claudeFile, `\n${JSON.stringify({ type: 'assistant', sessionId: 'claude-s1', message: { role: 'assistant', content: [{ type: 'text', text: `${richer} Swap.` }] } })}`)
   assert.equal(json(cli(['harvest', 'scan', '--session', claudeFile])).queued.length, 1)
-  const { harvestDistill } = await import(path.join(root, '_meta/lib/harvest.mjs'))
   const inboxAi = path.join(vault, 'docs/inbox/ai')
   const kbBeforeSwap = fs.readdirSync(path.join(vault, 'kb')).sort()
   const { openSync } = fs

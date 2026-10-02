@@ -15,7 +15,8 @@ const DEFAULT_SCHEDULE = '05:15'
 const SCHEDULE_PATTERN = /^([01]?\d|2[0-3]):([0-5]\d)$/
 const SESSION_DIR_VARS = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'PI_CODING_AGENT_DIR']
 const TEMPLATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../harness')
-export const USAGE = 'usage: alambic setup [--name <slug> [--vault <path>]] [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor|all|detected] [--prompt-hook] [--harvest-hook] [--schedule [HH:MM]] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--yes]'
+export const USAGE = 'usage: alambic setup [--name <slug> [--vault <path>]] [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor|all|detected] [--mcp [--mcp-scope local|project|user] [--mcp-project <dir>]] [--prompt-hook] [--harvest-hook] [--schedule [HH:MM]] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--only-mcp [--harness claude,codex,opencode,cursor]] [--yes]'
+const MCP_SCOPES = ['local', 'project', 'user']
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,30}$/
 const NAMED_MANIFEST = /^setup-([a-z0-9][a-z0-9-]{0,30})\.json$/
 export const handleFor = (name) => (name ? `alambic-${name}` : 'alambic')
@@ -78,7 +79,7 @@ export function detectHarnesses(env, paths = resolvePaths(env)) {
 }
 
 export function parseSetupArgs(argv) {
-  const options = { mode: 'install', yes: false, dryRun: false, json: false, harness: null, name: null, vault: null, schedule: DEFAULT_SCHEDULE, components: { skill: true, mcp: true, shim: true, hook: false, harvest: false, schedule: false } }
+  const options = { mode: 'install', yes: false, dryRun: false, json: false, harness: null, name: null, vault: null, mcpScope: null, mcpProject: null, onlyMcp: false, schedule: DEFAULT_SCHEDULE, components: { skill: true, mcp: false, shim: true, hook: false, harvest: false, schedule: false } }
   const rest = [...argv]
   while (rest.length) {
     const arg = rest.shift()
@@ -94,7 +95,16 @@ export function parseSetupArgs(argv) {
       options.schedule = value
     }
     else if (arg === '--no-skill') options.components.skill = false
+    else if (arg === '--mcp') options.components.mcp = true
     else if (arg === '--no-mcp') options.components.mcp = false
+    else if (arg === '--only-mcp') options.onlyMcp = true
+    else if (arg === '--mcp-scope' || arg === '--mcp-project' || arg.startsWith('--mcp-scope=') || arg.startsWith('--mcp-project=')) {
+      const flag = arg.split('=')[0]
+      const value = arg.includes('=') ? arg.slice(flag.length + 1) : rest.shift()
+      if (!value || value.startsWith('--')) throw new Error(`${flag} needs a value\n${USAGE}`)
+      options[flag === '--mcp-scope' ? 'mcpScope' : 'mcpProject'] = value
+      options.components.mcp = true
+    }
     else if (arg === '--no-shim') options.components.shim = false
     else if (arg === '--status') options.mode = 'status'
     else if (arg === '--uninstall') options.mode = 'uninstall'
@@ -111,6 +121,12 @@ export function parseSetupArgs(argv) {
   if (options.name !== null && !NAME_PATTERN.test(options.name)) throw new Error(`--name must match ${NAME_PATTERN.source}\n${USAGE}`)
   if (options.vault !== null && options.name === null) throw new Error(`--vault needs --name (one named setup per vault)\n${USAGE}`)
   if (options.name !== null && options.components.hook) throw new Error('--prompt-hook is single-owner and stays with the default setup; drop --name or --prompt-hook')
+  if (options.mcpScope !== null && !MCP_SCOPES.includes(options.mcpScope)) throw new Error('--mcp-scope expects local, project, or user')
+  if (argv.includes('--no-mcp') && (argv.includes('--mcp') || options.mcpScope !== null || options.mcpProject !== null)) throw new Error('--no-mcp cannot be combined with --mcp, --mcp-scope, or --mcp-project')
+  if (options.onlyMcp && options.mode !== 'uninstall') throw new Error('--only-mcp needs --uninstall')
+  if (options.mode === 'uninstall' && options.harness && !options.onlyMcp) throw new Error('--uninstall --harness needs --only-mcp; omit --harness to uninstall all components')
+  if (options.mode !== 'install' && (options.mcpScope !== null || options.mcpProject !== null)) throw new Error('--mcp-scope and --mcp-project apply to installation only; status/uninstall use the journal')
+  if (options.mcpProject !== null && options.mcpScope === 'user') throw new Error('--mcp-project cannot be combined with user scope')
   return options
 }
 
@@ -257,8 +273,9 @@ function recordItem(run, action, preState) {
     target: action.target,
     ...(action.entryPath ? { entryPath: action.entryPath, container: action.container } : {}),
     ...(action.launchd ? { launchd: action.launchd, schedule: action.schedule } : {}),
+    ...(action.mcpScope ? { mcpScope: action.mcpScope, ...(action.mcpProject ? { mcpProject: action.mcpProject } : {}) } : {}),
     fingerprint: action.fingerprint,
-    preState: previous?.preState || preState,
+    preState: previous && sameMcpLocation(previous, action) ? previous.preState : preState,
     installed_at: new Date().toISOString(),
   })
   run.manifest = { ...run.manifest, ...(run.context.name ? { name: run.context.name, engine: run.context.engine } : {}), vault: run.context.vault, node: run.context.node, items }
@@ -270,10 +287,10 @@ function dropItem(run, id) {
   writeManifest(run.context.paths.manifest, run.manifest)
 }
 
-function runCli(context, name, argv, { allowFail = false } = {}) {
+function runCli(context, name, argv, { allowFail = false, cwd } = {}) {
   const binary = findBinary(name, context.env)
   if (!binary) throw new Refusal(`${name} not found on PATH`)
-  const result = spawnSync(binary, argv, { env: context.env, encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] })
+  const result = spawnSync(binary, argv, { cwd, env: context.env, encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] })
   if (!allowFail && result.status !== 0) throw new Refusal(`${name} ${argv.slice(0, 2).join(' ')} failed (exit ${result.status ?? result.signal})`)
   return result
 }
@@ -284,20 +301,65 @@ function normalizeMcp(entry) {
   return { command: entry.command, args: Array.isArray(entry.args) ? entry.args : [], env: Object.fromEntries(Object.entries(env).sort()) }
 }
 
-function mcpAdapter(context, harness) {
+function sameMcpLocation(a, b) {
+  return (a.mcpScope || 'user') === (b.mcpScope || 'user') && a.mcpProject === b.mcpProject
+}
+
+function requireMcpProject(project) {
+  try {
+    if (fs.statSync(project).isDirectory() && fs.realpathSync(project) === project) return
+  } catch {}
+  throw new Refusal('project unavailable; restore its directory before status/uninstall')
+}
+
+function resolveMcpProject(project, scope, env) {
+  let real
+  try {
+    real = fs.realpathSync(path.resolve(project))
+    if (!fs.statSync(real).isDirectory()) throw new Error('not a directory')
+  } catch { throw new Error('--mcp-project must name an existing directory') }
+  if (scope !== 'local') return real
+  const git = findBinary('git', env)
+  if (!git) return real
+  const top = spawnSync(git, ['rev-parse', '--show-toplevel'], { cwd: real, env, encoding: 'utf8', timeout: 10_000 })
+  if (top.error || top.signal) throw new Error('cannot resolve Claude project; git rev-parse failed')
+  if (top.status !== 0) return real
+  const list = spawnSync(git, ['worktree', 'list', '--porcelain', '-z'], { cwd: real, env, encoding: 'utf8', timeout: 10_000 })
+  const primary = list.stdout?.split('\0')[0]
+  if (list.status !== 0 || !primary?.startsWith('worktree ')) throw new Error('cannot resolve Claude project; check Git (2.36+) or use --mcp-scope project or user')
+  return fs.realpathSync(primary.slice('worktree '.length))
+}
+
+function claudeMcpLocation(context, selection) {
+  const recorded = context.manifest.items.find((item) => item.id === 'claude:mcp')
+  const mcpScope = selection.mcpScope || recorded?.mcpScope || (recorded ? 'user' : 'local')
+  if (mcpScope === 'user') {
+    if (selection.mcpProject) throw new Error('--mcp-project cannot be combined with user scope')
+    return { mcpScope }
+  }
+  const project = selection.mcpProject || recorded?.mcpProject || context.vault
+  return { mcpScope, mcpProject: selection.mcpProject || !recorded?.mcpProject ? resolveMcpProject(project, mcpScope, context.env) : project }
+}
+
+function mcpAdapter(context, harness, item = {}) {
   if (harness === 'claude') {
+    const scope = item.mcpScope || 'user'
+    const project = item.mcpProject
+    const file = scope === 'project' ? path.join(project, '.mcp.json') : context.paths.claudeJson
+    const entryPath = scope === 'local' ? ['projects', project, 'mcpServers', context.handle] : ['mcpServers', context.handle]
     return {
       read() {
-        const state = readTarget(context.paths.claudeJson)
+        if (scope !== 'user') requireMcpProject(project)
+        const state = readTarget(file)
         if (!state.exists) return undefined
-        const entry = parseStrictJson(state.bytes).mcpServers?.[context.handle]
+        const entry = walk(parseStrictJson(state.bytes), entryPath)
         return entry === undefined ? undefined : normalizeMcp(entry)
       },
       add(value) {
         const envArgs = Object.entries(value.env).flatMap(([key, item]) => ['-e', `${key}=${item}`])
-        runCli(context, 'claude', ['mcp', 'add', '-s', 'user', context.handle, ...envArgs, '--', value.command, ...value.args])
+        runCli(context, 'claude', ['mcp', 'add', '-s', scope, context.handle, ...envArgs, '--', value.command, ...value.args], { cwd: project })
       },
-      remove() { runCli(context, 'claude', ['mcp', 'remove', '-s', 'user', context.handle]) },
+      remove() { runCli(context, 'claude', ['mcp', 'remove', '-s', scope, context.handle], { cwd: project }) },
     }
   }
   return {
@@ -393,8 +455,10 @@ export function desiredItems(context, selection) {
   }
   if (components.mcp) {
     for (const harness of harnesses.filter((item) => MCP_HARNESSES.includes(item))) {
+      if (selection.recordedMcpOnly && !context.manifest.items.some((item) => item.id === `${harness}:mcp`)) continue
       if (harness === 'claude' || harness === 'codex') {
-        items.push({ id: `${harness}:mcp`, harnesses: [harness], kind: 'mcp', type: 'mcp-cli', target: `${harness} mcp (user) ${handle}`, value: normalizeMcp(mcpValue) })
+        const location = harness === 'claude' ? claudeMcpLocation(context, selection) : {}
+        items.push({ id: `${harness}:mcp`, harnesses: [harness], kind: 'mcp', type: 'mcp-cli', target: `${harness} mcp (${location.mcpScope || 'user'}) ${handle}${location.mcpProject ? ` @ ${location.mcpProject}` : ''}`, ...location, value: normalizeMcp(mcpValue) })
       } else if (harness === 'opencode') {
         items.push({ id: 'opencode:mcp', harnesses: ['opencode'], kind: 'mcp', type: 'entry', container: 'object', target: path.join(paths.opencodeDir, 'opencode.json'), jsoncSibling: path.join(paths.opencodeDir, 'opencode.jsonc'), entryPath: ['mcp', handle], value: { type: 'local', command: [node, server], environment: runtimeEnv, enabled: true }, base: { $schema: 'https://opencode.ai/config.json' } })
       } else {
@@ -440,7 +504,8 @@ const classify = (found, item, recorded) => (found === item.fingerprint ? 'match
 function inspect(context, item, recorded) {
   if (item.type === 'mcp-cli') {
     if (!findBinary(BINARIES[item.harnesses[0]], context.env)) throw new Refusal(`${BINARIES[item.harnesses[0]]} not found on PATH`)
-    const current = mcpAdapter(context, item.harnesses[0]).read()
+    if (recorded && !sameMcpLocation(recorded, item)) throw new Refusal('MCP location changed; run setup --uninstall --only-mcp --harness claude with the same --name first, then reinstall')
+    const current = mcpAdapter(context, item.harnesses[0], item).read()
     if (current === undefined) return { preimage: 'absent', state: 'absent' }
     const found = fingerprint(current)
     return { preimage: found, state: classify(found, item, recorded) }
@@ -529,7 +594,7 @@ function applyAction(run, action) {
   const found = inspect(context, action, recorded)
   if (found.preimage !== action.preimage) return 'changed-during-setup'
   if (action.type === 'mcp-cli') {
-    const adapter = mcpAdapter(context, action.harnesses[0])
+    const adapter = mcpAdapter(context, action.harnesses[0], action)
     const previous = action.status === 'update' ? adapter.read() : null
     if (previous) adapter.remove()
     try {
@@ -661,8 +726,13 @@ export function setupStatus(context, selection = null) {
     const { state, reason } = itemState(context, entry)
     return { id: entry.id, kind: entry.kind, target: entry.target, ...(entry.entryPath ? { entryPath: entry.entryPath } : {}), state, ...(reason ? { reason } : {}) }
   })
-  const wanted = selection ?? {
+  const wanted = selection ? {
+    ...selection,
+    recordedMcpOnly: !selection.components.mcp,
+    components: Object.fromEntries(COMPONENTS.map((component) => [component, selection.components[component] || recorded.some((item) => item.kind === component && item.harnesses.some((harness) => selection.harnesses.includes(harness)))])),
+  } : {
     harnesses: HARNESSES.filter((harness) => recorded.some((item) => item.harnesses.includes(harness))),
+    recordedMcpOnly: true,
     components: Object.fromEntries(COMPONENTS.map((component) => [component, recorded.some((item) => item.kind === component)])),
     schedule: recorded.find((item) => item.launchd)?.schedule,
   }
@@ -768,7 +838,7 @@ function removeAction(run, recorded) {
   }
   if (recorded.type === 'file' && fs.lstatSync(recorded.target).isSymbolicLink()) return { result: 'kept', reason: 'now a symlink' }
   if (recorded.type === 'mcp-cli') {
-    mcpAdapter(context, recorded.harnesses[0]).remove()
+    mcpAdapter(context, recorded.harnesses[0], recorded).remove()
   } else if (recorded.type === 'file') {
     if (readTarget(recorded.target).hash !== found.preimage) return { result: 'changed-during-setup' }
     if (!unload()) return { result: 'kept', reason: 'launchctl bootout failed' }
@@ -800,10 +870,11 @@ function removeAction(run, recorded) {
   return { result: 'removed' }
 }
 
-export function uninstallSetup(context, { dryRun = false } = {}) {
+export function uninstallSetup(context, { dryRun = false, onlyMcp = false, harnesses = null } = {}) {
   const run = newRun(context)
   const results = []
   for (const recorded of [...context.manifest.items].reverse()) {
+    if (onlyMcp && (recorded.kind !== 'mcp' || (harnesses && !recorded.harnesses.some((harness) => harnesses.includes(harness))))) continue
     const base = { id: recorded.id, kind: recorded.kind, target: recorded.target, ...(recorded.entryPath ? { entryPath: recorded.entryPath } : {}) }
     if (dryRun) {
       const { state } = itemState(context, recorded)
@@ -834,7 +905,7 @@ function pickerRows(detection, options, handle) {
   return [
     ...HARNESSES.map((harness) => ({ id: harness, group: 'Harnesses', label: harness, hint: detection[harness].detected ? 'detected' : 'not found', checked: options.harness ? selectHarnesses(options.harness, detection).includes(harness) : detection[harness].detected })),
     { id: 'skill', group: 'Components', label: 'skill', hint: `${handle} skill in each harness`, checked: options.components.skill },
-    { id: 'mcp', group: 'Components', label: 'MCP server', hint: 'vault_search/context/read tools (not pi)', checked: options.components.mcp },
+    { id: 'mcp', group: 'Components', label: 'MCP server', hint: 'opt-in: launches a server per session (not pi)', checked: options.components.mcp },
     { id: 'shim', group: 'Components', label: 'CLI shim', hint: `~/.local/bin/${handle}`, checked: options.components.shim },
     ...(options.name ? [] : [{ id: 'hook', group: 'Components', label: 'per-prompt context', hint: 'opt-in: inject matching vault notes on every prompt', checked: options.components.hook }]),
     { id: 'harvest', group: 'Components', label: 'session harvest hook', hint: 'opt-in: Claude SessionEnd queues the ended transcript', checked: options.components.harvest },
@@ -861,6 +932,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
   const print = (value) => stdout.write(options.json ? `${JSON.stringify(value, null, 2)}\n` : `${value}\n`)
   const tty = Boolean(stdin.isTTY && stdout.isTTY)
   const detection = detectHarnesses(env, context.paths)
+  if (options.mcpProject !== null) options.mcpProject = resolveMcpProject(options.mcpProject, 'project', env)
 
   if (options.mode === 'status') {
     const status = setupStatus(context, options.harness || !context.manifest.items.length ? { harnesses: selectHarnesses(options.harness, detection), components: options.components } : null)
@@ -876,7 +948,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
 
   if (options.mode === 'uninstall') {
     const dryRun = options.dryRun || !options.yes
-    const report = uninstallSetup(context, { dryRun })
+    const report = uninstallSetup(context, { dryRun, onlyMcp: options.onlyMcp, harnesses: options.harness ? selectHarnesses(options.harness, detection) : null })
     if (options.json) print(report)
     else {
       const lines = [`${context.handle} setup uninstall${dryRun ? ' (dry-run; add --yes to apply)' : ''}: ${report.items.length} item(s)`]
@@ -886,7 +958,7 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
     return report.items.some((item) => ['kept', 'failed', 'changed-during-setup'].includes(item.result)) ? 1 : 0
   }
 
-  let selection = { harnesses: selectHarnesses(options.harness, detection), components: { ...options.components }, schedule: options.schedule }
+  let selection = { harnesses: selectHarnesses(options.harness, detection), components: { ...options.components }, schedule: options.schedule, mcpScope: options.mcpScope, mcpProject: options.mcpProject }
   const interactive = tty && !options.yes && !options.dryRun && !options.json
   if (interactive) {
     const { runPicker } = await import('./checkbox.mjs')
@@ -896,8 +968,9 @@ export async function runSetup({ vault, args, env = process.env, stdin = process
       return 130
     }
     const checked = new Set(rows.filter((row) => row.checked).map((row) => row.id))
-    selection = { harnesses: HARNESSES.filter((harness) => checked.has(harness)), components: Object.fromEntries(COMPONENTS.map((component) => [component, checked.has(component)])), schedule: options.schedule }
+    selection = { harnesses: HARNESSES.filter((harness) => checked.has(harness)), components: Object.fromEntries(COMPONENTS.map((component) => [component, checked.has(component)])), schedule: options.schedule, mcpScope: options.mcpScope, mcpProject: options.mcpProject }
   }
+  if ((options.mcpScope || options.mcpProject) && (!selection.harnesses.includes('claude') || !selection.components.mcp)) throw new Error('--mcp-scope and --mcp-project need the Claude MCP component selected')
   const dryRun = options.dryRun || (!interactive && !options.yes)
   const plan = planSetup(context, selection)
   const report = dryRun ? plan : applySetup(context, plan)

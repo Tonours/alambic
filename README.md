@@ -21,9 +21,15 @@ npx github:Tonours/alambic init ~/vaults/brain --install
 ```
 
 This copies the publishable files into a new vault, installs dependencies,
-wires the agents it detects (skill, MCP server, `alambic` shim) and runs
+wires the agents it detects (skill and `alambic` shim) and runs
 `doctor`. Pass setup options after `--install`, for example
 `--install --harness claude,codex --prompt-hook`.
+
+MCP is opt-in: add `--mcp`. New Claude installs use local scope for this
+vault; use `--mcp-project <dir>` to select a coding project, or
+`--mcp-scope user` to make it available in every project. Other harnesses
+keep their usual MCP scope. Existing registrations stay until explicitly
+removed. See the [scope and launch guide](_meta/operations.md#claude-mcp-scopes-and-session-profiles).
 
 To hack on alambic itself:
 

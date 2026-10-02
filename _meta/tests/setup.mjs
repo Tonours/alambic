@@ -18,23 +18,26 @@ const log = path.join(temp, 'argv.jsonl')
 const CLAUDE_STUB = `#!${process.execPath}
 const fs = require('fs'), path = require('path')
 const argv = process.argv.slice(2)
-fs.appendFileSync(process.env.STUB_LOG, JSON.stringify({ bin: 'claude', argv }) + '\\n')
-const file = process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(process.env.HOME, '.claude.json')
+fs.appendFileSync(process.env.STUB_LOG, JSON.stringify({ bin: 'claude', argv, cwd: process.cwd() }) + '\\n')
+const scope = argv[3]
+const file = scope === 'project' ? path.join(process.cwd(), '.mcp.json') : process.env.CLAUDE_CONFIG_DIR ? path.join(process.env.CLAUDE_CONFIG_DIR, '.claude.json') : path.join(process.env.HOME, '.claude.json')
 const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return {} } }
 const write = (json) => fs.writeFileSync(file, JSON.stringify(json, null, 2) + '\\n')
 const named = (value) => /^alambic(-[a-z0-9-]+)?$/.test(value || '')
-if (argv[0] === 'mcp' && argv[1] === 'add' && argv[2] === '-s' && argv[3] === 'user' && named(argv[4])) {
+if (argv[0] === 'mcp' && argv[1] === 'add' && argv[2] === '-s' && ['user','local','project'].includes(scope) && named(argv[4])) {
   const name = argv[4]
   if (process.env.STUB_FAIL === 'claude:add' || process.env.STUB_FAIL === 'claude:add:' + argv[argv.indexOf('--') + 1]) { process.stderr.write('boom ' + process.env.STUB_CANARY); process.exit(5) }
   const sep = argv.indexOf('--')
   const env = {}
   for (let i = 5; i < sep; i += 2) { if (argv[i] !== '-e') process.exit(98); const [k, ...v] = argv[i + 1].split('='); env[k] = v.join('=') }
   const json = read()
-  if (json.mcpServers?.[name]) { process.stderr.write('already exists'); process.exit(1) }
-  json.mcpServers = { ...json.mcpServers, [name]: { type: 'stdio', command: argv[sep + 1], args: argv.slice(sep + 2), env } }
+  let parent = json
+  if (scope === 'local') { json.projects ||= {}; parent = json.projects[process.cwd()] ||= {} }
+  if (parent.mcpServers?.[name]) { process.stderr.write('already exists'); process.exit(1) }
+  parent.mcpServers = { ...parent.mcpServers, [name]: { type: 'stdio', command: argv[sep + 1], args: argv.slice(sep + 2), env } }
   write(json)
-} else if (argv.length === 5 && argv.slice(0, 4).join(' ') === 'mcp remove -s user' && named(argv[4])) {
-  const json = read(); delete json.mcpServers[argv[4]]; write(json)
+} else if (argv.length === 5 && argv.slice(0, 3).join(' ') === 'mcp remove -s' && ['user','local','project'].includes(scope) && named(argv[4])) {
+  const json = read(); const parent = scope === 'local' ? json.projects?.[process.cwd()] : json; if (parent?.mcpServers) delete parent.mcpServers[argv[4]]; write(json)
 } else process.exit(97)
 `
 const CODEX_STUB = `#!${process.execPath}
@@ -128,6 +131,199 @@ try {
   writeExec(path.join(vault, '_meta/alambic.mjs'), "console.log('cli:' + process.argv.slice(2).join('|'))\n")
   writeExec(path.join(vault, '_meta/hooks/prompt-context.mjs'), "console.log('hook:' + process.argv.slice(2).join('|'))\n")
 
+  const minimalHome = freshHome('home-default-no-mcp')
+  resetLog()
+  const minimal = await setup(vault, ['--yes', '--harness', 'all', '--json'], envFor(minimalHome))
+  assert(minimal.code === 0 && !minimal.json.actions.some((item) => item.kind === 'mcp'), 'MCP must require opt-in; default setup must not register global servers')
+  assert(!calls().some((entry) => entry.argv[0] === 'mcp'), 'default setup must not start or configure MCP servers')
+  assert(fs.existsSync(path.join(minimalHome, '.local/bin/alambic')) && fs.existsSync(path.join(minimalHome, '.claude/skills/alambic/SKILL.md')), 'default setup keeps CLI and skill access')
+  resetLog()
+
+
+  for (const scope of ['local', 'project', 'user']) {
+    const scopeHome = freshHome('scope-home-' + scope)
+    const scopeProject = freshHome("scope-project-" + scope + "-quote'")
+    const scopeEnv = envFor(scopeHome, { CLAUDE_CONFIG_DIR: path.join(scopeHome, 'custom-claude') })
+    fs.mkdirSync(scopeEnv.CLAUDE_CONFIG_DIR)
+    const config = path.join(scopeEnv.CLAUDE_CONFIG_DIR, '.claude.json')
+    const projectConfig = path.join(scopeProject, '.mcp.json')
+    const foreign = { command: 'foreign-server', args: [], env: { KEY: CANARY } }
+    fs.writeFileSync(config, JSON.stringify({ mcpServers: { foreign }, theme: 'keep' }))
+    fs.writeFileSync(projectConfig, JSON.stringify({ mcpServers: { foreign }, extra: 'keep' }))
+    const flags = ['--mcp-scope', scope, ...(scope === 'user' ? [] : ['--mcp-project', scopeProject])]
+    resetLog()
+    const scoped = await setup(vault, ['--yes', '--harness', 'claude', '--prompt-hook', '--json', ...flags], scopeEnv)
+    assert(scoped.code === 0, scoped.out)
+    const scopedFile = scope === 'project' ? projectConfig : config
+    const parent = () => scope === 'local' ? readJson(scopedFile).projects[scopeProject] : readJson(scopedFile)
+    assert(parent().mcpServers.alambic.env.ALAMBIC_ROOT === vault, scope + ' must register the correct vault')
+    assert(readJson(config).theme === 'keep' && readJson(projectConfig).extra === 'keep', 'foreign config fields survive')
+    assert(!scoped.out.includes(CANARY), 'scope report must not expose foreign secrets')
+    const manifestPath = path.join(scopeHome, '.local/state/alambic/setup.json')
+    const record = readJson(manifestPath).items.find((item) => item.id === 'claude:mcp')
+    assert(record.mcpScope === scope && record.mcpProject === (scope === 'user' ? undefined : scopeProject), 'journal pins the address')
+    const otherCwd = process.cwd()
+    let scopedStatus
+    try {
+      process.chdir(temp)
+      scopedStatus = await setup(vault, ['--status', '--json'], scopeEnv)
+    } finally { process.chdir(otherCwd) }
+    assert(scopedStatus.code === 0 && doctorSetup(vault, scopeEnv).warnings.length === 0, 'status/doctor use the recorded address')
+    assert(!calls('claude').some((entry) => ['get', 'list'].includes(entry.argv[1])), 'inspection must not start MCPs')
+    if (scope === 'user') {
+      const legacy = readJson(manifestPath)
+      delete legacy.items.find((item) => item.id === 'claude:mcp').mcpScope
+      fs.writeFileSync(manifestPath, JSON.stringify(legacy))
+    }
+    resetLog()
+    const beforeSkip = fs.readFileSync(scopedFile, 'utf8')
+    await setup(vault, ['--yes', '--harness', 'claude', '--json'], scopeEnv)
+    assert(fs.readFileSync(scopedFile, 'utf8') === beforeSkip && calls('claude').length === 0, 'default rerun skips existing MCP without removing it')
+    if (scope !== 'user') {
+      const projectAgain = await setup(vault, ['--yes', '--harness', 'claude', '--mcp-project', scopeProject, '--json'], scopeEnv)
+      assert(projectAgain.code === 0 && byId(projectAgain.json)['claude:mcp'].status === 'unchanged', 'explicit same project without scope must retain recorded scope')
+    }
+    const scopedAgain = await setup(vault, ['--yes', '--harness', 'claude', '--mcp', '--prompt-hook', '--json'], scopeEnv)
+    assert(scopedAgain.code === 0 && byId(scopedAgain.json)['claude:mcp'].status === 'unchanged', 'opted-in rerun retains legacy/current address')
+    const switchScope = scope === 'local' ? 'project' : 'local'
+    const blockedMove = await setup(vault, ['--yes', '--harness', 'claude', '--mcp-scope', switchScope, '--mcp-project', scopeProject, '--json'], scopeEnv)
+    assert(blockedMove.code === 1 && byId(blockedMove.json)['claude:mcp'].status === 'refuse', 'location change must require targeted uninstall')
+    const shim = path.join(scopeHome, '.local/bin/alambic')
+    const hooks = path.join(scopeEnv.CLAUDE_CONFIG_DIR, 'settings.json')
+    const nonMcp = [path.join(scopeEnv.CLAUDE_CONFIG_DIR, 'skills/alambic/SKILL.md'), shim, hooks]
+    const nonMcpHashes = nonMcp.map((file) => fs.readFileSync(file, 'utf8'))
+    const dryHome = snapshot(scopeHome)
+    const dryProject = snapshot(scopeProject)
+    const preview = await setup(vault, ['--uninstall', '--only-mcp', '--harness', 'claude', '--json'], scopeEnv)
+    assert(preview.json.dryRun && JSON.stringify(snapshot(scopeHome)) === JSON.stringify(dryHome) && JSON.stringify(snapshot(scopeProject)) === JSON.stringify(dryProject), 'targeted uninstall previews without changes')
+    if (scope !== 'user') {
+      fs.renameSync(scopeProject, scopeProject + '.away')
+      const unavailable = await setup(vault, ['--status', '--json'], scopeEnv)
+      const kept = await setup(vault, ['--uninstall', '--only-mcp', '--harness', 'claude', '--yes', '--json'], scopeEnv)
+      assert(unavailable.code === 1 && unavailable.json.items.find((item) => item.id === 'claude:mcp').reason.includes('project unavailable'), 'unavailable project is drifted')
+      assert(kept.code === 1 && readJson(manifestPath).items.some((item) => item.id === 'claude:mcp'), 'unavailable project retains ownership')
+      fs.renameSync(scopeProject + '.away', scopeProject)
+    }
+    resetLog()
+    let scopeRemoved
+    try {
+      process.chdir(temp)
+      scopeRemoved = await setup(vault, ['--uninstall', '--only-mcp', '--harness', 'claude', '--yes', '--json'], scopeEnv)
+    } finally { process.chdir(otherCwd) }
+    assert(scopeRemoved.code === 0 && scopeRemoved.json.items.length === 1 && scopeRemoved.json.items[0].result === 'removed', 'targeted uninstall only removes selected MCP')
+    assert(!parent().mcpServers.alambic && readJson(manifestPath).items.every((item) => item.kind !== 'mcp'), 'MCP removed from config and journal')
+    assert(nonMcp.every((file, index) => fs.readFileSync(file, 'utf8') === nonMcpHashes[index]), 'targeted uninstall preserves skill/shim/hooks')
+    assert(calls('claude')[0].argv[3] === scope && (scope === 'user' || calls('claude')[0].cwd === scopeProject), 'uninstall invokes the recorded scope/cwd')
+    const migrated = await setup(vault, ['--yes', '--harness', 'claude', '--mcp-scope', switchScope, '--mcp-project', scopeProject, '--json'], scopeEnv)
+    assert(migrated.code === 0 && readJson(manifestPath).items.find((item) => item.id === 'claude:mcp').preState === 'absent', 'migration creates fresh ownership at the new address')
+  }
+
+
+  const optInHome = freshHome('scope-default-local')
+  const optIn = await setup(vault, ['--yes', '--harness', 'claude', '--mcp', '--no-skill', '--no-shim', '--json'], envFor(optInHome))
+  assert(optIn.code === 0 && byId(optIn.json)['claude:mcp'].mcpScope === 'local' && byId(optIn.json)['claude:mcp'].mcpProject === vault, 'new Claude MCP defaults to this vault locally')
+  assert(!readJson(path.join(optInHome, '.claude.json')).mcpServers?.alambic, 'opt-in must not silently use user scope')
+
+  for (const state of ['missing', 'preexisting', 'drifted']) {
+    const migrationHome = freshHome('migration-' + state)
+    const migrationEnv = envFor(migrationHome)
+    const initial = ['--yes', '--harness', 'claude,codex', '--mcp-scope', 'user', '--json']
+    await setup(vault, initial, migrationEnv)
+    const config = path.join(migrationHome, '.claude.json')
+    const manifest = path.join(migrationHome, '.local/state/alambic/setup.json')
+    if (state === 'preexisting') {
+      fs.rmSync(manifest)
+      await setup(vault, initial, migrationEnv)
+    } else {
+      const data = readJson(config)
+      if (state === 'missing') delete data.mcpServers.alambic
+      else data.mcpServers.alambic.command = '/foreign/edited-node'
+      fs.writeFileSync(config, JSON.stringify(data))
+    }
+    const blocked = await setup(vault, ['--yes', '--harness', 'claude', '--mcp-scope', 'local', '--json'], migrationEnv)
+    assert(blocked.code === 1, 'journal prevents relocation even after a manual deletion')
+    const codex = path.join(migrationHome, '.codex/stub-mcp.json')
+    const codexBefore = fs.readFileSync(codex, 'utf8')
+    const removed = await setup(vault, ['--uninstall', '--only-mcp', '--harness', 'claude', '--yes', '--json'], migrationEnv)
+    assert(removed.json.items.length === 1 && removed.json.items[0].result === { missing: 'already-absent', preexisting: 'left', drifted: 'kept' }[state], 'targeted uninstall respects previous ownership')
+    assert(fs.readFileSync(codex, 'utf8') === codexBefore && readJson(manifest).items.some((item) => item.id === 'codex:mcp'), 'unselected harness MCP is preserved')
+    if (state !== 'drifted') {
+      const migrated = await setup(vault, ['--yes', '--harness', 'claude', '--mcp', '--json'], migrationEnv)
+      assert(migrated.code === 0 && readJson(manifest).items.find((item) => item.id === 'claude:mcp').preState === 'absent', 'new location must not inherit preexisting ownership')
+      const freshRemoved = await setup(vault, ['--uninstall', '--only-mcp', '--harness', 'claude', '--yes', '--json'], migrationEnv)
+      assert(freshRemoved.json.items[0].result === 'removed', 'setup-created local MCP is removed')
+      if (state === 'preexisting') assert(readJson(config).mcpServers.alambic, 'preexisting global MCP stays outside setup ownership')
+    }
+  }
+
+  const gitProject = freshHome('scope-git-project')
+  const gitSub = path.join(gitProject, 'sub')
+  fs.mkdirSync(gitSub)
+  fs.writeFileSync(path.join(gitProject, 'fixture'), 'git fixture\n')
+  const gitRun = (args) => {
+    const result = spawnSync('git', ['-C', gitProject, ...args], { encoding: 'utf8' })
+    assert(result.status === 0, 'git fixture: ' + result.stderr)
+  }
+  gitRun(['init', '-q'])
+  gitRun(['add', 'fixture'])
+  gitRun(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'])
+  const worktree = path.join(temp, 'scope-worktree')
+  gitRun(['worktree', 'add', '-q', '--detach', worktree])
+  const gitAlias = path.join(temp, 'scope-git-alias')
+  fs.symlinkSync(gitSub, gitAlias)
+  for (const scope of ['local', 'project']) {
+    for (const project of [gitSub, worktree, gitAlias]) {
+      const gitHome = freshHome('scope-git-home-' + scope + '-' + path.basename(project))
+      const report = await setup(vault, ['--yes', '--harness', 'claude', '--mcp-scope', scope, '--mcp-project', project, '--no-skill', '--no-shim', '--json'], envFor(gitHome))
+      const expected = scope === 'local' ? gitProject : fs.realpathSync(project)
+      assert(report.code === 0 && byId(report.json)['claude:mcp'].mcpProject === expected, 'scope resolver must match native CLI worktree/subdirectory semantics')
+      await setup(vault, ['--uninstall', '--only-mcp', '--yes', '--json'], envFor(gitHome))
+    }
+  }
+
+  const statusGitBin = path.join(temp, 'status-only-git-bin')
+  writeExec(path.join(statusGitBin, 'git'), `#!${process.execPath}
+const fs = require('fs'), argv = process.argv.slice(2)
+fs.appendFileSync(process.env.STUB_LOG, JSON.stringify({ bin: 'git', argv }) + '\\n')
+if (argv[0] === 'rev-parse') process.stdout.write(process.cwd() + '\\n')
+else { process.stderr.write('error: unknown switch z'); process.exit(129) }
+`)
+  const mixedEnv = envFor(freshHome('scope-mixed-after-migration'), { PATH: `${statusGitBin}:${stubBin}:/usr/bin:/bin` })
+  const mixed = await setup(gitProject, ['--yes', '--harness', 'claude,codex', '--mcp-scope', 'user', '--json'], mixedEnv)
+  assert(mixed.code === 0, mixed.out)
+  await setup(gitProject, ['--uninstall', '--only-mcp', '--harness', 'claude', '--yes', '--json'], mixedEnv)
+  for (const harness of [null, 'claude', 'codex', 'claude,codex', 'all']) {
+    resetLog()
+    const flags = harness ? ['--harness', harness] : []
+    const mixedStatus = await setup(gitProject, ['--status', '--json', ...flags], mixedEnv)
+    assert(mixedStatus.code === 0 && !calls('git').length, `implicit MCP status (${harness || 'recorded'}) must filter absent journal entries before resolving their addresses`)
+  }
+  assert(doctorSetup(gitProject, mixedEnv).warnings.length === 0 && !calls('git').length, 'doctor must inspect recorded MCP addresses without resolving an absent Claude MCP')
+  const foreignCursorFile = path.join(mixedEnv.HOME, '.cursor/mcp.json')
+  fs.mkdirSync(path.dirname(foreignCursorFile), { recursive: true })
+  fs.writeFileSync(foreignCursorFile, JSON.stringify({ mcpServers: { alambic: { command: 'foreign' } } }))
+  const implicitStatus = await setup(gitProject, ['--status', '--json', '--harness', 'codex,cursor'], mixedEnv)
+  assert(implicitStatus.code === 0 && !implicitStatus.json.items.some((item) => item.id === 'cursor:mcp'), 'implicit MCP status must keep unrecorded foreign MCPs outside its selection')
+  const explicitStatus = await setup(gitProject, ['--status', '--json', '--harness', 'codex,cursor', '--mcp'], mixedEnv)
+  assert(explicitStatus.code === 1 && explicitStatus.json.items.some((item) => item.id === 'cursor:mcp' && item.state === 'collision'), 'explicit --mcp status must report unrecorded foreign collisions; do not apply the recorded-only filter')
+  assert(readJson(foreignCursorFile).mcpServers.alambic.command === 'foreign', 'status must preserve the foreign MCP entry')
+  resetLog()
+
+  const invalidHome = freshHome('scope-invalid-options')
+  const invalidBefore = snapshot(invalidHome)
+  for (const flags of [
+    ['--only-mcp'], ['--uninstall', '--harness', 'claude'], ['--mcp', '--no-mcp'],
+    ['--no-mcp', '--mcp-scope', 'local'], ['--mcp-scope', 'bad'],
+    ['--mcp-scope', 'user', '--mcp-project', vault], ['--status', '--mcp-scope', 'local'],
+    ['--uninstall', '--mcp-project', vault], ['--harness', 'codex', '--mcp-scope', 'local'],
+    ['--mcp-project', path.join(temp, 'absent')], ['--mcp-project', log],
+  ]) {
+    let refused = false
+    try { await setup(vault, ['--yes', ...flags], envFor(invalidHome)) } catch { refused = true }
+    assert(refused && JSON.stringify(snapshot(invalidHome)) === JSON.stringify(invalidBefore), 'invalid options fail before writes: ' + flags.join(' '))
+  }
+
+  resetLog()
   assert(parseSetupArgs(['--yes']).harness === null && parseSetupArgs(['--harness=pi,codex']).harness === 'pi,codex', 'arg parsing')
   let threw = false
   try { parseSetupArgs(['--bogus']) } catch { threw = true }
@@ -141,15 +337,16 @@ try {
   const detection = detectHarnesses(env)
   assert(Object.values(detection).every((entry) => entry.detected && entry.binary.startsWith(stubBin)), 'stubs must be detected, from the stub dir only')
   const before = snapshot(home)
-  const dry = await setup(vault, ['--harness', 'all', '--prompt-hook', '--json'], env)
+  const dry = await setup(vault, ['--mcp-scope', 'user', '--harness', 'all', '--prompt-hook', '--json'], env)
   assert(dry.json.mode === 'dry-run' && JSON.stringify(snapshot(home)) === JSON.stringify(before), 'dry-run must write nothing')
   assert(calls().every((entry) => /^(mcp get alambic --json|features list)$/.test(entry.argv.join(' '))), 'dry-run may only read')
+  assert(!calls('claude').some((entry) => ['get', 'list'].includes(entry.argv[1])), 'Claude dry-run must not health-check and spawn servers')
   assert(!fs.existsSync(path.join(home, '.claude.json')), 'dry-run touched .claude.json')
   for (const action of dry.json.actions) assert(action.type === 'mcp-cli' || action.target.startsWith(temp), `target escapes the temp root: ${action.target}`)
   assert(dry.json.actions.every((action) => !('content' in action) && !('value' in action)), 'json output leaks internals')
 
   resetLog()
-  const installed = await setup(vault, ['--yes', '--harness', 'all', '--prompt-hook', '--json'], env)
+  const installed = await setup(vault, ['--mcp-scope', 'user', '--yes', '--harness', 'all', '--prompt-hook', '--json'], env)
   assert(installed.code === 0 && installed.json.actions.every((action) => action.result === 'applied'), `install failed: ${JSON.stringify(installed.json.actions.filter((a) => a.result !== 'applied'))}`)
   const claudeSkill = fs.readFileSync(path.join(home, '.claude/skills/alambic/SKILL.md'), 'utf8')
   assert(claudeSkill.includes(vault) && claudeSkill.startsWith('---\nname: alambic'), 'claude skill wrong')
@@ -183,7 +380,7 @@ try {
 
   resetLog()
   const stable = snapshot(home)
-  const again = await setup(vault, ['--yes', '--harness', 'all', '--prompt-hook', '--json'], env)
+  const again = await setup(vault, ['--mcp-scope', 'user', '--yes', '--harness', 'all', '--prompt-hook', '--json'], env)
   assert(again.code === 0 && again.json.actions.every((action) => action.status === 'unchanged'), 'second run must be unchanged')
   assert(JSON.stringify(snapshot(home)) === JSON.stringify(stable), 'second run changed bytes')
   assert(!calls().some((entry) => /add|remove/.test(entry.argv[1])), 'second run called a mutating CLI')
@@ -214,13 +411,22 @@ try {
   const node3 = path.join(temp, 'node-bad/node')
   fs.mkdirSync(path.dirname(node3))
   fs.symlinkSync(process.execPath, node3)
-  const failedUpdate = await setup(vault, ['--yes', '--harness', 'claude', '--no-skill', '--no-shim', '--json'], envFor(home, { STUB_FAIL: `claude:add:${node3}` }), node3)
+  const failedUpdate = await setup(vault, ['--mcp-scope', 'user', '--yes', '--harness', 'claude', '--no-skill', '--no-shim', '--json'], envFor(home, { STUB_FAIL: `claude:add:${node3}` }), node3)
   assert(failedUpdate.code === 1 && byId(failedUpdate.json)['claude:mcp'].result === 'failed' && readJson(path.join(home, '.claude.json')).mcpServers.alambic.command === NODE, 'a failed update must restore the previous MCP entry')
   resetLog()
   const node2 = path.join(temp, 'node-bin/node')
   fs.mkdirSync(path.dirname(node2))
   fs.symlinkSync(process.execPath, node2)
-  const moved = await setup(vault, ['--yes', '--harness', 'claude,codex', '--no-skill', '--json'], env, node2)
+  const nodeDriftEnv = envFor(freshHome('home-selected-status-node-drift'))
+  const nodeInstall = await setup(vault, ['--yes', '--harness', 'claude', '--mcp', '--no-skill', '--no-shim', '--json'], nodeDriftEnv, node2)
+  assert(nodeInstall.code === 0, nodeInstall.out)
+  for (const harness of [[], ['--harness', 'claude']]) {
+    const nodeStatus = await setup(vault, ['--status', '--json', ...harness], nodeDriftEnv)
+    assert(nodeStatus.code === 1 && nodeStatus.json.items.find((item) => item.id === 'claude:mcp').state === 'outdated', 'status must detect an installed MCP with obsolete Node even though MCP defaults off')
+  }
+  assert(doctorSetup(vault, nodeDriftEnv).warnings.includes('claude:mcp: outdated'), 'doctor and selected status must agree on MCP Node drift')
+  resetLog()
+  const moved = await setup(vault, ['--mcp-scope', 'user', '--yes', '--harness', 'claude,codex', '--no-skill', '--json'], env, node2)
   const movedActions = byId(moved.json)
   assert(movedActions['claude:mcp'].status === 'update' && movedActions['codex:mcp'].status === 'update' && movedActions['cli:shim'].status === 'update', 'owned items should update')
   for (const bin of ['claude', 'codex']) {
@@ -276,7 +482,7 @@ try {
   fs.mkdirSync(path.join(home2, '.cursor'), { recursive: true })
   fs.writeFileSync(path.join(home2, '.cursor/mcp.json'), `{ "mcpServers": { "x": { "env": { "T": "${CANARY}" } }, }`)
   resetLog()
-  const foreign = await setup(vault, ['--yes', '--harness', 'all', '--prompt-hook', '--json'], env2)
+  const foreign = await setup(vault, ['--mcp-scope', 'user', '--yes', '--harness', 'all', '--prompt-hook', '--json'], env2)
   const foreignActions = byId(foreign.json)
   assert(foreign.code === 1, 'collisions must exit 1')
   assert(foreignActions['claude:skill'].status === 'collision' && fs.readFileSync(path.join(home2, '.claude/skills/alambic/SKILL.md'), 'utf8') === 'my own skill\n', 'foreign skill must not be overwritten')
@@ -292,7 +498,7 @@ try {
   assert(settingsBackup && mode(settingsBackup) === 0o600 && readJson(settingsBackup).hooks.UserPromptSubmit.length === 1, 'settings backup must be the 0600 preimage')
   const foreignManifest = fs.readFileSync(path.join(home2, '.local/state/alambic/setup.json'), 'utf8')
   assert(!foreign.out.includes(CANARY) && !foreignManifest.includes(CANARY), 'foreign secret leaked to output or manifest')
-  const textRun = await setup(vault, ['--harness', 'all', '--prompt-hook'], env2)
+  const textRun = await setup(vault, ['--mcp-scope', 'user', '--harness', 'all', '--prompt-hook'], env2)
   assert(!textRun.out.includes(CANARY) && textRun.out.includes('add manually to'), 'text dry-run must print snippets, never secrets')
   const foreignStatus = await setup(vault, ['--status', '--json', '--harness', 'claude'], env2)
   const foreignSkill = foreignStatus.json.items.find((item) => item.id === 'claude:skill')
@@ -307,9 +513,9 @@ try {
 
   const adoptHome = freshHome('home-adopt')
   const adoptEnv = envFor(adoptHome)
-  await setup(vault, ['--yes', '--harness', 'cursor', '--no-skill', '--no-shim', '--json'], adoptEnv)
+  await setup(vault, ['--mcp', '--yes', '--harness', 'cursor', '--no-skill', '--no-shim', '--json'], adoptEnv)
   fs.rmSync(path.join(adoptHome, '.local/state/alambic/setup.json'))
-  const adopted = await setup(vault, ['--yes', '--harness', 'cursor', '--no-skill', '--no-shim', '--json'], adoptEnv)
+  const adopted = await setup(vault, ['--mcp', '--yes', '--harness', 'cursor', '--no-skill', '--no-shim', '--json'], adoptEnv)
   assert(byId(adopted.json)['cursor:mcp'].status === 'unchanged', 'identical foreign entry should plan as unchanged')
   const unAdoptDry = await setup(vault, ['--uninstall', '--json'], adoptEnv)
   const unAdopt = await setup(vault, ['--uninstall', '--yes', '--json'], adoptEnv)
@@ -318,7 +524,7 @@ try {
 
   const home3 = freshHome('home3')
   const env3 = envFor(home3, { STUB_FAIL: 'claude:add' })
-  const partial = await setup(vault, ['--yes', '--harness', 'claude,codex', '--json'], env3)
+  const partial = await setup(vault, ['--mcp-scope', 'user', '--yes', '--harness', 'claude,codex', '--json'], env3)
   const partialActions = byId(partial.json)
   assert(partial.code === 1 && partialActions['claude:mcp'].result === 'failed' && /exit 5/.test(partialActions['claude:mcp'].reason), 'claude add failure should be reported by exit code')
   assert(!partial.out.includes(CANARY), 'CLI stderr leaked')
@@ -344,11 +550,11 @@ try {
 
   const home5 = freshHome('home5')
   const env5 = envFor(home5, { CLAUDE_CONFIG_DIR: path.join(temp, 'claude-cfg'), CODEX_HOME: path.join(temp, 'codex-cfg'), STUB_CODEX_HOOKS: 'false' })
-  const custom = await setup(vault, ['--yes', '--harness', 'claude,codex', '--prompt-hook', '--no-shim', '--json'], env5)
+  const custom = await setup(vault, ['--mcp-scope', 'user', '--yes', '--harness', 'claude,codex', '--prompt-hook', '--no-shim', '--json'], env5)
   assert(fs.existsSync(path.join(temp, 'claude-cfg/skills/alambic/SKILL.md')) && fs.existsSync(path.join(temp, 'claude-cfg/.claude.json')) && fs.existsSync(path.join(temp, 'codex-cfg/hooks.json')), 'custom config dirs ignored')
   assert(custom.json.warnings.some((warning) => warning.includes('codex hooks are disabled')), 'disabled codex hooks must be reported')
 
-  const pi = await setup(vault, ['--harness', 'pi', '--json'], envFor(freshHome('home6')))
+  const pi = await setup(vault, ['--mcp', '--harness', 'pi', '--json'], envFor(freshHome('home6')))
   assert(pi.json.actions.every((action) => action.kind !== 'mcp') && pi.json.warnings.some((warning) => warning.includes('pi has no MCP')), 'pi must not get MCP')
 
   assert(JSON.stringify(doctorSetup(vault, envFor(freshHome('home7')))) === JSON.stringify({ installed: false, warnings: [] }), 'fresh home: not installed, no warning')
@@ -400,8 +606,8 @@ try {
   assert(unretired.json.items.find((item) => item.id === 'cursor:hook')?.result === 'removed' && JSON.stringify(readJson(legacy12.hooksFile).hooks.beforeSubmitPrompt) === JSON.stringify([legacy12.user]), 'uninstall must remove a recorded cursor:hook and keep user entries')
 
   const DEFAULT_ITEMS_SHA = '2246dd7d55a60ea1995897805e64967d2c78ad4b18be8083c6aedcf0c90d31ba'
-  const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: NODE, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true } }).map(({ fingerprint, ...item }) => item)
-  assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(NODE, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'default setup items drifted from their frozen fingerprint')
+  const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: NODE, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true }, mcpScope: 'user' }).map(({ fingerprint, mcpScope, ...item }) => item)
+  assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(NODE, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'explicit legacy user-scope setup items drifted from their frozen fingerprint')
   assert(claudeSkill.includes('\n# alambic vault\n') && claudeSkill.includes('description: Query the alambic vault (a compiled'), 'default skill must keep its alambic identity')
   const skillDescription = claudeSkill.match(/^description: (.*)$/m)?.[1] || ''
   const whenToUse = skillDescription.match(/Use when ([^.]+)\./)?.[1] || ''
@@ -422,11 +628,11 @@ try {
   const envN = envFor(homeN)
   for (const bad of [path.join(temp, 'missing'), engine]) {
     threw = false
-    try { await setup(engine, ['--yes', '--name', 'brain', '--vault', bad], envN) } catch { threw = true }
+    try { await setup(engine, ['--mcp', '--yes', '--name', 'brain', '--vault', bad], envN) } catch { threw = true }
     assert(threw, `--vault must refuse ${bad}`)
   }
   resetLog()
-  const namedRun = await setup(engine, ['--yes', '--harness', 'claude,codex,opencode,cursor', '--name', 'brain', '--vault', brain, '--json'], envN)
+  const namedRun = await setup(engine, ['--mcp-scope', 'user', '--yes', '--harness', 'claude,codex,opencode,cursor', '--name', 'brain', '--vault', brain, '--json'], envN)
   assert(namedRun.code === 0 && namedRun.json.vault === brain && namedRun.json.engine === engine && namedRun.json.name === 'brain', `named install failed: ${namedRun.out}`)
   const pinned = { ALAMBIC_ROOT: brain, ALAMBIC_STATE_DIR: path.join(homeN, '.local/state/alambic-brain') }
   const namedServer = path.join(engine, '_meta/mcp/server.mjs')
@@ -452,8 +658,8 @@ try {
   assert(JSON.stringify(doctorSetup(brain, envN)) === JSON.stringify({ installed: true, warnings: [], items: namedStatus.json.items }), 'doctor must find the named manifest for its vault')
   assert(JSON.stringify(doctorSetup(engine, envN)) === JSON.stringify({ installed: false, warnings: [] }), 'doctor must ignore named manifests of other vaults')
 
-  const defaultRun = await setup(engine, ['--yes', '--harness', 'claude', '--no-shim', '--json'], envN)
-  const selfRun = await setup(engine, ['--yes', '--harness', 'claude', '--no-shim', '--name', 'self', '--json'], envN)
+  const defaultRun = await setup(engine, ['--mcp-scope', 'user', '--yes', '--harness', 'claude', '--no-shim', '--json'], envN)
+  const selfRun = await setup(engine, ['--mcp-scope', 'user', '--yes', '--harness', 'claude', '--no-shim', '--name', 'self', '--json'], envN)
   assert(defaultRun.code === 0 && selfRun.code === 0 && selfRun.json.vault === engine, 'default and self-named setups must coexist')
   assert(Object.keys(readJson(path.join(homeN, '.claude.json')).mcpServers).sort().join() === 'alambic,alambic-brain,alambic-self', 'handles must stay separate')
   assert(doctorSetup(brain, envN).warnings.length === 0, 'default manifest of another vault must not warn when a named one matches')

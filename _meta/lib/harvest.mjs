@@ -11,7 +11,7 @@ import { createExclusive, displacedDir, prepareDisplaced, sameInode, vaultDir, w
 export const HARNESSES = ['claude', 'codex', 'pi']
 export const HARVEST_ORIGIN = 'session-harvest'
 export const SESSION_TRUST = 'untrusted-session-data'
-export const DEFAULT_DISTILLER = 'claude -p --setting-sources "" --disable-slash-commands --tools "" --strict-mcp-config --no-session-persistence --model sonnet'
+export const DEFAULT_DISTILLER = 'claude -p --setting-sources "" --disable-slash-commands --tools "" --mcp-config \'{"mcpServers":{}}\' --strict-mcp-config --no-session-persistence --model sonnet'
 const NOTE_TYPES = ['finding', 'incident', 'adr', 'reference', 'synthesis']
 const QUIET_MS = 10 * 60 * 1000
 const LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000

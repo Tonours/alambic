@@ -1,7 +1,7 @@
 # Cursor
 
 Run `_meta/alambic setup --harness cursor` once from the vault: skill in
-`~/.agents/skills`, MCP in `~/.cursor/mcp.json`, and with `--prompt-hook` a
+`~/.agents/skills`, opt-in MCP with `--mcp` in `~/.cursor/mcp.json`, and with `--prompt-hook` a
 `sessionStart` hook in `~/.cursor/hooks.json` that adds the L0 block and a
 pointer to `alambic session` as `additional_context`. Cursor gets no per-prompt
 hook: `beforeSubmitPrompt` output accepts only `continue` and `user_message`.
