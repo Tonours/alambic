@@ -31,7 +31,7 @@ export function isIndexPath(relativePath) {
   return INDEX_PATH_RE.test(relativePath)
 }
 const MANIFEST_CACHE_MAX_AGE_MS = 1_000
-const LEXICAL_CACHE_VERSION = 2
+const LEXICAL_CACHE_VERSION = 3
 
 export function lexicalCachePath(root) {
   return path.join(root, '_meta', '.cache', 'lexical-index.json')
@@ -76,9 +76,9 @@ function parseManifestEntry(root, file) {
   const text = fs.readFileSync(file, 'utf8')
   let metadata = {}
   let body = text
-  if (file.endsWith('.md') && relative !== 'kb/_index.md' && text.startsWith('---\n')) {
+  if (file.endsWith('.md') && relative !== 'kb/_index.md' && /^---\r?\n/.test(text)) {
     try {
-      ({ data: metadata, body } = parseMarkdown(file))
+      ({ data: metadata, body } = parseMarkdownText(text))
     } catch {
       // Validation reports malformed frontmatter; the manifest remains usable.
     }

@@ -19,7 +19,7 @@ function assert(condition, message) {
   }
 }
 
-function writeNote(dir, name, { title, status = 'verified', tags = [], body = '', links = [] }) {
+function writeNote(dir, name, { title, status = 'verified', tags = [], aliases = [], body = '', links = [] }) {
   const related = links.map((link) => `[[${link}]]`).join(' ')
   const content = `---
 type: finding
@@ -30,7 +30,7 @@ sources:
 created: 2026-07-28
 updated: 2026-07-28
 tags:
-${tags.map((tag) => `  - ${tag}`).join('\n')}
+${tags.map((tag) => `  - ${tag}`).join('\n')}${aliases.length ? `\naliases:\n${aliases.map((alias) => `  - ${alias}`).join('\n')}` : ''}
 ---
 
 # ${title}
@@ -157,6 +157,49 @@ assert(threw, 'recordExecutionTrace must throw and refuse query storage')
 // 8) Adjacency undirected
 const adj = graphAdjacencyMap(rebuilt)
 assert(adj.get('kb/alpha.md')?.has('kb/beta.md'), 'alpha should neighbor beta')
+
+// 9) Immediate edit/delete invalidation and cache/rebuild agreement.
+const beforeEdit = loadGraph(tmp)
+writeNote(kb, 'alpha.md', {
+  title: 'Alpha edited node',
+  tags: ['graph'],
+  body: 'Alpha now links directly to gamma; a different size guarantees a new stat signature.',
+  links: ['gamma'],
+})
+const edited = loadGraph(tmp)
+assert(edited.source_snapshot_sha256 !== beforeEdit.source_snapshot_sha256, 'edit should refresh the graph fingerprint immediately')
+assert(edited.edges.some((edge) => edge.source === 'kb/alpha.md' && edge.target === 'kb/gamma.md'), 'edit should replace alpha outgoing edges')
+assert(!edited.edges.some((edge) => edge.source === 'kb/alpha.md' && edge.target === 'kb/beta.md'), 'edit should retire the old outgoing edge')
+fs.rmSync(path.join(kb, 'gamma.md'))
+const deleted = loadGraph(tmp)
+assert(deleted.source_snapshot_sha256 !== edited.source_snapshot_sha256, 'delete should refresh the graph fingerprint immediately')
+assert(!deleted.nodes['kb/gamma.md'] && deleted.edges.every((edge) => edge.source !== 'kb/gamma.md' && edge.target !== 'kb/gamma.md'), 'delete should remove the node and every incident edge')
+const forced = buildGraph(tmp, { force: true })
+for (const key of ['snapshot', 'stats', 'nodes', 'edges', 'claims']) {
+  assert(JSON.stringify(deleted[key]) === JSON.stringify(forced[key]), `cache/rebuild ${key} mismatch`)
+}
+
+// 10) Name collisions retain exact, lowercase, then first folded precedence.
+writeNote(kb, 'case-a.md', { title: 'Case A', aliases: ['ExactAlias', 'FirstAlias', 'LaterTarget'] })
+writeNote(kb, 'case-b.md', { title: 'Case B', aliases: ['exactalias', 'fIrStAlIaS'] })
+writeNote(ref, 'LaterTarget.md', { title: 'Later basename replaces an alias' })
+writeNote(kb, 'DuplicateName.md', { title: 'Earlier duplicate' })
+writeNote(ref, 'DuplicateName.md', { title: 'Later duplicate' })
+const resolutions = [
+  ['ExactAlias', 'kb/case-a.md'],
+  ['EXACTALIAS', 'kb/case-b.md'],
+  ['fIrStAlIaS', 'kb/case-b.md'],
+  ['FIRSTALIAS', 'kb/case-a.md'],
+  ['LATERTARGET', 'ref/LaterTarget.md'],
+  ['DUPLICATENAME', 'ref/DuplicateName.md'],
+]
+for (const [index, [link]] of resolutions.entries()) {
+  writeNote(kb, `case-source-${index}.md`, { title: `Case source ${index}`, links: [link] })
+}
+const cases = buildGraph(tmp, { force: true })
+for (const [index, [link, target]] of resolutions.entries()) {
+  assert(cases.edges.some((edge) => edge.source === `kb/case-source-${index}.md` && edge.target === target), `${link} should resolve to ${target}`)
+}
 
 // Live vault smoke (optional): ensure production builder does not throw
 try {

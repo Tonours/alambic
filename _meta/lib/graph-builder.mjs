@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { buildManifest, isIndexPath, retrievalSnapshot } from './vault.mjs'
 
-const GRAPH_CACHE_VERSION = '1.2.0'
+const GRAPH_CACHE_VERSION = '1.3.0'
 
 const STATUS_PRIOR = {
   verified: 1.0,
@@ -39,7 +39,8 @@ function wikilinkKey(name) {
 export function buildGraph(root, { force = false, writeCache = true } = {}) {
   // Always refresh the snapshot fingerprint so note writes in the same process
   // invalidate the derived graph even within the 1s manifest soft-cache window.
-  const snapshot = retrievalSnapshot(root, { fresh: true })
+  const lane = buildManifest(root, false, { fresh: true })
+  const snapshot = retrievalSnapshot(root, { manifest: lane })
   const cachePath = graphCachePath(root)
 
   if (!force && fs.existsSync(cachePath)) {
@@ -58,7 +59,7 @@ export function buildGraph(root, { force = false, writeCache = true } = {}) {
     }
   }
 
-  const manifest = buildManifest(root, false, { fresh: true }).filter((note) => !isIndexPath(note.path))
+  const manifest = lane.filter((note) => !isIndexPath(note.path))
   const nodes = {}
   const edges = []
   const claims = []
@@ -85,28 +86,17 @@ export function buildGraph(root, { force = false, writeCache = true } = {}) {
     }
   }
 
-  for (const note of manifest) {
-    let rawText = note.text || ''
-    try {
-      rawText = fs.readFileSync(path.join(root, note.path), 'utf8')
-    } catch {
-      // Manifest search text is a fallback when the file is unreadable.
-    }
+  const foldedNames = new Map()
+  for (const [name, notePath] of basenameToPath) {
+    const key = wikilinkKey(name)
+    if (!foldedNames.has(key)) foldedNames.set(key, notePath)
+  }
 
+  for (const note of manifest) {
     const seenTargets = new Set()
-    for (const targetName of wikilinkNames(rawText)) {
-      const targetPath = basenameToPath.get(targetName) || basenameToPath.get(wikilinkKey(targetName))
-      // basename map is case-sensitive for basenames; resolve case-insensitively.
-      let resolved = targetPath
-      if (!resolved) {
-        const key = wikilinkKey(targetName)
-        for (const [name, p] of basenameToPath) {
-          if (wikilinkKey(name) === key) {
-            resolved = p
-            break
-          }
-        }
-      }
+    for (const targetName of wikilinkNames(note.raw)) {
+      const nameKey = wikilinkKey(targetName)
+      const resolved = basenameToPath.get(targetName) || basenameToPath.get(nameKey) || foldedNames.get(nameKey)
       if (!resolved || resolved === note.path || seenTargets.has(resolved)) continue
       seenTargets.add(resolved)
       const key = `${note.path}->${resolved}`
