@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { buildGraph } from './graph-builder.mjs'
 import { checkGraphLint } from './graph-linter.mjs'
 import { lintVault, queryVault, validateVault, retrievalHealth } from './vault.mjs'
+import { readReviewLedger } from './review-ledger.mjs'
 
 const MAX_SEEDED_PROPOSALS = 3
 const PULSE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -91,8 +92,12 @@ export function runLivingLoopPulse(root, {
   ensureDir(path.join(dir, 'pulses'))
 
   const proposalNames = fs.readdirSync(path.join(dir, 'proposals')).filter((name) => name.endsWith('.json'))
-  const reviewNames = fs.readdirSync(path.join(dir, 'reviews')).filter((name) => name.endsWith('.json'))
-  const pending = proposalNames.filter((name) => !fs.existsSync(path.join(dir, 'reviews', name)))
+  const reviewFiles = fs.readdirSync(path.join(dir, 'reviews')).filter((name) => name.endsWith('.json'))
+  // Any review file still closes its proposal. Only human decision receipts
+  // count toward the supervision gate.
+  const pending = proposalNames.filter((name) => !reviewFiles.includes(name))
+  const ledger = readReviewLedger(dir)
+  const humanReviewNames = ledger.human
   const humanFeedback = readFeedbackCounts(path.join(dir, 'feedback', 'counts.json'))
   const evalFeedback = readFeedbackCounts(path.join(dir, 'feedback', 'eval-counts.json'))
   const humanFeedbackTotal = sumFeedback(humanFeedback)
@@ -120,7 +125,8 @@ export function runLivingLoopPulse(root, {
     eval: evalReport,
     living_loop: {
       proposals: proposalNames.length,
-      reviews: reviewNames.length,
+      reviews: humanReviewNames.length,
+      oracle_review_leftovers: ledger.oracle_count,
       pending_reviews: pending.length,
       human_feedback_total: humanFeedbackTotal,
       human_feedback: humanFeedback,
@@ -135,7 +141,7 @@ export function runLivingLoopPulse(root, {
       lint_structural_green: Boolean(lint.ok),
       graph_rebuild_ok: !graphError,
       eval_green: evalReport ? Boolean(evalReport.ok) : null,
-      reviews_ge_20: reviewNames.length >= 20,
+      reviews_ge_20: humanReviewNames.length >= 20,
       human_feedback_ge_10: humanFeedbackTotal >= 10,
       pending_reviews_zero: pending.length === 0,
       class_a: 'local-nightly',
@@ -143,9 +149,9 @@ export function runLivingLoopPulse(root, {
       apply_still_disabled: true,
       // Hygiene can be CI-owned; human supervision cannot.
       hygiene_ready: Boolean(validation.ok && lint.ok && !graphError && (evalReport ? evalReport.ok : true)),
-      supervision_ready: reviewNames.length >= 20 && humanFeedbackTotal >= 10 && pending.length === 0,
+      supervision_ready: humanReviewNames.length >= 20 && humanFeedbackTotal >= 10 && pending.length === 0,
     },
-    next_actions: buildNextActions({ pending, reviewNames, humanFeedbackTotal, seeded, graphLint }),
+    next_actions: buildNextActions({ pending, reviewNames: humanReviewNames, humanFeedbackTotal, seeded, graphLint }),
   }
 
   if (writePulseFile) {

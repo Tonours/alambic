@@ -511,6 +511,7 @@ try {
     if (!report.ok) process.exitCode = 1
   } else if (command === 'status' || command === 'loop') {
     const { loadLatestPulse, pulseFreshness, runLivingLoopPulse } = await import('./lib/loop-pulse.mjs')
+    const { readReviewLedger } = await import('./lib/review-ledger.mjs')
     const json = has('--json')
     // CI / automated hygiene pulse (never fabricates human reviews or human feedback).
     const ci = has('--ci')
@@ -559,8 +560,10 @@ try {
       const feedbackFile = path.join(dir, 'feedback', 'counts.json')
       const evalFeedbackFile = path.join(dir, 'feedback', 'eval-counts.json')
       const proposals = fs.existsSync(proposalDir) ? fs.readdirSync(proposalDir).filter((name) => name.endsWith('.json')) : []
-      const reviews = fs.existsSync(reviewDir) ? fs.readdirSync(reviewDir).filter((name) => name.endsWith('.json')) : []
-      const pending = proposals.filter((name) => !fs.existsSync(path.join(reviewDir, name)))
+      const reviewFiles = fs.existsSync(reviewDir) ? fs.readdirSync(reviewDir).filter((name) => name.endsWith('.json')) : []
+      const ledger = readReviewLedger(dir)
+      const reviews = ledger.human
+      const pending = proposals.filter((name) => !reviewFiles.includes(name))
       const feedback = fs.existsSync(feedbackFile)
         ? JSON.parse(fs.readFileSync(feedbackFile, 'utf8'))
         : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
@@ -588,6 +591,7 @@ try {
         living_loop: {
           proposals: proposals.length,
           reviews: reviews.length,
+          oracle_review_leftovers: ledger.oracle_count,
           pending_reviews: pending.length,
           pending_paths: pending.slice(0, 20).map((name) => path.join(proposalDir, name)),
           feedback_total: feedbackTotal,

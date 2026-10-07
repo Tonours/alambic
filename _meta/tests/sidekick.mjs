@@ -302,5 +302,145 @@ assert(!/Library\/LaunchAgents/.test(liveWriterDocs), 'live refs have no LaunchA
 
 assert(fs.readFileSync(path.join(kb, 'alpha-side.md'), 'utf8').includes('[[beta-side]]'), 'link persists')
 
+// Apply must audit under sidekick/receipts and must not mint a human review receipt.
+{
+  const { spawnSync } = await import('node:child_process')
+  const crypto = await import('node:crypto')
+  const { readReviewLedger } = await import('../lib/review-ledger.mjs')
+  const { runLivingLoopPulse } = await import('../lib/loop-pulse.mjs')
+  const priorState = process.env.ALAMBIC_STATE_DIR
+  const applyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-sidekick-audit-'))
+  const applyState = path.join(applyRoot, 'state')
+  const applyVault = path.join(applyRoot, 'vault')
+  process.env.ALAMBIC_STATE_DIR = applyState
+  const note = (name, title) => `---
+type: finding
+status: verified
+summary: "${title} durable token note for the sidekick audit fixture"
+sources:
+  - "https://example.org/${name}"
+created: 2026-10-07
+updated: 2026-10-07
+tags:
+  - css
+  - tokens
+  - design-tokens
+---
+
+# ${title}
+
+${'Shared design-token guidance for the sidekick structural apply fixture. '.repeat(4)}
+`
+  try {
+    fs.mkdirSync(path.join(applyVault, 'kb'), { recursive: true })
+    fs.mkdirSync(path.join(applyVault, 'ref'), { recursive: true })
+    fs.mkdirSync(path.join(applyVault, 'docs/inbox'), { recursive: true })
+    fs.mkdirSync(path.join(applyVault, '_meta'), { recursive: true })
+    fs.copyFileSync(path.join(ROOT, '_meta/note.schema.json'), path.join(applyVault, '_meta/note.schema.json'))
+    fs.copyFileSync(path.join(ROOT, 'ref/knowledge-health.base'), path.join(applyVault, 'ref/knowledge-health.base'))
+    for (const file of ['CLAUDE.md', 'AGENTS.md', 'README.md']) fs.writeFileSync(path.join(applyVault, file), '# t\n')
+    fs.writeFileSync(path.join(applyVault, 'package.json'), '{}\n')
+    fs.writeFileSync(path.join(applyVault, 'kb/palette-side.md'), note('palette-side', 'Palette side'))
+    fs.writeFileSync(path.join(applyVault, 'kb/token-side.md'), note('token-side', 'Token side'))
+    fs.writeFileSync(path.join(applyVault, 'kb/_index.md'), `---
+type: reference
+status: verified
+summary: "Index for the sidekick audit fixture"
+created: 2026-10-07
+updated: 2026-10-07
+tags:
+  - index
+---
+
+# Index
+
+## Active durable notes
+
+- [[palette-side]]
+- [[token-side]]
+`)
+    const applied = await runSidekick(applyVault, {
+      dryRun: false,
+      applyStructural: true,
+      applyFreeform: false,
+      maxActions: 4,
+      seedProposals: false,
+      writePulse: false,
+    })
+    assert(applied.ok === true && !applied.aborted, `structural apply should succeed: ${applied.aborted || applied.message || ''} ${JSON.stringify(applied.validation || {})}`)
+    const structural = (applied.actions || []).filter((item) => item.type === 'structural_link' && item.applied)
+    assert(structural.length === 1, `expected one structural apply, got ${structural.length}`)
+    const palette = fs.readFileSync(path.join(applyVault, 'kb/palette-side.md'), 'utf8')
+    const tokens = fs.readFileSync(path.join(applyVault, 'kb/token-side.md'), 'utf8')
+    assert(palette.includes('[[token-side]]') && tokens.includes('[[palette-side]]'), 'structural apply must edit both notes before the audit is written')
+    const reviewDir = path.join(applyState, 'reviews')
+    const reviewFiles = fs.existsSync(reviewDir) ? fs.readdirSync(reviewDir).filter((name) => name.endsWith('.json')) : []
+    assert(reviewFiles.length === 0, `apply must not write human review receipts, got ${reviewFiles.join(',')}`)
+    const proposalDir = path.join(applyState, 'proposals')
+    const proposalFiles = fs.existsSync(proposalDir) ? fs.readdirSync(proposalDir).filter((name) => name.endsWith('.json')) : []
+    assert(proposalFiles.length === 0, 'apply must not mint a dummy proposal for the audit')
+    const auditDir = path.join(applyState, 'sidekick', 'receipts')
+    const auditFiles = fs.readdirSync(auditDir).filter((name) => name.endsWith('.json'))
+    assert(auditFiles.length === 1 && /^\d{4}-\d{2}-\d{2}-[a-f0-9]{16}\.json$/.test(auditFiles[0]), `expected one hashed audit file, got ${auditFiles.join(',')}`)
+    const audit = JSON.parse(fs.readFileSync(path.join(auditDir, auditFiles[0]), 'utf8'))
+    const auditId = crypto.createHash('sha256').update(JSON.stringify({
+      version: audit.version,
+      kind: audit.kind,
+      decision: audit.decision,
+      reason: audit.reason,
+      applied_at: audit.applied_at,
+      meta: audit.meta,
+    })).digest('hex').slice(0, 16)
+    assert(audit.kind === 'oracle-audit' && audit.decision === 'auto_apply' && auditFiles[0].includes(auditId), 'audit digest must come from crypto.createHash')
+    const auditFn = fs.readFileSync(path.join(ROOT, '_meta/lib/sidekick.mjs'), 'utf8').split('function writeOracleAudit')[1]
+    assert(auditFn.includes("crypto.createHash('sha256')") && !/\bsha256\(/.test(auditFn), 'writeOracleAudit must not call an unbound sha256')
+
+    fs.mkdirSync(reviewDir, { recursive: true })
+    for (let index = 0; index < 20; index += 1) {
+      fs.writeFileSync(path.join(reviewDir, `oracle-${index}.json`), `${JSON.stringify({
+        version: 1,
+        proposal_sha256: 'a'.repeat(64),
+        decision: 'accept',
+        reason: `oracle:structural leftover ${index}`,
+        reviewed_at: '2026-10-07T00:00:00.000Z',
+        receipt_sha256: 'b'.repeat(64),
+      })}\n`)
+    }
+    const leftovers = readReviewLedger(applyState)
+    assert(leftovers.human_count === 0 && leftovers.oracle_count === 20, 'oracle-labeled reviews are leftovers, not human receipts')
+    const blocked = runLivingLoopPulse(applyVault, { seedProposals: false, runEvals: false, writeInbox: false, writePulseFile: false })
+    assert(blocked.living_loop.reviews === 0 && blocked.living_loop.oracle_review_leftovers === 20, 'pulse review count ignores oracle leftovers')
+    assert(blocked.checklist.reviews_ge_20 === false && blocked.checklist.supervision_ready === false, 'twenty oracle leftovers must not open the supervision gate')
+
+    for (let index = 0; index < 20; index += 1) {
+      const payload = {
+        version: 1,
+        proposal_sha256: crypto.createHash('sha256').update(`human-${index}`).digest('hex'),
+        decision: 'accept',
+        reason: `human review ${index}`,
+        reviewed_at: '2026-10-07T00:00:00.000Z',
+      }
+      const receipt = { ...payload, receipt_sha256: crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex') }
+      fs.writeFileSync(path.join(reviewDir, `${payload.proposal_sha256}.json`), `${JSON.stringify(receipt)}\n`)
+    }
+    fs.mkdirSync(path.join(applyState, 'feedback'), { recursive: true })
+    fs.writeFileSync(path.join(applyState, 'feedback', 'counts.json'), `${JSON.stringify({ version: 1, hit: 10, miss: 0, stale: 0, wrong: 0 })}\n`)
+    const opened = runLivingLoopPulse(applyVault, { seedProposals: false, runEvals: false, writeInbox: false, writePulseFile: false })
+    assert(opened.living_loop.reviews === 20 && opened.checklist.reviews_ge_20 === true && opened.checklist.supervision_ready === true, 'twenty human receipts with feedback open the supervision gate')
+    const status = spawnSync(process.execPath, [path.join(ROOT, '_meta/alambic.mjs'), 'loop', '--json'], {
+      encoding: 'utf8',
+      env: { ...process.env, ALAMBIC_ROOT: applyVault, ALAMBIC_STATE_DIR: applyState },
+    })
+    assert(status.status === 0, status.stderr)
+    const statusReport = JSON.parse(status.stdout)
+    assert(statusReport.living_loop.reviews === 20 && statusReport.living_loop.oracle_review_leftovers === 20, 'loop counts human receipts and reports oracle leftovers separately')
+    assert(statusReport.checklist.reviews_ge_20 === true && statusReport.checklist.supervision_ready === true, 'loop checklist must open on human receipts, not oracle leftovers')
+  } finally {
+    if (priorState === undefined) delete process.env.ALAMBIC_STATE_DIR
+    else process.env.ALAMBIC_STATE_DIR = priorState
+    fs.rmSync(applyRoot, { recursive: true, force: true })
+  }
+}
+
 fs.rmSync(tmp, { recursive: true, force: true })
 if (!process.exitCode) process.stdout.write('sidekick tests: ok\n')
