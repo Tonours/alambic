@@ -880,8 +880,18 @@ export function queryVault(root, query, { includeDocs = false, limit = 5, includ
     const minMatched = words.length >= 5 ? 3 : 2
     if (matchedTerms.size < minMatched) return false
     if (coverage < 0.4) return false
-    if (!strong && !distinctiveHit && coverage < 0.6) return false
-    if (strong) return true
+    // One generic title/tag/summary token (e.g. "fix") must not waive the
+    // 0.6 coverage bar. A single glue word plus two incidental body hits
+    // otherwise clears the hook on verified notes.
+    const strongTerms = new Set(
+      result.reasons
+        .filter((reason) => /^(exact|title|tag|summary):/.test(reason))
+        .map((reason) => reason.split(':').slice(1).join(':'))
+        .filter(Boolean),
+    )
+    const anchored = strongTerms.size >= 2 || [...strongTerms].some((term) => distinctive(term))
+    if (!anchored && !distinctiveHit && coverage < 0.6) return false
+    if (anchored || (strong && coverage >= 0.6)) return true
     return result.score >= 14
   })
 
