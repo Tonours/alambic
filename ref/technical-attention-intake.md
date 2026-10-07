@@ -23,7 +23,7 @@ sources:
   - "https://developers.reddit.com/docs/capabilities/server/reddit-api"
   - "https://docs.x.com/x-api/posts/bookmarks/introduction"
 created: 2026-09-23
-updated: 2026-09-28
+updated: 2026-10-07
 tags:
   - attention
   - capture
@@ -200,8 +200,12 @@ When invoked, the wrapper:
    (`grok --prompt-file … --max-turns 8`), then
 2. **Always** runs the deterministic CLI path (YouTube + X + Chrome multi-device
    collect → optional X drop → `attention stage` → **`attention compile`** →
-   `promote-suggest --confirm` → receipt) so a successful Grok exit cannot skip
-   collect/stage/compile.
+   `promote-suggest` → receipt) so a successful Grok exit cannot skip
+   collect/stage/compile. Standalone runs pass `--confirm`
+   (`ALAMBIC_ATTENTION_PROMOTE_CONFIRM` defaults to `1`). A sidekick dry-run
+   (`ALAMBIC_SIDEKICK_APPLY=0`) sets that variable to `0`, and its `materialize`
+   mode calls `promote-suggest` without `--confirm`, so
+   `docs/inbox/ai/promote-ready/` stays unwritten.
 
 The wrapper reads approved local overrides from its environment (and
 `~/.zshrc` when present) without echoing secret values. Local sidekick apply stays off
