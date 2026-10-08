@@ -109,6 +109,7 @@ export function readSession(harness, file) {
   if (id === 'session') id = path.basename(path.dirname(file))
   let cwd = null
   const messages = []
+  let lastAcceptedIntent = ''
   const push = (role, parts) => {
     const text = cleanText(parts.join('\n'))
     if (text && !injected(text)) messages.push({ role, text })
@@ -158,12 +159,19 @@ export function readSession(harness, file) {
         const pt = rec?.payload_type
         const payload = rec?.payload || {}
         if (pt === 'runtime.user_intent.accepted') {
-          const blocks = [...museTextBlocks(payload.refill_blocks), ...museTextBlocks(payload.model_messages)]
-          if (blocks.length) pushMuseUser(blocks)
+          const refill = museTextBlocks(payload.refill_blocks)
+          const blocks = refill.length ? refill : museTextBlocks(payload.model_messages)
+          if (blocks.length) {
+            pushMuseUser(blocks)
+            lastAcceptedIntent = cleanText(blocks.join('\n'))
+          }
         } else if (pt === 'runtime.session' && payload.kind === 'run') {
           const event = payload.event || {}
-          if (event.kind === 'started' && typeof event.prompt === 'string' && event.prompt.trim()) pushMuseUser([event.prompt])
-          else if (event.kind === 'assistant_message_committed' && typeof event.text === 'string' && event.text.trim()) pushMuseAssistant([event.text])
+          if (event.kind === 'started' && typeof event.prompt === 'string' && event.prompt.trim()) {
+            const prompt = cleanText(event.prompt)
+            if (prompt && prompt === lastAcceptedIntent) lastAcceptedIntent = ''
+            else if (prompt) pushMuseUser([prompt])
+          } else if (event.kind === 'assistant_message_committed' && typeof event.text === 'string' && event.text.trim()) pushMuseAssistant([event.text])
           else if (event.kind === 'model_user_messages' && Array.isArray(event.messages)) {
             const parts = event.messages.filter((item) => typeof item === 'string' && item.trim())
             if (parts.length) pushMuseUser(parts)

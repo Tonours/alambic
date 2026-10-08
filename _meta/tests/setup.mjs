@@ -556,6 +556,8 @@ else { process.stderr.write('error: unknown switch z'); process.exit(129) }
 
   const pi = await setup(vault, ['--mcp', '--harness', 'pi', '--json'], envFor(freshHome('home6')))
   assert(pi.json.actions.every((action) => action.kind !== 'mcp') && pi.json.warnings.some((warning) => warning.includes('pi has no MCP')), 'pi must not get MCP')
+  const museMcp = await setup(vault, ['--mcp', '--harness', 'muse', '--json'], envFor(freshHome('muse-mcp')))
+  assert(museMcp.json.actions.every((action) => action.kind !== 'mcp') && museMcp.json.warnings.some((warning) => warning.includes('muse has no MCP')), 'muse must not get MCP')
 
   assert(JSON.stringify(doctorSetup(vault, envFor(freshHome('home7')))) === JSON.stringify({ installed: false, warnings: [] }), 'fresh home: not installed, no warning')
   const drift = doctorSetup(vault, env)

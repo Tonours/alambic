@@ -587,6 +587,7 @@ export function planSetup(context, selection) {
   }
   if (selection.components.harvest && !selection.harnesses.includes('claude')) warnings.push('the harvest hook is Claude-only; select the claude harness (Codex and Pi sessions are picked up by nightly)')
   if (selection.components.mcp && selection.harnesses.includes('pi')) warnings.push('pi has no MCP support; pi gets the skill (and the hook when selected)')
+  if (selection.components.mcp && selection.harnesses.includes('muse')) warnings.push('muse has no MCP support; muse gets the skill')
   return { vault: context.vault, node: context.node, selection, actions, warnings }
 }
 
@@ -907,7 +908,7 @@ function pickerRows(detection, options, handle) {
   return [
     ...HARNESSES.map((harness) => ({ id: harness, group: 'Harnesses', label: harness, hint: detection[harness].detected ? 'detected' : 'not found', checked: options.harness ? selectHarnesses(options.harness, detection).includes(harness) : detection[harness].detected })),
     { id: 'skill', group: 'Components', label: 'skill', hint: `${handle} skill in each harness`, checked: options.components.skill },
-    { id: 'mcp', group: 'Components', label: 'MCP server', hint: 'opt-in: launches a server per session (not pi)', checked: options.components.mcp },
+    { id: 'mcp', group: 'Components', label: 'MCP server', hint: 'opt-in: launches a server per session (not pi or muse)', checked: options.components.mcp },
     { id: 'shim', group: 'Components', label: 'CLI shim', hint: `~/.local/bin/${handle}`, checked: options.components.shim },
     ...(options.name ? [] : [{ id: 'hook', group: 'Components', label: 'per-prompt context', hint: 'opt-in: inject matching vault notes on every prompt', checked: options.components.hook }]),
     { id: 'harvest', group: 'Components', label: 'session harvest hook', hint: 'opt-in: Claude SessionEnd queues the ended transcript', checked: options.components.harvest },
