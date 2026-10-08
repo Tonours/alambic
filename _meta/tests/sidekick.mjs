@@ -11,6 +11,7 @@ import {
   judgeStaleSuccessor,
   judgeStructuralLink,
 } from '../lib/promotion-judge.mjs'
+import { buildOracleReadyDraft } from '../lib/attention/compile.mjs'
 import { dedupeCanChange, isNoop, runSidekick, semanticDedupe } from '../lib/sidekick.mjs'
 
 function assert(condition, message) {
@@ -174,6 +175,32 @@ const good = judgeFreeformNote(tmp, goodPath, { freeformBudgetRemaining: 3 })
 assert(good.decision === 'auto_apply', `good freeform should auto_apply got ${good.decision} ${JSON.stringify(good.oracles)}`)
 assert(good.mode === 'create', 'unique note should create')
 
+const stamp = Date.now()
+const ready = buildOracleReadyDraft({
+  digest: `digest${stamp}`,
+  source: 'chrome-history',
+  canonical_url: 'https://developer.mozilla.org/en-US/docs/Web/CSS/using_css_custom_properties',
+  claim: `Portable attention source ${stamp} stays inspectable for promotion`,
+  topics: ['css'],
+  signal_weight: 3,
+  confidence: 'high',
+}, { generatedAt: '2026-10-07T00:00:00.000Z' })
+const readyPath = path.join(tmp, 'docs', 'inbox', 'ai', 'promote-ready-attention.md')
+fs.mkdirSync(path.dirname(readyPath), { recursive: true })
+fs.writeFileSync(readyPath, ready.markdown)
+const attentionJudged = judgeFreeformNote(tmp, readyPath, { freeformBudgetRemaining: 3 })
+assert(attentionJudged.oracles.sources_inspectable === true, `attention: source must be inspectable ${JSON.stringify(attentionJudged.oracles)}`)
+assert(attentionJudged.data.sources.some((source) => source.startsWith('attention:')), 'fixture must carry an attention: source')
+assert(attentionJudged.decision === 'auto_apply', `https plus attention: draft should auto_apply, got ${attentionJudged.decision} ${attentionJudged.reason}`)
+const grokPath = path.join(tmp, 'docs', 'inbox', 'ai', 'promote-ready-grok.md')
+fs.writeFileSync(grokPath, ready.markdown.replace(
+  /  - "attention:[^"]+"/,
+  `  - "grok:session/${stamp}"`,
+))
+const grokJudged = judgeFreeformNote(tmp, grokPath, { freeformBudgetRemaining: 3 })
+assert(grokJudged.oracles.sources_inspectable === true && grokJudged.decision === 'auto_apply', `grok: source should auto_apply, got ${grokJudged.decision} ${grokJudged.reason}`)
+assert(grokJudged.data.sources.some((source) => source.startsWith('grok:')), 'fixture must carry a grok: source')
+
 assert(isNoop({ class: 'stale_successor', oracles: { verified_active: true, missing_successor_link: false } }), 'successor link already present is a no-op')
 assert(isNoop({ class: 'structural_link', oracles: { both_active: false, shared_tags: true } }), 'inactive endpoint is a no-op')
 assert(!isNoop({ class: 'freeform_note', oracles: { sources_inspectable: false } }), 'freeform failures stay actionable rejections')
@@ -255,9 +282,19 @@ assert(/obv lint /.test(autonomous), 'post-materialize lint still uses obv')
 assert(/obv graph /.test(autonomous), 'post-materialize graph still uses obv')
 assert(/ALAMBIC_SIDEKICK_APPLY:-0/.test(autonomous), 'laptop APPLY defaults to dry-run')
 assert(!/ALAMBIC_SIDEKICK_APPLY:-1/.test(autonomous), 'APPLY must not default to write')
+const materialize = autonomous.split('== "materialize"')[1]?.split('\n# 3)')[0] || ''
+assert(/\[\[ "\$\{APPLY\}" == "1" \]\]/.test(materialize), 'materialize confirms only when APPLY=1')
+const materializeDry = materialize.split('else')[1] || ''
+const materializeDryCommands = materializeDry.split('\n').filter((line) => /promote-suggest --json/.test(line))
+assert(materializeDryCommands.length === 1 && !/--confirm/.test(materializeDryCommands[0]), 'APPLY=0 materialize must not pass --confirm')
+const attentionArm = autonomous.split('ALAMBIC_SIDEKICK_ATTENTION:-0}" == "1"')[1]?.split('elif')[0] || ''
+assert(/ALAMBIC_ATTENTION_PROMOTE_CONFIRM=0/.test(attentionArm), 'sidekick dry-run clears promote confirm for the attention helper')
+assert(!/ALAMBIC_ATTENTION_PROMOTE_CONFIRM=0/.test(attentionArm.split('else')[0] || ''), 'APPLY=1 attention helper keeps the default confirm')
 const attentionDaily = fs.readFileSync(path.join(ROOT, '_meta/bin/attention-daily-grok.sh'), 'utf8')
 assert(/ALAMBIC_ATTENTION_SIDEKICK:-0/.test(attentionDaily), 'attention chain defaults off kb apply')
 assert(!/ALAMBIC_ATTENTION_SIDEKICK:-1/.test(attentionDaily), 'attention must not default to apply-all')
+assert(/ALAMBIC_ATTENTION_PROMOTE_CONFIRM:-1/.test(attentionDaily), 'standalone attention helper still confirms promote-suggest')
+assert(/promote-suggest --json/.test(attentionDaily), 'attention helper can run promote-suggest without --confirm')
 assert(!/\/(?:Users|home)\/[^/\s$]+\//.test(attentionDaily), 'attention helper has no absolute home path')
 assert(!/\/Volumes\//.test(attentionDaily), 'attention helper has no mounted-volume path')
 assert(!/LaunchAgent/i.test(attentionDaily), 'attention helper does not prescribe LaunchAgent')
