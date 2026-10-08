@@ -15,6 +15,7 @@ import { canonicalizeUrl } from '../lib/attention/privacy.mjs'
 import { readAttentionPolicy, ATTENTION_SOURCES, validateCandidate, validatePolicy } from '../lib/attention/schema.mjs'
 import { AttentionState } from '../lib/attention/state.mjs'
 import { MacOSKeychainCredentialProvider, validateCredentialMetadata } from '../lib/attention/credentials.mjs'
+import * as credentialExports from '../lib/attention/credentials.mjs'
 import { YouTubeOAuthClient } from '../lib/attention/providers/youtube-oauth.mjs'
 import { XOAuth2Client } from '../lib/attention/providers/x-oauth.mjs'
 import { runAttentionCommand } from '../lib/attention/index.mjs'
@@ -208,6 +209,13 @@ try {
   assert.deepEqual(canonicalizeUrl(fixtures.shopping.url, 'chrome-history'), { ok: true, canonical_url: 'https://shop.example.com/products/garden/drill-123' })
   assert.equal(validateCredentialMetadata('x-bookmarks', { account_alias: 'personal-x', scopes: ['bookmark.read', 'tweet.read', 'users.read'] }).ok, true)
   assert.equal(validateCredentialMetadata('x-bookmarks', { account_alias: 'personal-x', scopes: ['bookmark.write', 'tweet.read', 'users.read'] }).reason, 'write-scope-refused')
+  assert.equal('UnavailableCredentialProvider' in credentialExports, false)
+  assert.equal('MemoryCredentialProvider' in credentialExports, false)
+  assert.equal(typeof credentialExports.MacOSKeychainCredentialProvider, 'function')
+  assert.equal(typeof credentialExports.validateCredentialMetadata, 'function')
+  assert.equal(typeof credentialExports.requiredScopes, 'function')
+  assert.equal(typeof credentialExports.attentionEnvVarNames, 'function')
+  assert.equal(typeof credentialExports.inspectAttentionEnv, 'function')
 
   const keychainEntries = new Map([
     [`${keyHandle('youtube-liked', 'data')}:alambic.attention.v1`, randomKey()],
