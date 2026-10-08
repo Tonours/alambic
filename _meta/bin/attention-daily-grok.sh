@@ -90,10 +90,20 @@ run_deterministic_pipeline() {
   fi
 
   # Materialize freeform-oracle-ready drafts for sidekick (https sources only).
-  if obv promote-suggest --confirm --json; then
-    :
+  # Standalone runs confirm. Sidekick dry-run sets ALAMBIC_ATTENTION_PROMOTE_CONFIRM=0
+  # so tracked docs/inbox/ai/promote-ready/ files are not written.
+  if [[ "${ALAMBIC_ATTENTION_PROMOTE_CONFIRM:-1}" == "1" ]]; then
+    if obv promote-suggest --confirm --json; then
+      :
+    else
+      echo "${LOG_PREFIX} promote-suggest/materialize failed; continuing" >&2
+    fi
   else
-    echo "${LOG_PREFIX} promote-suggest/materialize failed; continuing" >&2
+    if obv promote-suggest --json; then
+      :
+    else
+      echo "${LOG_PREFIX} promote-suggest failed; continuing" >&2
+    fi
   fi
 
   # Default off: GHA `alambic-sidekick-daily` is the kb writer. Local apply races CI.

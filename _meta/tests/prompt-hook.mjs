@@ -64,6 +64,29 @@ try {
   for (const name of FORBIDDEN) assert(!graph.includes(name), `hook import graph reaches ${name}`)
   assert(graph.includes('vault.mjs'), 'hook must use vault.mjs')
 
+  // A verified note whose title contains the whole word "fix" and whose body
+  // mentions "lint" and "new" used to open the gate on a generic eslint prompt
+  // (one title token plus two body words, coverage under 0.6).
+  fs.writeFileSync(path.join(vault, 'kb/environment-fix-glue.md'), `---
+type: finding
+status: verified
+summary: "Scaling agents means fixing the environment before the conversation."
+sources:
+  - "https://example.org/environment-fix-glue"
+created: 2026-09-29
+updated: 2026-09-29
+tags:
+  - agents
+  - verification
+---
+
+# Environment fix
+
+Lint rules and a new paved path stop the bleeding. The lint rule is written first.
+`)
+  const eslintPrompt = 'Bump the eslint version and fix the new lint errors'
+  assert(await hook.buildContext(eslintPrompt, { root: vault }) === '', 'a single generic title token must not inject the eslint prompt')
+
   let transport = 0
   const originalFetch = globalThis.fetch
   const patched = [[http, 'request'], [http, 'get'], [https, 'request'], [https, 'get'], [net, 'connect'], [net, 'createConnection']].map(([mod, key]) => {

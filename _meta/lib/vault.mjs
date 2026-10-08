@@ -880,8 +880,18 @@ export function queryVault(root, query, { includeDocs = false, limit = 5, includ
     const minMatched = words.length >= 5 ? 3 : 2
     if (matchedTerms.size < minMatched) return false
     if (coverage < 0.4) return false
-    if (!strong && !distinctiveHit && coverage < 0.6) return false
-    if (strong) return true
+    // One short title/tag/summary token ("fix", "test", "lint") must not waive
+    // the 0.6 coverage bar. A longer content word, or two strong-field terms,
+    // still anchors a paraphrase at the 0.4 bar.
+    const strongTerms = new Set(
+      result.reasons
+        .filter((reason) => /^(exact|title|tag|summary):/.test(reason))
+        .map((reason) => reason.split(':').slice(1).join(':'))
+        .filter(Boolean),
+    )
+    const anchored = strongTerms.size >= 2 || [...strongTerms].some((term) => term.length > 4)
+    if (!anchored && coverage < 0.6) return false
+    if (anchored || (strong && coverage >= 0.6)) return true
     return result.score >= 14
   })
 
