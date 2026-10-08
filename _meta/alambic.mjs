@@ -435,6 +435,7 @@ try {
     if (args.length || !proposalFile) throw new Error('usage: alambic review --proposal FILE [--decision accept|reject --reason TEXT] [--json]')
     if ((decision && !reason) || (!decision && reason) || (decision && !['accept', 'reject'].includes(decision))) throw new Error('review decision requires accept|reject and a non-empty reason')
     if (reason.length > 500 || (reason && scanUnsafe(reason).length)) throw new Error('review reason is unsafe or exceeds 500 characters')
+    if (reason.trim().toLowerCase().startsWith('oracle:')) throw new Error('review reason must not start with oracle:')
     const inspection = inspectShadowProposal(proposalFile)
     if (decision === 'accept' && !inspection.precondition.ok) throw new Error(`proposal cannot be accepted: ${inspection.precondition.state}`)
     const dir = ensureState()
@@ -511,6 +512,7 @@ try {
     if (!report.ok) process.exitCode = 1
   } else if (command === 'status' || command === 'loop') {
     const { loadLatestPulse, pulseFreshness, runLivingLoopPulse } = await import('./lib/loop-pulse.mjs')
+    const { readReviewLedger } = await import('./lib/review-ledger.mjs')
     const json = has('--json')
     // CI / automated hygiene pulse (never fabricates human reviews or human feedback).
     const ci = has('--ci')
@@ -559,8 +561,10 @@ try {
       const feedbackFile = path.join(dir, 'feedback', 'counts.json')
       const evalFeedbackFile = path.join(dir, 'feedback', 'eval-counts.json')
       const proposals = fs.existsSync(proposalDir) ? fs.readdirSync(proposalDir).filter((name) => name.endsWith('.json')) : []
-      const reviews = fs.existsSync(reviewDir) ? fs.readdirSync(reviewDir).filter((name) => name.endsWith('.json')) : []
-      const pending = proposals.filter((name) => !fs.existsSync(path.join(reviewDir, name)))
+      const reviewFiles = fs.existsSync(reviewDir) ? fs.readdirSync(reviewDir).filter((name) => name.endsWith('.json')) : []
+      const ledger = readReviewLedger(dir)
+      const reviews = ledger.human
+      const pending = proposals.filter((name) => !reviewFiles.includes(name))
       const feedback = fs.existsSync(feedbackFile)
         ? JSON.parse(fs.readFileSync(feedbackFile, 'utf8'))
         : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
@@ -588,6 +592,7 @@ try {
         living_loop: {
           proposals: proposals.length,
           reviews: reviews.length,
+          oracle_review_leftovers: ledger.oracle_count,
           pending_reviews: pending.length,
           pending_paths: pending.slice(0, 20).map((name) => path.join(proposalDir, name)),
           feedback_total: feedbackTotal,

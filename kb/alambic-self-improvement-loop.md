@@ -3,7 +3,7 @@ type: finding
 status: verified
 summary: "Closed self-improvement loop for alambic: harness miss → inbox or shadow proposal → oracle or human review → promote/update durable note → executable check → aggregate feedback; never silent auto-apply."
 created: 2026-09-23
-updated: 2026-09-24
+updated: 2026-10-07
 verified_at: 2026-09-24
 confidence: high
 sources:
@@ -13,6 +13,8 @@ sources:
   - "_meta/lib/harvest.mjs"
   - "_meta/automation-contract.json"
   - "_meta/lib/promotion-judge.mjs"
+  - "_meta/lib/review-ledger.mjs"
+  - "_meta/lib/sidekick.mjs"
   - "https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f"
 tags:
   - alambic
@@ -46,7 +48,7 @@ the wiki between sessions; the human curates sources and owns the gates.
 1. PULSE   — sidekick / CI: validate, graph, lint
 2. JUDGE   — deterministic oracles (promotion-judge); no LLM required
 3. APPLY   — structural heals + stale→successor + budgeted freeform promote
-4. RECEIPT — oracle-labeled accept receipts for measurement
+4. RECEIPT — oracle audits under sidekick state; human accept receipts stay on the review ledger
 5. CAPTURE — inbox freeform auto-promotes only when freeform oracles pass;
               session drafts also need a human accept receipt
 6. CHECK   — re-validate after apply; abort further applies if red
@@ -66,7 +68,7 @@ Optional Jev (TypeSafe) judgments only rerank or dedupe when
 
 | Layer | Owner | What | Counts toward freeform distill gate? |
 | --- | --- | --- | --- |
-| Sidekick structural + freeform | `sidekick` / local `nightly` LaunchAgent | wikilinks, stale→successor, index, budgeted inbox promote | Oracle receipts yes |
+| Sidekick structural + freeform | `sidekick` / local `nightly` LaunchAgent | wikilinks, stale→successor, index, budgeted inbox promote | No (oracle audits are not human receipts) |
 | Hygiene pulse | CI / `loop --ci` | validate, lint, graph, pulse artifact | Health only |
 | Eval feedback | optional | aggregate `feedback` counts | No |
 

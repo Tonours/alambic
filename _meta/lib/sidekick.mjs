@@ -173,7 +173,7 @@ export async function runSidekick(root, {
     }
     const results = planned.edits.map((edit) => applyStructuralWikilink(root, edit.path, edit.link))
     const health = postApplyHealth(root)
-    writeOracleReceipt(judgment.reason, { kind: 'structural_link', source: gap.source, target: gap.target })
+    writeOracleAudit(judgment.reason, { kind: 'structural_link', source: gap.source, target: gap.target })
     actions.push({ ...planned, applied: true, results, health })
     if (!health.ok) break
   }
@@ -195,7 +195,7 @@ export async function runSidekick(root, {
     }
     const result = applyStructuralWikilink(root, judgment.source, judgment.successor)
     const health = postApplyHealth(root)
-    writeOracleReceipt(judgment.reason, { kind: 'stale_successor', source: judgment.source, target: judgment.successor })
+    writeOracleAudit(judgment.reason, { kind: 'stale_successor', source: judgment.source, target: judgment.successor })
     actions.push({ type: 'stale_successor', judgment, applied: true, result, health })
     if (!health.ok) break
   }
@@ -219,7 +219,7 @@ export async function runSidekick(root, {
     const result = applyIndexEntry(root, note.basename)
     if (result.changed) indexRaw += `[[${note.basename}]]`
     const health = postApplyHealth(root)
-    writeOracleReceipt(judgment.reason, { kind: 'index_entry', path: note.path })
+    writeOracleAudit(judgment.reason, { kind: 'index_entry', path: note.path })
     actions.push({ type: 'index_entry', judgment, applied: true, result, health })
     if (!health.ok) break
   }
@@ -280,7 +280,7 @@ export async function runSidekick(root, {
       freeformApplied += 1
       if (judgment.session_origin) bumpMetrics(null, { promoted: 1 })
       const health = postApplyHealth(root)
-      writeOracleReceipt(judgment.reason, { kind: 'freeform_promote', path: result.path })
+      writeOracleAudit(judgment.reason, { kind: 'freeform_promote', path: result.path })
       actions.push({ type: 'freeform_promote', judgment, applied: true, result, health })
       if (!health.ok) break
     }
@@ -397,7 +397,7 @@ function autonomyModel() {
       'index_entry',
       'freeform_promote_budgeted',
       'fresh_review_pending',
-      'oracle_receipt',
+      'oracle_audit',
       'hygiene_pulse',
     ],
   }
@@ -426,37 +426,23 @@ function seedFreshProposal(judgment) {
   return true
 }
 
-function writeOracleReceipt(reason, meta) {
-  const dir = path.join(stateDir(), 'reviews')
-  ensureDir(path.join(stateDir(), 'proposals'))
+// Audit log for an apply that already landed. This is not a human review
+// receipt: it never writes proposals/ or reviews/, and the digest is computed
+// with crypto before the file is created.
+function writeOracleAudit(reason, meta) {
+  const dir = path.join(stateDir(), 'sidekick', 'audits')
   ensureDir(dir)
-  const proposal = {
-    version: 1,
-    action: 'noop',
-    target: 'kb/_index.md',
-    source_refs: [meta.source || meta.path || 'sidekick', meta.target || meta.kind || 'structural', '_meta/lib/promotion-judge.mjs'].filter(Boolean),
-    trust: 'trusted-local',
-    rationale: reason.slice(0, 500),
-    preimage_sha256: '',
-    patch: '',
-  }
-  const proposalSha256 = crypto.createHash('sha256').update(JSON.stringify(proposal)).digest('hex')
-  const proposalFile = path.join(stateDir(), 'proposals', `${proposalSha256}.json`)
-  if (!fs.existsSync(proposalFile)) {
-    atomicJson(proposalFile, { ...proposal, mode: 'shadow', proposal_sha256: proposalSha256 })
-  }
   const payload = {
     version: 1,
-    proposal_sha256: proposalSha256,
-    decision: 'accept',
-    reason: reason.slice(0, 500),
-    reviewed_at: new Date().toISOString(),
+    kind: 'oracle-audit',
+    decision: 'auto_apply',
+    reason: String(reason || '').slice(0, 500),
+    applied_at: new Date().toISOString(),
+    meta,
   }
-  const receiptSha = crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')
-  const receiptFile = path.join(dir, `${proposalSha256}.json`)
-  if (!fs.existsSync(receiptFile)) {
-    atomicJson(receiptFile, { ...payload, receipt_sha256: receiptSha })
-  }
+  const id = crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16)
+  const file = path.join(dir, `${payload.applied_at.slice(0, 10)}-${id}.json`)
+  if (!fs.existsSync(file)) atomicJson(file, payload)
 }
 
 function buildSidekickNext(actions, quarantined, validationOk, applyFreeform) {
