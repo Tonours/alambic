@@ -4,7 +4,7 @@ import { alambicStateDir } from './state-dir.mjs'
 import path from 'node:path'
 import { parseMarkdownText } from './frontmatter.mjs'
 import { moveChecked, vaultDir, writeChecked } from './write-journal.mjs'
-import { buildManifest, invalidateManifest, queryVault, scanUnsafe, validateVault } from './vault.mjs'
+import { buildManifest, invalidateManifest, isPortableSourceScheme, queryVault, scanUnsafe, validateVault } from './vault.mjs'
 
 /**
  * Ultra-generic tags that must not be the *only* shared signal for auto-linking.
@@ -590,8 +590,7 @@ function archiveInboxSource(root, relativePath, mode, expected, accept = () => t
 function sourceLooksInspectable(root, source) {
   const value = String(source || '')
   if (!value || PLACEHOLDER_SOURCE.test(value)) return false
-  if (/^https?:\/\//i.test(value)) return true
-  if (/^(codex|claude|pi|obsidian|repo):/i.test(value)) return true
+  if (isPortableSourceScheme(value)) return true
   const clean = value.replace(/:\d+(?:-\d+)?$/, '')
   const candidates = [
     path.join(root, clean),

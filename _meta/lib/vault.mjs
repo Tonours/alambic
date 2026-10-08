@@ -1519,7 +1519,7 @@ export function lintVault(root) {
  * - sibling-repo paths when checkout is absent
  * - docs/inbox/** staging paths (often gitignored; inspectable when present)
  */
-function isPortableSourceScheme(source) {
+export function isPortableSourceScheme(source) {
   return /^(https?:\/\/|codex:|claude:|pi:|grok:|obsidian:|repo:|attention:|opencode:|cursor:|zcode:)/i.test(String(source))
 }
 

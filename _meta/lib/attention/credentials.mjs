@@ -30,42 +30,6 @@ export function validateCredentialMetadata(source, metadata) {
   return { ok: true, account_alias: metadata.account_alias, scope_fingerprint: scopeFingerprint(metadata.scopes) }
 }
 
-// This interface deliberately returns no credential material to default commands.
-// A platform adapter may implement it after the human OAuth checkpoint.
-export class UnavailableCredentialProvider {
-  async inspect(source) {
-    assertSource(source)
-    return null
-  }
-
-  async client() {
-    return null
-  }
-
-  async forget() {}
-}
-
-export class MemoryCredentialProvider {
-  #entries = new Map()
-
-  set(source, metadata, client) {
-    assertSource(source)
-    this.#entries.set(source, { metadata, client })
-  }
-
-  async inspect(source) {
-    return this.#entries.get(source)?.metadata || null
-  }
-
-  async client(source) {
-    return this.#entries.get(source)?.client || null
-  }
-
-  async forget(source) {
-    this.#entries.delete(source)
-  }
-}
-
 // Primary: OAuth material from local environment (e.g. ~/.zshrc).
 // Optional Keychain fallback only when ALAMBIC_ATTENTION_ALLOW_KEYCHAIN=1.
 // Secrets stay in process memory; never printed by this CLI.
