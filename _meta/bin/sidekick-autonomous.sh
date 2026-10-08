@@ -45,12 +45,24 @@ if [[ "${ALAMBIC_SIDEKICK_ATTENTION:-0}" == "1" ]]; then
   if [[ -x "${ROOT}/_meta/bin/attention-daily-grok.sh" ]]; then
     echo "${LOG_PREFIX} attention full pipeline (collect → materialize → will sidekick after)"
     # Prevent nested sidekick inside attention-daily (we run sidekick below).
-    ALAMBIC_ATTENTION_SIDEKICK=0 "${ROOT}/_meta/bin/attention-daily-grok.sh" \
-      || echo "${LOG_PREFIX} attention non-fatal fail"
+    # APPLY=0 must not pass --confirm: promote-ready files are tracked.
+    if [[ "${APPLY}" == "1" ]]; then
+      ALAMBIC_ATTENTION_SIDEKICK=0 "${ROOT}/_meta/bin/attention-daily-grok.sh" \
+        || echo "${LOG_PREFIX} attention non-fatal fail"
+    else
+      ALAMBIC_ATTENTION_SIDEKICK=0 ALAMBIC_ATTENTION_PROMOTE_CONFIRM=0 \
+        "${ROOT}/_meta/bin/attention-daily-grok.sh" \
+        || echo "${LOG_PREFIX} attention non-fatal fail"
+    fi
   fi
 elif [[ "${ALAMBIC_SIDEKICK_ATTENTION:-0}" == "materialize" ]]; then
-  echo "${LOG_PREFIX} attention materialize only (existing queue → promote-ready)"
-  obv_attention promote-suggest --confirm --json || echo "${LOG_PREFIX} materialize non-fatal fail"
+  if [[ "${APPLY}" == "1" ]]; then
+    echo "${LOG_PREFIX} attention materialize only (existing queue → promote-ready)"
+    obv_attention promote-suggest --confirm --json || echo "${LOG_PREFIX} materialize non-fatal fail"
+  else
+    echo "${LOG_PREFIX} attention promote-suggest only (APPLY=0, no --confirm)"
+    obv_attention promote-suggest --json || echo "${LOG_PREFIX} promote-suggest non-fatal fail"
+  fi
 fi
 
 # 3) Autonomy apply
