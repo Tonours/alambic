@@ -125,7 +125,7 @@ const byId = (report) => Object.fromEntries(report.actions.map((action) => [acti
 try {
   writeExec(path.join(stubBin, 'claude'), CLAUDE_STUB)
   writeExec(path.join(stubBin, 'codex'), CODEX_STUB)
-  for (const name of ['pi', 'opencode', 'cursor-agent']) writeExec(path.join(stubBin, name), '#!/bin/sh\nexit 97\n')
+  for (const name of ['pi', 'opencode', 'cursor-agent', 'muse']) writeExec(path.join(stubBin, name), '#!/bin/sh\nexit 97\n')
 
   const vault = path.join(temp, "my va'ult")
   writeExec(path.join(vault, '_meta/alambic.mjs'), "console.log('cli:' + process.argv.slice(2).join('|'))\n")
@@ -556,6 +556,8 @@ else { process.stderr.write('error: unknown switch z'); process.exit(129) }
 
   const pi = await setup(vault, ['--mcp', '--harness', 'pi', '--json'], envFor(freshHome('home6')))
   assert(pi.json.actions.every((action) => action.kind !== 'mcp') && pi.json.warnings.some((warning) => warning.includes('pi has no MCP')), 'pi must not get MCP')
+  const museMcp = await setup(vault, ['--mcp', '--harness', 'muse', '--json'], envFor(freshHome('muse-mcp')))
+  assert(museMcp.json.actions.every((action) => action.kind !== 'mcp') && museMcp.json.warnings.some((warning) => warning.includes('muse has no MCP')), 'muse must not get MCP')
 
   assert(JSON.stringify(doctorSetup(vault, envFor(freshHome('home7')))) === JSON.stringify({ installed: false, warnings: [] }), 'fresh home: not installed, no warning')
   const drift = doctorSetup(vault, env)
@@ -605,7 +607,7 @@ else { process.stderr.write('error: unknown switch z'); process.exit(129) }
   const unretired = await setup(vault, ['--uninstall', '--yes', '--json'], envFor(home12))
   assert(unretired.json.items.find((item) => item.id === 'cursor:hook')?.result === 'removed' && JSON.stringify(readJson(legacy12.hooksFile).hooks.beforeSubmitPrompt) === JSON.stringify([legacy12.user]), 'uninstall must remove a recorded cursor:hook and keep user entries')
 
-  const DEFAULT_ITEMS_SHA = '2246dd7d55a60ea1995897805e64967d2c78ad4b18be8083c6aedcf0c90d31ba'
+  const DEFAULT_ITEMS_SHA = 'bd9a4187a68ed46b0112b118254288137e188e158b510a0c1d990d2009e6a30b'
   const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: NODE, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true }, mcpScope: 'user' }).map(({ fingerprint, mcpScope, ...item }) => item)
   assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(NODE, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'explicit legacy user-scope setup items drifted from their frozen fingerprint')
   assert(claudeSkill.includes('\n# alambic vault\n') && claudeSkill.includes('description: Query the alambic vault (a compiled'), 'default skill must keep its alambic identity')

@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { judgeFreeformNote } from '../lib/promotion-judge.mjs'
+import { isPortableSourceScheme, scanUnsafe } from '../lib/vault.mjs'
 
 const root = path.resolve(process.argv[2] || '.')
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-harvest-'))
@@ -403,6 +405,61 @@ try {
   assert.ok(Date.now() - started < 5000, 'the hook returns without waiting for the scan')
   for (let index = 0; index < 100 && !listQueue().length; index += 1) spawnSync('sleep', ['0.1'])
   assert.equal(listQueue().length, 1, 'the detached scan queues the ended session')
+
+  const museId = 'sess-muse-01'
+  const museFixture = path.join(root, '_meta/tests/fixtures/muse/session.jsonl')
+  const museSession = path.join(home, '.local/share/muse/sessions/2026/10/08', museId, 'session.jsonl')
+  const museSubagent = path.join(home, '.local/share/muse/sessions/2026/10/subagent/sess-muse-sub/session.jsonl')
+  fs.mkdirSync(path.dirname(museSession), { recursive: true })
+  fs.mkdirSync(path.dirname(museSubagent), { recursive: true })
+  fs.copyFileSync(museFixture, museSession)
+  fs.copyFileSync(museFixture, museSubagent)
+  old(museSession)
+  old(museSubagent)
+  const museParsed = harvestLib.readSession('muse', museSession)
+  const musePrompt = 'decide the retry rule and fix the flaky test'
+  assert.equal(museParsed.id, museId, 'the session id is the directory that holds session.jsonl')
+  assert.equal(museParsed.cwd, '/work/repo')
+  assert.deepEqual(museParsed.messages.map((message) => message.role), ['user', 'assistant', 'user'])
+  assert.equal(museParsed.messages.filter((message) => message.role === 'user' && message.text === musePrompt).length, 1)
+  assert.equal(museParsed.messages[0].text, musePrompt)
+  assert.equal((museParsed.messages[0].text.match(/decide the retry rule/g) || []).length, 1)
+  assert.equal(museParsed.messages[2].text, 'show the session cwd')
+  assert.ok(museParsed.messages[1].text.includes('_meta/lib/vault.mjs:42'))
+  const museState = path.join(temp, 'muse-state')
+  const museScan = harvestLib.harvestScan(vault, { harnesses: ['muse'], stateDir: museState, env })
+  assert.equal(museScan.scanned, 1, JSON.stringify(museScan))
+  assert.deepEqual(museScan.queued.map((item) => item.source_ref), [`muse:${museId}`])
+  const museQueued = JSON.parse(fs.readFileSync(path.join(museState, 'harvest/queue', museScan.queued[0].name), 'utf8'))
+  assert.equal(museQueued.session_id, museId)
+  assert.equal(museQueued.source_ref, `muse:${museId}`)
+  assert.ok(museQueued.excerpt.includes('decide the retry rule'))
+  assert.equal(museScan.queued.some((item) => item.source_ref.includes('sub')), false, 'a session under subagent is not queued')
+  const refused = cli(['harvest', 'scan', '--harness', 'opencode'])
+  assert.equal(refused.status, 2)
+  assert.match(refused.stderr, /--harness claude,codex,pi,muse/)
+  assert.doesNotMatch(refused.stderr, /opencode/)
+
+  assert.equal(isPortableSourceScheme('muse:abc'), true, 'muse: is a portable source scheme')
+  assert.ok(scanUnsafe('/home/u/.local/share/muse/sessions/x.jsonl').includes('raw_transcript_path'), 'a muse session path is a raw transcript')
+  const museDraft = path.join(vault, 'docs/inbox/ai/muse-source.md')
+  fs.mkdirSync(path.dirname(museDraft), { recursive: true })
+  fs.writeFileSync(museDraft, `---
+type: finding
+status: draft
+summary: "A muse session source stays inspectable without a local file."
+sources:
+  - "muse:abc"
+tags:
+  - harvest
+---
+
+# Muse source
+
+${'Durable note text. '.repeat(20)}
+`)
+  const museJudged = judgeFreeformNote(vault, museDraft)
+  assert.equal(museJudged.oracles.sources_inspectable, true, `a draft whose only source is muse:abc must be inspectable ${JSON.stringify(museJudged.oracles)}`)
   console.log('harvest: ok')
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })
