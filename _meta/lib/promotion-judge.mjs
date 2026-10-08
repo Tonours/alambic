@@ -280,6 +280,7 @@ export function reviewInbox(root, relativePath, { decision, reason, tty = false,
   const relative = inboxRelative(root, relativePath)
   if (!['accept', 'reject'].includes(decision) || !String(reason || '').trim()) throw new Error('review decision requires accept|reject and a non-empty reason')
   if (reason.length > 500 || scanUnsafe(reason).length) throw new Error('review reason is unsafe or exceeds 500 characters')
+  if (String(reason).trim().toLowerCase().startsWith('oracle:')) throw new Error('review reason must not start with oracle:')
   if (decision === 'accept' && !tty) throw new Error('review --inbox accept needs an interactive terminal (human review)')
   const text = readRaw(root, relative)
   if (scanUnsafe(text).length) throw new Error('inbox note contains unsafe content')

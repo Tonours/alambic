@@ -416,6 +416,31 @@ tags:
     const proposalDir = path.join(applyState, 'proposals')
     const proposalFiles = fs.existsSync(proposalDir) ? fs.readdirSync(proposalDir).filter((name) => name.endsWith('.json')) : []
     assert(proposalFiles.length === 0, 'apply must not mint a dummy proposal for the audit')
+    const proposal = {
+      version: 1,
+      action: 'noop',
+      target: '',
+      source_refs: ['kb/_index.md'],
+      trust: 'trusted-local',
+      rationale: 'noop proposal for the oracle-prefix review refusal',
+      preimage_sha256: '',
+      patch: '',
+    }
+    const proposalSha = crypto.createHash('sha256').update(JSON.stringify(proposal)).digest('hex')
+    fs.mkdirSync(path.join(applyState, 'proposals'), { recursive: true })
+    const proposalPath = path.join(applyState, 'proposals', `${proposalSha}.json`)
+    fs.writeFileSync(proposalPath, `${JSON.stringify({ ...proposal, mode: 'shadow', proposal_sha256: proposalSha })}\n`)
+    const refusedReview = spawnSync(process.execPath, [
+      path.join(ROOT, '_meta/alambic.mjs'),
+      'review', '--proposal', proposalPath, '--decision', 'accept', '--reason', 'oracle: ok',
+    ], {
+      encoding: 'utf8',
+      env: { ...process.env, ALAMBIC_ROOT: applyVault, ALAMBIC_STATE_DIR: applyState },
+    })
+    const reviewsAfterRefusal = fs.existsSync(reviewDir) ? fs.readdirSync(reviewDir).filter((name) => name.endsWith('.json')) : []
+    assert(refusedReview.status !== 0 && /must not start with oracle:/.test(refusedReview.stderr), `oracle-prefixed reason must be refused: ${refusedReview.status} ${refusedReview.stderr}`)
+    assert(reviewsAfterRefusal.length === 0, `refused review must not write a receipt, got ${reviewsAfterRefusal.join(',')}`)
+    fs.rmSync(proposalPath)
     const auditDir = path.join(applyState, 'sidekick', 'audits')
     const auditFiles = fs.readdirSync(auditDir).filter((name) => name.endsWith('.json'))
     assert(auditFiles.length === 1 && /^\d{4}-\d{2}-\d{2}-[a-f0-9]{16}\.json$/.test(auditFiles[0]), `expected one hashed audit file, got ${auditFiles.join(',')}`)

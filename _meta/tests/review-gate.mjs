@@ -59,6 +59,10 @@ try {
   assert.equal(judge.judgeFreeformNote(vault, sourceOnly).decision, 'review_required', 'a claude:/codex:/pi: source alone marks session origin')
   assert.equal(judge.isSessionOrigin({}, 'docs/inbox/ai/harvest-x.md'), true, 'harvest- basename marks session origin')
 
+  assert.throws(() => judge.reviewInbox(vault, rel(session), { decision: 'reject', reason: 'oracle: ok' }), /must not start with oracle:/)
+  assert.throws(() => judge.reviewInbox(vault, rel(session), { decision: 'reject', reason: '  ORACLE: ok', tty: true }), /must not start with oracle:/)
+  const inboxReviews = fs.existsSync(path.join(state, 'reviews')) ? fs.readdirSync(path.join(state, 'reviews')).filter((name) => name.endsWith('.json')) : []
+  assert.equal(inboxReviews.length, 0, `an oracle-prefixed inbox reason must not write a receipt, got ${inboxReviews.join(',')}`)
   assert.throws(() => judge.reviewInbox(vault, rel(session), { decision: 'accept', reason: 'looks right' }), /interactive terminal/)
   const refused = cli(['review', '--inbox', rel(session), '--decision', 'accept', '--reason', 'ok', '--json'])
   assert.notEqual(refused.status, 0, 'CLI accept without a TTY is refused')
