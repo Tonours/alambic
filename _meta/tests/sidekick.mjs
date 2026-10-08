@@ -11,6 +11,7 @@ import {
   judgeStaleSuccessor,
   judgeStructuralLink,
 } from '../lib/promotion-judge.mjs'
+import { buildOracleReadyDraft } from '../lib/attention/compile.mjs'
 import { dedupeCanChange, isNoop, runSidekick, semanticDedupe } from '../lib/sidekick.mjs'
 
 function assert(condition, message) {
@@ -173,6 +174,32 @@ const good = judgeFreeformNote(tmp, goodPath, { freeformBudgetRemaining: 3 })
 // sources_inspectable requires https OK
 assert(good.decision === 'auto_apply', `good freeform should auto_apply got ${good.decision} ${JSON.stringify(good.oracles)}`)
 assert(good.mode === 'create', 'unique note should create')
+
+const stamp = Date.now()
+const ready = buildOracleReadyDraft({
+  digest: `digest${stamp}`,
+  source: 'chrome-history',
+  canonical_url: 'https://developer.mozilla.org/en-US/docs/Web/CSS/using_css_custom_properties',
+  claim: `Portable attention source ${stamp} stays inspectable for promotion`,
+  topics: ['css'],
+  signal_weight: 3,
+  confidence: 'high',
+}, { generatedAt: '2026-10-07T00:00:00.000Z' })
+const readyPath = path.join(tmp, 'docs', 'inbox', 'ai', 'promote-ready-attention.md')
+fs.mkdirSync(path.dirname(readyPath), { recursive: true })
+fs.writeFileSync(readyPath, ready.markdown)
+const attentionJudged = judgeFreeformNote(tmp, readyPath, { freeformBudgetRemaining: 3 })
+assert(attentionJudged.oracles.sources_inspectable === true, `attention: source must be inspectable ${JSON.stringify(attentionJudged.oracles)}`)
+assert(attentionJudged.data.sources.some((source) => source.startsWith('attention:')), 'fixture must carry an attention: source')
+assert(attentionJudged.decision === 'auto_apply', `https plus attention: draft should auto_apply, got ${attentionJudged.decision} ${attentionJudged.reason}`)
+const grokPath = path.join(tmp, 'docs', 'inbox', 'ai', 'promote-ready-grok.md')
+fs.writeFileSync(grokPath, ready.markdown.replace(
+  /  - "attention:[^"]+"/,
+  `  - "grok:session/${stamp}"`,
+))
+const grokJudged = judgeFreeformNote(tmp, grokPath, { freeformBudgetRemaining: 3 })
+assert(grokJudged.oracles.sources_inspectable === true && grokJudged.decision === 'auto_apply', `grok: source should auto_apply, got ${grokJudged.decision} ${grokJudged.reason}`)
+assert(grokJudged.data.sources.some((source) => source.startsWith('grok:')), 'fixture must carry a grok: source')
 
 assert(isNoop({ class: 'stale_successor', oracles: { verified_active: true, missing_successor_link: false } }), 'successor link already present is a no-op')
 assert(isNoop({ class: 'structural_link', oracles: { both_active: false, shared_tags: true } }), 'inactive endpoint is a no-op')
