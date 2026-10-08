@@ -155,7 +155,6 @@ export function readSession(harness, file) {
         }
       } else recs.push(record)
       for (const rec of recs) {
-        if (rec?.stream?.id && typeof rec.stream.id === 'string' && (id === 'session' || !id)) id = rec.stream.id
         const pt = rec?.payload_type
         const payload = rec?.payload || {}
         if (pt === 'runtime.user_intent.accepted') {

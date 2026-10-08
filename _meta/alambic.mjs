@@ -358,7 +358,7 @@ try {
     const harvest = await import('./lib/harvest.mjs')
     const dryRun = has('--dry-run')
     const sub = args.shift() || 'status'
-    const usage = 'usage: alambic harvest scan [--harness claude,codex,pi,muse,opencode] [--session FILE|opencode:ID] [--min-score N] [--dry-run] | distill [--distiller CMD] [--max N] [--dry-run] | digest --out FILE [--max N] | ack --digest FILE [--dry-run] | status'
+    const usage = 'usage: alambic harvest scan [--harness claude,codex,pi,muse] [--session FILE] [--min-score N] [--dry-run] | distill [--distiller CMD] [--max N] [--dry-run] | digest --out FILE [--max N] | ack --digest FILE [--dry-run] | status'
     let run
     if (sub === 'scan') {
       const harnesses = option('--harness', harvest.HARNESSES.join(',')).split(',').map((value) => value.trim()).filter(Boolean)
