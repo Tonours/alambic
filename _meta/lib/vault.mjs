@@ -889,8 +889,8 @@ export function queryVault(root, query, { includeDocs = false, limit = 5, includ
         .map((reason) => reason.split(':').slice(1).join(':'))
         .filter(Boolean),
     )
-    const anchored = strongTerms.size >= 2 || [...strongTerms].some((term) => distinctive(term) || term.length > 4)
-    if (!anchored && !distinctiveHit && coverage < 0.6) return false
+    const anchored = strongTerms.size >= 2 || [...strongTerms].some((term) => term.length > 4)
+    if (!anchored && coverage < 0.6) return false
     if (anchored || (strong && coverage >= 0.6)) return true
     return result.score >= 14
   })
