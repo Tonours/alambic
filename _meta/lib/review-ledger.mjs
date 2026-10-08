@@ -1,10 +1,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-// True when the reason, after trim and lowercasing, starts with "oracle:".
-// Review writes refuse that shape. The ledger uses the same test, so a stored
-// reason that matches only after trim or case folding is an oracle leftover.
-export function isOracleReason(reason) {
+// Read side stays exact. Historical writers stored the lowercase prefix
+// "oracle:" with no padding, and a human reason such as " Oracle: …" must
+// keep counting toward reviews_ge_20. Write side is stricter: trim and ignore
+// case, so a new review cannot store that prefix.
+export function isStoredOracleReason(reason) {
+  return typeof reason === 'string' && reason.startsWith('oracle:')
+}
+
+export function isRefusedReviewReason(reason) {
   return typeof reason === 'string' && reason.trim().toLowerCase().startsWith('oracle:')
 }
 
@@ -16,7 +21,7 @@ export function isHumanDecisionReceipt(receipt) {
   if (receipt.version !== 1) return false
   if (!['accept', 'reject'].includes(receipt.decision)) return false
   if (typeof receipt.reason !== 'string' || !receipt.reason.trim()) return false
-  if (isOracleReason(receipt.reason)) return false
+  if (isStoredOracleReason(receipt.reason)) return false
   if (typeof receipt.proposal_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.proposal_sha256)) return false
   if (typeof receipt.reviewed_at !== 'string' || !Number.isFinite(Date.parse(receipt.reviewed_at))) return false
   if (typeof receipt.receipt_sha256 !== 'string' || !receipt.receipt_sha256) return false
@@ -38,7 +43,7 @@ export function readReviewLedger(stateRoot) {
       continue
     }
     if (isHumanDecisionReceipt(receipt)) human.push(name)
-    else if (isOracleReason(receipt?.reason)) oracle.push(name)
+    else if (isStoredOracleReason(receipt?.reason)) oracle.push(name)
     else other.push(name)
   }
   return { human, oracle, other, human_count: human.length, oracle_count: oracle.length }

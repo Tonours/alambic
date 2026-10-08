@@ -3,19 +3,14 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { isHumanDecisionReceipt, isOracleReason, readReviewLedger } from '../lib/review-ledger.mjs'
+import { isHumanDecisionReceipt, isRefusedReviewReason, isStoredOracleReason, readReviewLedger } from '../lib/review-ledger.mjs'
 
-assert.equal(isOracleReason('oracle: ok'), true)
-assert.equal(isOracleReason('  ORACLE: ok'), true)
-assert.equal(isOracleReason(' Oracle:ok'), true)
-assert.equal(isOracleReason('\toracle: kept'), true)
-assert.equal(isOracleReason('human review'), false)
-assert.equal(isOracleReason('not oracle: hidden'), false)
-assert.equal(isOracleReason('oracle'), false)
-assert.equal(isOracleReason(''), false)
-assert.equal(isOracleReason('   '), false)
-assert.equal(isOracleReason(null), false)
-assert.equal(isOracleReason(undefined), false)
+assert.equal(isRefusedReviewReason('oracle: ok'), true)
+assert.equal(isRefusedReviewReason('  ORACLE: ok'), true)
+assert.equal(isRefusedReviewReason(' Oracle:ok'), true)
+assert.equal(isRefusedReviewReason('\toracle: kept'), true)
+assert.equal(isRefusedReviewReason('human review'), false)
+assert.equal(isRefusedReviewReason('not oracle: hidden'), false)
 
 const human = {
   version: 1,
@@ -25,9 +20,14 @@ const human = {
   reviewed_at: '2026-10-07T00:00:00.000Z',
   receipt_sha256: 'b'.repeat(64),
 }
+const keptHuman = ['Oracle: x', '  ORACLE: kept', ' oracle: y']
 assert.equal(isHumanDecisionReceipt(human), true)
 assert.equal(isHumanDecisionReceipt({ ...human, reason: 'oracle:structural leftover' }), false)
-assert.equal(isHumanDecisionReceipt({ ...human, reason: '  ORACLE: kept' }), false)
+assert.equal(isStoredOracleReason('oracle:structural leftover'), true)
+for (const reason of keptHuman) {
+  assert.equal(isStoredOracleReason(reason), false, reason)
+  assert.equal(isHumanDecisionReceipt({ ...human, reason }), true, reason)
+}
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-ledger-'))
 try {
@@ -36,12 +36,14 @@ try {
   const write = (name, reason) => fs.writeFileSync(path.join(reviews, name), `${JSON.stringify({ ...human, reason })}\n`)
   write('human.json', 'human review')
   write('exact.json', 'oracle:structural leftover')
+  write('upper.json', 'Oracle: x')
   write('padded.json', '  ORACLE: kept')
+  write('space.json', ' oracle: y')
   const ledger = readReviewLedger(dir)
-  assert.deepEqual(ledger.human, ['human.json'])
-  assert.deepEqual(ledger.oracle, ['exact.json', 'padded.json'])
-  assert.equal(ledger.human_count, 1)
-  assert.equal(ledger.oracle_count, 2)
+  assert.deepEqual(ledger.human, ['human.json', 'padded.json', 'space.json', 'upper.json'])
+  assert.deepEqual(ledger.oracle, ['exact.json'])
+  assert.equal(ledger.human_count, 4)
+  assert.equal(ledger.oracle_count, 1)
   assert.deepEqual(ledger.other, [])
 } finally {
   fs.rmSync(dir, { recursive: true, force: true })
