@@ -430,7 +430,7 @@ function seedFreshProposal(judgment) {
 // receipt: it never writes proposals/ or reviews/, and the digest is computed
 // with crypto before the file is created.
 function writeOracleAudit(reason, meta) {
-  const dir = path.join(stateDir(), 'sidekick', 'receipts')
+  const dir = path.join(stateDir(), 'sidekick', 'audits')
   ensureDir(dir)
   const payload = {
     version: 1,

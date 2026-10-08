@@ -302,7 +302,7 @@ assert(!/Library\/LaunchAgents/.test(liveWriterDocs), 'live refs have no LaunchA
 
 assert(fs.readFileSync(path.join(kb, 'alpha-side.md'), 'utf8').includes('[[beta-side]]'), 'link persists')
 
-// Apply must audit under sidekick/receipts and must not mint a human review receipt.
+// Apply must audit under sidekick/audits and must not mint a human review receipt.
 {
   const { spawnSync } = await import('node:child_process')
   const crypto = await import('node:crypto')
@@ -379,7 +379,7 @@ tags:
     const proposalDir = path.join(applyState, 'proposals')
     const proposalFiles = fs.existsSync(proposalDir) ? fs.readdirSync(proposalDir).filter((name) => name.endsWith('.json')) : []
     assert(proposalFiles.length === 0, 'apply must not mint a dummy proposal for the audit')
-    const auditDir = path.join(applyState, 'sidekick', 'receipts')
+    const auditDir = path.join(applyState, 'sidekick', 'audits')
     const auditFiles = fs.readdirSync(auditDir).filter((name) => name.endsWith('.json'))
     assert(auditFiles.length === 1 && /^\d{4}-\d{2}-\d{2}-[a-f0-9]{16}\.json$/.test(auditFiles[0]), `expected one hashed audit file, got ${auditFiles.join(',')}`)
     const audit = JSON.parse(fs.readFileSync(path.join(auditDir, auditFiles[0]), 'utf8'))
