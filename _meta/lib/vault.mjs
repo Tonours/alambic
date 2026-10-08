@@ -19,7 +19,7 @@ export const SECRET_PATTERNS = [
   ['dotenv_secret', /^\s*[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)\s*=\s*\S+/m],
   ['dotenv_path', /(?:^|[\/\\])\.env(?:\.[A-Za-z0-9_-]+)?(?:$|\s)/],
   ['high_entropy_blob', /\b(?=[A-Za-z0-9+/]{48,}={1,2})(?=[^\n]*[A-Z])(?=[^\n]*[a-z])(?=[^\n]*\d)[A-Za-z0-9+/]{48,}={1,2}/],
-  ['raw_transcript_path', /\/(?:Users|home)\/[^\s]*(?:\.(?:codex|claude|pi)\/[^\s]*(?:sessions|projects|transcripts)|\.cursor\/(?:chats|projects)\/[^\s]*|share\/opencode\/[^\s]*|\.config\/opencode[^\s]*|\.zcode\/cli\/[^\s]*)/],
+  ['raw_transcript_path', /\/(?:Users|home)\/[^\s]*(?:\.(?:codex|claude|pi)\/[^\s]*(?:sessions|projects|transcripts)|\.cursor\/(?:chats|projects)\/[^\s]*|share\/opencode\/[^\s]*|\.config\/opencode[^\s]*|share\/muse\/sessions\/[^\s]*|\.zcode\/cli\/[^\s]*)/],
   ['prompt_injection', /(?:ignore|disregard) (?:all )?(?:previous|prior|system) instructions|system prompt|execute (?:this|the following) command/i],
 ]
 
@@ -1515,12 +1515,12 @@ export function lintVault(root) {
 /**
  * Portable source schemes that need no local file (CI + multi-machine safe).
  * - https / repo: / codex: / claude: / pi: / grok: / obsidian: / attention:
- *   / opencode: / cursor: / zcode:
+ *   / opencode: / cursor: / zcode: / muse:
  * - sibling-repo paths when checkout is absent
  * - docs/inbox/** staging paths (often gitignored; inspectable when present)
  */
 export function isPortableSourceScheme(source) {
-  return /^(https?:\/\/|codex:|claude:|pi:|grok:|obsidian:|repo:|attention:|opencode:|cursor:|zcode:)/i.test(String(source))
+  return /^(https?:\/\/|codex:|claude:|pi:|grok:|obsidian:|repo:|attention:|opencode:|cursor:|zcode:|muse:)/i.test(String(source))
 }
 
 function isStagingInboxSource(clean) {

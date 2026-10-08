@@ -3,7 +3,7 @@
 # alambic
 
 A compiled Markdown wiki for coding agents. You distill sources into short,
-sourced notes; Claude Code, Codex, Cursor, Pi, opencode or any shell-capable
+sourced notes; Claude Code, Codex, Cursor, Pi, opencode, Muse or any shell-capable
 agent query them through one CLI and get back cited, token-capped packs.
 
 ```

@@ -84,7 +84,7 @@ $links
 EOF
 fi
 
-secret_hits="$(grep -RInE '(/Users/[^/ ]+/\.(codex|claude|pi).*(sessions|projects|transcripts)|/home/[^/ ]+/\.(codex|claude|pi).*(sessions|projects|transcripts)|BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|[A-Z0-9_]{8,}=(secret|token|password))' kb ref docs AGENTS.md CLAUDE.md README.md _meta/*.md 2>/dev/null || true)"
+secret_hits="$(grep -RInE '(/Users/[^/ ]+/\.(codex|claude|pi).*(sessions|projects|transcripts)|/home/[^/ ]+/\.(codex|claude|pi).*(sessions|projects|transcripts)|/Users/[^/ ]+/\.local/share/muse/sessions/[^ ]*|/home/[^/ ]+/\.local/share/muse/sessions/[^ ]*|BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|[A-Z0-9_]{8,}=(secret|token|password))' kb ref docs AGENTS.md CLAUDE.md README.md _meta/*.md 2>/dev/null || true)"
 if [ -n "$secret_hits" ]; then
   err "possible secret or raw transcript path found:"
   printf '%s\n' "$secret_hits" >&2

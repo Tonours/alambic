@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { judgeFreeformNote } from '../lib/promotion-judge.mjs'
+import { isPortableSourceScheme, scanUnsafe } from '../lib/vault.mjs'
 
 const root = path.resolve(process.argv[2] || '.')
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-harvest-'))
@@ -403,6 +405,27 @@ try {
   assert.ok(Date.now() - started < 5000, 'the hook returns without waiting for the scan')
   for (let index = 0; index < 100 && !listQueue().length; index += 1) spawnSync('sleep', ['0.1'])
   assert.equal(listQueue().length, 1, 'the detached scan queues the ended session')
+
+  assert.equal(isPortableSourceScheme('muse:abc'), true, 'muse: is a portable source scheme')
+  assert.ok(scanUnsafe('/home/u/.local/share/muse/sessions/x.jsonl').includes('raw_transcript_path'), 'a muse session path is a raw transcript')
+  const museDraft = path.join(vault, 'docs/inbox/ai/muse-source.md')
+  fs.mkdirSync(path.dirname(museDraft), { recursive: true })
+  fs.writeFileSync(museDraft, `---
+type: finding
+status: draft
+summary: "A muse session source stays inspectable without a local file."
+sources:
+  - "muse:abc"
+tags:
+  - harvest
+---
+
+# Muse source
+
+${'Durable note text. '.repeat(20)}
+`)
+  const museJudged = judgeFreeformNote(vault, museDraft)
+  assert.equal(museJudged.oracles.sources_inspectable, true, `a draft whose only source is muse:abc must be inspectable ${JSON.stringify(museJudged.oracles)}`)
   console.log('harvest: ok')
 } finally {
   fs.rmSync(temp, { recursive: true, force: true })

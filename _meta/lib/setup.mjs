@@ -4,18 +4,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const HARNESSES = ['claude', 'codex', 'pi', 'opencode', 'cursor']
+export const HARNESSES = ['claude', 'codex', 'pi', 'opencode', 'cursor', 'muse']
 export const COMPONENTS = ['skill', 'mcp', 'shim', 'hook', 'harvest', 'schedule']
-const BINARIES = { claude: 'claude', codex: 'codex', pi: 'pi', opencode: 'opencode', cursor: 'cursor-agent' }
+const BINARIES = { claude: 'claude', codex: 'codex', pi: 'pi', opencode: 'opencode', cursor: 'cursor-agent', muse: 'muse' }
 const MCP_HARNESSES = ['claude', 'codex', 'opencode', 'cursor']
 const HOOK_SCRIPT = '_meta/hooks/prompt-context.mjs'
 const HOOK_MARKER = 'prompt-context.mjs'
 const HARVEST_SCRIPT = '_meta/hooks/harvest-hook.mjs'
 const DEFAULT_SCHEDULE = '05:15'
 const SCHEDULE_PATTERN = /^([01]?\d|2[0-3]):([0-5]\d)$/
-const SESSION_DIR_VARS = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'PI_CODING_AGENT_DIR']
+const SESSION_DIR_VARS = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'PI_CODING_AGENT_DIR', 'MUSE_HOME']
 const TEMPLATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../harness')
-export const USAGE = 'usage: alambic setup [--name <slug> [--vault <path>]] [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor|all|detected] [--mcp [--mcp-scope local|project|user] [--mcp-project <dir>]] [--prompt-hook] [--harvest-hook] [--schedule [HH:MM]] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--only-mcp [--harness claude,codex,opencode,cursor]] [--yes]'
+export const USAGE = 'usage: alambic setup [--name <slug> [--vault <path>]] [--yes] [--dry-run] [--json] [--harness claude,codex,pi,opencode,cursor,muse|all|detected] [--mcp [--mcp-scope local|project|user] [--mcp-project <dir>]] [--prompt-hook] [--harvest-hook] [--schedule [HH:MM]] [--no-skill] [--no-mcp] [--no-shim] | --status | --uninstall [--only-mcp [--harness claude,codex,opencode,cursor,muse]] [--yes]'
 const MCP_SCOPES = ['local', 'project', 'user']
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,30}$/
 const NAMED_MANIFEST = /^setup-([a-z0-9][a-z0-9-]{0,30})\.json$/
@@ -39,6 +39,7 @@ export function resolvePaths(env, name = null) {
   const abs = (value, fallback) => (value && path.isAbsolute(value) ? value : fallback)
   const xdgConfig = abs(env.XDG_CONFIG_HOME, path.join(home, '.config'))
   const xdgState = abs(env.XDG_STATE_HOME, path.join(home, '.local/state'))
+  const xdgData = abs(env.XDG_DATA_HOME, path.join(home, '.local/share'))
   const customClaude = abs(env.CLAUDE_CONFIG_DIR, null)
   const claudeDir = customClaude || path.join(home, '.claude')
   return {
@@ -49,6 +50,7 @@ export function resolvePaths(env, name = null) {
     piDir: abs(env.PI_CODING_AGENT_DIR, path.join(home, '.pi/agent')),
     opencodeDir: path.join(xdgConfig, 'opencode'),
     cursorDir: path.join(home, '.cursor'),
+    museDir: abs(env.MUSE_HOME, path.join(xdgData, 'muse')),
     agentsSkills: path.join(home, '.agents/skills'),
     binDir: path.join(home, '.local/bin'),
     launchAgents: path.join(home, 'Library/LaunchAgents'),
@@ -71,7 +73,7 @@ export function findBinary(name, env) {
 }
 
 export function detectHarnesses(env, paths = resolvePaths(env)) {
-  const dirs = { claude: paths.claudeDir, codex: paths.codexDir, pi: paths.piDir, opencode: paths.opencodeDir, cursor: paths.cursorDir }
+  const dirs = { claude: paths.claudeDir, codex: paths.codexDir, pi: paths.piDir, opencode: paths.opencodeDir, cursor: paths.cursorDir, muse: paths.museDir }
   return Object.fromEntries(HARNESSES.map((harness) => {
     const binary = findBinary(BINARIES[harness], env)
     return [harness, { detected: Boolean(binary || fs.existsSync(dirs[harness])), binary }]
@@ -489,7 +491,7 @@ export function desiredItems(context, selection) {
         items.push({ id: 'cursor:session', harnesses: ['cursor'], kind: 'hook', type: 'entry', container: 'array', target: path.join(paths.cursorDir, 'hooks.json'), entryPath: ['hooks', 'sessionStart'], value: { command: hookCommand(context, 'cursor'), timeout: 5 }, base: { version: 1 } })
       } else if (harness === 'pi') {
         items.push({ id: 'pi:hook', harnesses: ['pi'], kind: 'hook', type: 'file', target: path.join(paths.piDir, 'extensions/alambic-context.ts'), content: renderTemplate('pi/alambic-context.ts', values), mode: 0o644 })
-      } else {
+      } else if (harness === 'opencode') {
         items.push({ id: 'opencode:hook', harnesses: ['opencode'], kind: 'hook', type: 'file', target: path.join(paths.opencodeDir, 'plugins/alambic-context.js'), content: renderTemplate('opencode/alambic-context.js', values), mode: 0o644 })
       }
     }

@@ -8,7 +8,7 @@ import { scanUnsafe } from './vault.mjs'
 import { REFUSE_BODY, sha256 } from './promotion-judge.mjs'
 import { createExclusive, displacedDir, prepareDisplaced, sameInode, vaultDir, withdraw } from './write-journal.mjs'
 
-export const HARNESSES = ['claude', 'codex', 'pi']
+export const HARNESSES = ['claude', 'codex', 'pi', 'muse']
 export const HARVEST_ORIGIN = 'session-harvest'
 export const SESSION_TRUST = 'untrusted-session-data'
 export const DEFAULT_DISTILLER = 'claude -p --setting-sources "" --disable-slash-commands --tools "" --mcp-config \'{"mcpServers":{}}\' --strict-mcp-config --no-session-persistence --model sonnet'
@@ -28,10 +28,12 @@ function home(env) { return env.HOME || os.homedir() }
 
 export function sessionRoots(env = process.env) {
   const unique = (dirs) => [...new Set(dirs.filter(Boolean).map((dir) => path.resolve(dir)))]
+  const dataHome = env.XDG_DATA_HOME && path.isAbsolute(env.XDG_DATA_HOME) ? env.XDG_DATA_HOME : path.join(home(env), '.local/share')
   return {
     claude: unique([env.CLAUDE_CONFIG_DIR && path.join(env.CLAUDE_CONFIG_DIR, 'projects'), path.join(home(env), '.claude/projects')]),
     codex: unique([env.CODEX_HOME && path.join(env.CODEX_HOME, 'sessions'), path.join(home(env), '.codex/sessions')]),
     pi: unique([env.PI_CODING_AGENT_DIR && path.join(env.PI_CODING_AGENT_DIR, 'sessions'), path.join(home(env), '.pi/agent/sessions')]),
+    muse: unique([env.MUSE_HOME && path.join(env.MUSE_HOME, 'sessions'), path.join(dataHome, 'muse/sessions')]),
   }
 }
 
@@ -51,8 +53,10 @@ function listJsonl(dir, depth) {
 }
 
 export function listSessionFiles(harness, roots = sessionRoots()) {
-  const depth = { claude: 1, codex: 3, pi: 1 }[harness]
-  return [...new Set(roots[harness].flatMap((dir) => listJsonl(dir, depth)))].sort()
+  const depth = { claude: 1, codex: 3, pi: 1, muse: 4 }[harness]
+  const files = [...new Set((roots[harness] || []).flatMap((dir) => listJsonl(dir, depth)))].sort()
+  if (harness === 'muse') return files.filter((file) => !file.includes(`${path.sep}subagent${path.sep}`))
+  return files
 }
 
 export function detectHarness(file, roots = sessionRoots()) {
@@ -84,15 +88,40 @@ function injected(text) {
   return /^<[a-z_-]+>/i.test(text) || /^# AGENTS\.md instructions/.test(text) || /^Caveat: The messages below/.test(text)
 }
 
+function museTextBlocks(value) {
+  const out = []
+  const walk = (node) => {
+    if (!node) return
+    if (typeof node === 'string') return
+    if (Array.isArray(node)) { for (const item of node) walk(item); return }
+    if (typeof node !== 'object') return
+    if (typeof node.text === 'string' && (node.kind === 'text' || !node.kind || node.kind === 'content')) out.push(node.text)
+    if (Array.isArray(node.content)) walk(node.content)
+    if (Array.isArray(node.blocks)) walk(node.blocks)
+  }
+  walk(value)
+  return out
+}
+
 export function readSession(harness, file) {
   const lines = fs.readFileSync(file, 'utf8').split('\n')
   let id = path.basename(file, '.jsonl')
+  if (id === 'session') id = path.basename(path.dirname(file))
   let cwd = null
   const messages = []
   const push = (role, parts) => {
     const text = cleanText(parts.join('\n'))
     if (text && !injected(text)) messages.push({ role, text })
   }
+  const pushMuse = (role, parts) => {
+    const text = cleanText(parts.join('\n'))
+    if (!text || injected(text)) return
+    const last = messages[messages.length - 1]
+    if (last && last.role === role && last.text === text) return
+    messages.push({ role, text })
+  }
+  const pushMuseUser = (parts) => pushMuse('user', parts)
+  const pushMuseAssistant = (parts) => pushMuse('assistant', parts)
   for (const line of lines) {
     if (!line.trim()) continue
     let record
@@ -116,6 +145,33 @@ export function readSession(harness, file) {
         cwd = record.cwd || cwd
       } else if (record.type === 'message' && ['user', 'assistant'].includes(record.message?.role)) {
         push(record.message.role, textParts(record.message.content, ['text']))
+      }
+    } else if (harness === 'muse') {
+      const recs = []
+      if (Array.isArray(record.children)) {
+        for (const child of record.children) {
+          if (!child || typeof child.record_json !== 'string') continue
+          try { recs.push(JSON.parse(child.record_json)) } catch { continue }
+        }
+      } else recs.push(record)
+      for (const rec of recs) {
+        if (rec?.stream?.id && typeof rec.stream.id === 'string' && (id === 'session' || !id)) id = rec.stream.id
+        const pt = rec?.payload_type
+        const payload = rec?.payload || {}
+        if (pt === 'runtime.user_intent.accepted') {
+          const blocks = [...museTextBlocks(payload.refill_blocks), ...museTextBlocks(payload.model_messages)]
+          if (blocks.length) pushMuseUser(blocks)
+        } else if (pt === 'runtime.session' && payload.kind === 'run') {
+          const event = payload.event || {}
+          if (event.kind === 'started' && typeof event.prompt === 'string' && event.prompt.trim()) pushMuseUser([event.prompt])
+          else if (event.kind === 'assistant_message_committed' && typeof event.text === 'string' && event.text.trim()) pushMuseAssistant([event.text])
+          else if (event.kind === 'model_user_messages' && Array.isArray(event.messages)) {
+            const parts = event.messages.filter((item) => typeof item === 'string' && item.trim())
+            if (parts.length) pushMuseUser(parts)
+          }
+        } else if (pt === 'runtime.session.route_facts' && payload.record?.cwd && !cwd) cwd = payload.record.cwd
+        else if (pt === 'runtime.session.metadata' && payload.record?.workspace_root && !cwd) cwd = payload.record.workspace_root
+        else if (pt === 'session.workspace_branch.observed' && payload.record?.workspace_root && !cwd) cwd = payload.record.workspace_root
       }
     }
   }
