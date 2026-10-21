@@ -437,6 +437,7 @@ try {
     if (reason.length > 500 || (reason && scanUnsafe(reason).length)) throw new Error('review reason is unsafe or exceeds 500 characters')
     const { isRefusedReviewReason } = await import('./lib/review-ledger.mjs')
     if (isRefusedReviewReason(reason)) throw new Error('review reason must not start with oracle:')
+    if (decision && !(process.stdin.isTTY && process.stdout.isTTY)) throw new Error('review --proposal --decision needs an interactive terminal (human review)')
     const inspection = inspectShadowProposal(proposalFile)
     if (decision === 'accept' && !inspection.precondition.ok) throw new Error(`proposal cannot be accepted: ${inspection.precondition.state}`)
     const dir = ensureState()
