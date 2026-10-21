@@ -37,7 +37,7 @@ try {
   const pending = stage('pending')
   const receipted = stage('receipted')
   const abandoned = stage('abandoned')
-  const decided = cli(['review', '--proposal', receipted, '--decision', 'reject', '--reason', 'purge policy fixture'])
+  const decided = spawnSync('python3', ['-c', 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)', path.join(root, '_meta/alambic'), 'review', '--proposal', receipted, '--decision', 'reject', '--reason', 'purge policy fixture'], { encoding: 'utf8', input: '', env: { ...process.env, ALAMBIC_STATE_DIR: purgeState } })
   assert.equal(decided.status, 0, decided.stderr)
   const candidate = path.join(purgeState, 'candidates', 'old-candidate.json')
   fs.writeFileSync(candidate, '{}\n')

@@ -92,6 +92,26 @@ if (fs.existsSync(proposalDir)) {
 assert(pulse.living_loop.reviews === 0 || typeof pulse.living_loop.reviews === 'number', 'reviews numeric')
 assert(pulse.checklist.supervision_ready === false || pulse.living_loop.reviews >= 20, 'supervision_ready only if enough reviews')
 
+const feedbackDir = path.join(xdg, 'alambic/feedback')
+const readCounts = (name) => (fs.existsSync(path.join(feedbackDir, name)) ? JSON.parse(fs.readFileSync(path.join(feedbackDir, name), 'utf8')) : null)
+const quietPulse = () => runLivingLoopPulse(vaultCopy, { seedProposals: false, runEvals: false, writeInbox: false, writePulseFile: false })
+for (let index = 0; index < 10; index += 1) {
+  const piped = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), 'feedback', '--status', 'hit'], { env: cliEnv, encoding: 'utf8' })
+  assert(piped.status === 0 && /agent/.test(piped.stdout), `non-interactive feedback names the agent counter: ${piped.status} ${piped.stdout}${piped.stderr}`)
+}
+assert(readCounts('agent-counts.json')?.hit === 10, 'non-interactive feedback lands in agent-counts.json')
+assert(readCounts('counts.json') === null, 'non-interactive feedback must not write counts.json')
+const agentPulse = quietPulse()
+assert(agentPulse.living_loop.human_feedback_total === 0 && agentPulse.checklist.human_feedback_ge_10 === false, 'agent feedback must not move human_feedback_total or human_feedback_ge_10')
+assert(agentPulse.living_loop.agent_feedback_total === 10 && agentPulse.living_loop.agent_feedback?.hit === 10, 'pulse reports agent feedback separately')
+const terminal = spawnSync('python3', ['-c', 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)', process.execPath, path.join(liveRoot, '_meta/alambic.mjs'), 'feedback', '--status', 'miss'], { env: cliEnv, encoding: 'utf8', input: '' })
+assert(terminal.status === 0, `terminal feedback: ${terminal.stdout}${terminal.stderr}`)
+assert(readCounts('counts.json')?.miss === 1 && readCounts('agent-counts.json')?.miss === 0, 'terminal feedback lands in counts.json')
+assert(quietPulse().living_loop.human_feedback_total === 1, 'terminal feedback counts as human')
+fs.writeFileSync(path.join(feedbackDir, 'counts.json'), `${JSON.stringify({ version: 1, hit: 10, miss: 0, stale: 0, wrong: 0 })}\n`)
+const legacyPulse = quietPulse()
+assert(legacyPulse.living_loop.human_feedback_total === 10 && legacyPulse.checklist.human_feedback_ge_10 === true, 'a legacy counts.json still counts as human')
+
 assert(liveSnapshot() === liveBefore, 'the pulse test must not write into the live vault (docs/inbox/ai, _meta/loop-pulse.latest.json)')
 fs.rmSync(path.dirname(vaultCopy), { recursive: true, force: true })
 
