@@ -11,7 +11,7 @@ Vault: `{{VAULT}}`
 {{CLI}} session --json --max-tokens 2500 "<task question>"
 {{CLI}} context --json --max-tokens 2500 "<task question>"
 {{CLI}} query --json "search terms"
-{{CLI}} feedback --status hit|miss|stale|wrong
+{{CLI}} feedback --status hit|miss|stale|wrong  # counted as agent feedback, not human
 ```
 
 ## When to retrieve

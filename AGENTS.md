@@ -13,6 +13,7 @@
   retrieval is lexical. With the key set, queries go to TypeSafe: never put
   secrets in them.
 - After a retrieval, record `_meta/alambic feedback --status hit|miss|stale|wrong`.
+  Without a terminal on stdin it is counted as agent feedback, never human.
 - Automated `kb/` writes belong to the local nightly (`alambic nightly --push`,
   scheduled by `alambic setup --schedule`), which runs the sidekick with
   `--apply-all`. A manual `sidekick run` defaults to dry-run, and the GitHub

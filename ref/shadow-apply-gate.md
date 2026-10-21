@@ -3,7 +3,7 @@ type: reference
 status: verified
 summary: "Automated distill --apply stays disabled; shadow proposals require a human review receipt."
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-10-21
 sources:
   - "CLAUDE.md"
   - "ref/second-brain-operating-model.md"
@@ -22,6 +22,7 @@ All automatic writes into `kb/` are **off**.
 
 - `alambic distill --apply` errors.
 - `alambic review` records accept/reject receipts and never applies patches.
+- A review decision needs a terminal on stdin; without one it is refused.
 - MCP has no write tools.
 
 To experiment later, keep the gate explicit in `ref/current-work.md` and do not
