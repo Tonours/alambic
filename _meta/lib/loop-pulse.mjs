@@ -203,17 +203,19 @@ export function pulseFreshness(pulse, { now = Date.now(), maxAgeMs = PULSE_MAX_A
   return { fresh: Number.isFinite(age) && age >= 0 && age <= maxAgeMs, age_ms: age, max_age_ms: maxAgeMs }
 }
 
-function readFeedbackCounts(file) {
-  if (!fs.existsSync(file)) return { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
+export function readFeedbackCounts(file) {
+  const empty = { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
+  if (!fs.existsSync(file)) return empty
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'))
+    const counts = JSON.parse(fs.readFileSync(file, 'utf8'))
+    return counts && typeof counts === 'object' && !Array.isArray(counts) ? counts : empty
   } catch {
-    return { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
+    return empty
   }
 }
 
-function sumFeedback(counts) {
-  return (counts.hit || 0) + (counts.miss || 0) + (counts.stale || 0) + (counts.wrong || 0)
+export function sumFeedback(counts) {
+  return ['hit', 'miss', 'stale', 'wrong'].map((key) => Number(counts[key])).filter(Number.isFinite).reduce((total, value) => total + value, 0)
 }
 
 function recordEvalFeedback(evalReport) {

@@ -514,7 +514,7 @@ try {
     }
     if (!report.ok) process.exitCode = 1
   } else if (command === 'status' || command === 'loop') {
-    const { loadLatestPulse, pulseFreshness, runLivingLoopPulse } = await import('./lib/loop-pulse.mjs')
+    const { loadLatestPulse, pulseFreshness, readFeedbackCounts, runLivingLoopPulse, sumFeedback } = await import('./lib/loop-pulse.mjs')
     const json = has('--json')
     // CI / automated hygiene pulse (never fabricates human reviews or human feedback).
     const ci = has('--ci')
@@ -568,18 +568,12 @@ try {
       const ledger = readReviewLedger(dir)
       const reviews = ledger.human
       const pending = proposals.filter((name) => !reviewFiles.includes(name))
-      const feedback = fs.existsSync(feedbackFile)
-        ? JSON.parse(fs.readFileSync(feedbackFile, 'utf8'))
-        : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
-      const evalFeedback = fs.existsSync(evalFeedbackFile)
-        ? JSON.parse(fs.readFileSync(evalFeedbackFile, 'utf8'))
-        : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
-      const feedbackTotal = (feedback.hit || 0) + (feedback.miss || 0) + (feedback.stale || 0) + (feedback.wrong || 0)
-      const evalFeedbackTotal = (evalFeedback.hit || 0) + (evalFeedback.miss || 0) + (evalFeedback.stale || 0) + (evalFeedback.wrong || 0)
-      const agentFeedback = fs.existsSync(agentFeedbackFile)
-        ? JSON.parse(fs.readFileSync(agentFeedbackFile, 'utf8'))
-        : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
-      const agentFeedbackTotal = (agentFeedback.hit || 0) + (agentFeedback.miss || 0) + (agentFeedback.stale || 0) + (agentFeedback.wrong || 0)
+      const feedback = readFeedbackCounts(feedbackFile)
+      const evalFeedback = readFeedbackCounts(evalFeedbackFile)
+      const agentFeedback = readFeedbackCounts(agentFeedbackFile)
+      const feedbackTotal = sumFeedback(feedback)
+      const evalFeedbackTotal = sumFeedback(evalFeedback)
+      const agentFeedbackTotal = sumFeedback(agentFeedback)
       const validation = validateVault(ROOT, { strict: true })
       const health = retrievalHealth(ROOT)
       let applyUnlock = false
