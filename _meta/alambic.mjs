@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { alambicStateDir } from './lib/state-dir.mjs'
-import { canonicalReceiptPayload } from './lib/review-ledger.mjs'
+import { canonicalReceiptPayload, isRefusedReviewReason, readReviewLedger } from './lib/review-ledger.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import process from 'node:process'
@@ -436,7 +436,6 @@ try {
     if (args.length || !proposalFile) throw new Error('usage: alambic review --proposal FILE [--decision accept|reject --reason TEXT] [--json]')
     if ((decision && !reason) || (!decision && reason) || (decision && !['accept', 'reject'].includes(decision))) throw new Error('review decision requires accept|reject and a non-empty reason')
     if (reason.length > 500 || (reason && scanUnsafe(reason).length)) throw new Error('review reason is unsafe or exceeds 500 characters')
-    const { isRefusedReviewReason } = await import('./lib/review-ledger.mjs')
     if (isRefusedReviewReason(reason)) throw new Error('review reason must not start with oracle:')
     if (decision && !humanTerminal()) throw new Error('review --proposal --decision needs an interactive terminal (human review)')
     const inspection = inspectShadowProposal(proposalFile)
@@ -516,7 +515,6 @@ try {
     if (!report.ok) process.exitCode = 1
   } else if (command === 'status' || command === 'loop') {
     const { loadLatestPulse, pulseFreshness, runLivingLoopPulse } = await import('./lib/loop-pulse.mjs')
-    const { readReviewLedger } = await import('./lib/review-ledger.mjs')
     const json = has('--json')
     // CI / automated hygiene pulse (never fabricates human reviews or human feedback).
     const ci = has('--ci')
