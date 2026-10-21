@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -24,8 +25,8 @@ export function isHumanDecisionReceipt(receipt) {
   if (isStoredOracleReason(receipt.reason)) return false
   if (typeof receipt.proposal_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.proposal_sha256)) return false
   if (typeof receipt.reviewed_at !== 'string' || !Number.isFinite(Date.parse(receipt.reviewed_at))) return false
-  if (typeof receipt.receipt_sha256 !== 'string' || !receipt.receipt_sha256) return false
-  return true
+  const { receipt_sha256: stored, ...payload } = receipt
+  return typeof stored === 'string' && crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex') === stored
 }
 
 export function readReviewLedger(stateRoot) {
