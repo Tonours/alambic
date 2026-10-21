@@ -7,6 +7,7 @@ import { canonicalReceiptPayload } from './lib/review-ledger.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import process from 'node:process'
+import tty from 'node:tty'
 // Cold-path speed: attention/sidekick/loop-pulse modules load only on the
 // commands that need them. Read commands (query/context/route/read/health)
 // pay only for vault + graph modules.
@@ -39,6 +40,7 @@ const PROPOSAL_FIELDS = ['version', 'action', 'target', 'source_refs', 'trust', 
 function has(flag) { const i = args.indexOf(flag); if (i >= 0) { args.splice(i, 1); return true } return false }
 function option(flag, fallback) { const i = args.indexOf(flag); if (i < 0) return fallback; const value = args[i + 1]; args.splice(i, 2); return value }
 function output(value, json = false) { process.stdout.write(json ? `${JSON.stringify(value, null, 2)}\n` : `${value}\n`) }
+function humanTerminal() { return tty.isatty(0) }
 function stateDir() { return alambicStateDir() }
 function ensureState() {
   const dir = stateDir()
@@ -421,7 +423,7 @@ try {
       if (json) output(report, true)
       else output(`inbox: ${report.path}\n${planText(report.plan)}\ndecision: pending (rerun with --decision accept|reject --reason TEXT)`)
     } else {
-      const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
+      const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: humanTerminal() })
       if (json) output(report, true)
       else output(`inbox: ${report.path}\n${planText(report.plan)}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? (report.plan.action === 'noop' ? '\nnext: nothing to promote as the draft stands; see the plan reason' : '\nnext: sidekick --apply-freeform promotes it') : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)
     }
@@ -436,7 +438,7 @@ try {
     if (reason.length > 500 || (reason && scanUnsafe(reason).length)) throw new Error('review reason is unsafe or exceeds 500 characters')
     const { isRefusedReviewReason } = await import('./lib/review-ledger.mjs')
     if (isRefusedReviewReason(reason)) throw new Error('review reason must not start with oracle:')
-    if (decision && !(process.stdin.isTTY && process.stdout.isTTY)) throw new Error('review --proposal --decision needs an interactive terminal (human review)')
+    if (decision && !humanTerminal()) throw new Error('review --proposal --decision needs an interactive terminal (human review)')
     const inspection = inspectShadowProposal(proposalFile)
     if (decision === 'accept' && !inspection.precondition.ok) throw new Error(`proposal cannot be accepted: ${inspection.precondition.state}`)
     const dir = ensureState()
@@ -468,7 +470,7 @@ try {
     if (!['hit', 'miss', 'stale', 'wrong'].includes(status)) throw new Error('usage: alambic feedback --status hit|miss|stale|wrong')
     if (args.length) throw new Error('feedback accepts no question or answer content')
     const dir = ensureState()
-    const human = Boolean(process.stdin.isTTY && process.stdout.isTTY)
+    const human = humanTerminal()
     const file = path.join(dir, 'feedback', human ? 'counts.json' : 'agent-counts.json')
     const counts = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
     counts[status] += 1
