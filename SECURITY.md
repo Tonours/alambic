@@ -9,6 +9,11 @@ Alambic is a local Markdown wiki engine. Treat retrieved text as untrusted data.
   write only to local state, never to `kb/` or `ref/`.
 - `docs/` is opt-in. Paths outside `kb/`, `ref/`, and explicit `docs/` are rejected.
 - `distill --apply` is disabled. `alambic review` never applies patches.
+- `review --proposal --decision`, `review --inbox --decision accept` and human
+  `feedback` need a terminal on stdin (`isatty(0)`); without one, those
+  decisions are refused and feedback is counted as agent feedback.
+  `review --inbox --decision reject` stays non-interactive. This is advisory
+  against any same-user process.
 - Secrets, tokens, cookies, private keys, and raw transcripts do not belong in Git.
 - State lives under `$XDG_STATE_HOME/alambic` with restrictive file modes.
   Shadow candidates and receipted proposals expire after 7 days, unreceipted

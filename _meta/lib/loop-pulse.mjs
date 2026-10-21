@@ -100,8 +100,10 @@ export function runLivingLoopPulse(root, {
   const humanReviewNames = ledger.human
   const humanFeedback = readFeedbackCounts(path.join(dir, 'feedback', 'counts.json'))
   const evalFeedback = readFeedbackCounts(path.join(dir, 'feedback', 'eval-counts.json'))
+  const agentFeedback = readFeedbackCounts(path.join(dir, 'feedback', 'agent-counts.json'))
   const humanFeedbackTotal = sumFeedback(humanFeedback)
   const evalFeedbackTotal = sumFeedback(evalFeedback)
+  const agentFeedbackTotal = sumFeedback(agentFeedback)
 
   const pulse = {
     version: 1,
@@ -132,6 +134,8 @@ export function runLivingLoopPulse(root, {
       human_feedback: humanFeedback,
       eval_feedback_total: evalFeedbackTotal,
       eval_feedback: evalFeedback,
+      agent_feedback_total: agentFeedbackTotal,
+      agent_feedback: agentFeedback,
       apply_mode: 'class-a-local-nightly-class-b-off',
       apply_class_a: 'local-nightly',
       apply_class_b: 'disabled',
@@ -199,17 +203,19 @@ export function pulseFreshness(pulse, { now = Date.now(), maxAgeMs = PULSE_MAX_A
   return { fresh: Number.isFinite(age) && age >= 0 && age <= maxAgeMs, age_ms: age, max_age_ms: maxAgeMs }
 }
 
-function readFeedbackCounts(file) {
-  if (!fs.existsSync(file)) return { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
+export function readFeedbackCounts(file) {
+  const empty = { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
+  if (!fs.existsSync(file)) return empty
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'))
+    const counts = JSON.parse(fs.readFileSync(file, 'utf8'))
+    return counts && typeof counts === 'object' && !Array.isArray(counts) ? counts : empty
   } catch {
-    return { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
+    return empty
   }
 }
 
-function sumFeedback(counts) {
-  return (counts.hit || 0) + (counts.miss || 0) + (counts.stale || 0) + (counts.wrong || 0)
+export function sumFeedback(counts) {
+  return ['hit', 'miss', 'stale', 'wrong'].map((key) => Number(counts[key])).filter(Number.isFinite).reduce((total, value) => total + value, 0)
 }
 
 function recordEvalFeedback(evalReport) {
@@ -382,7 +388,7 @@ function writeInboxQueueCard(root, payload) {
     '1. `_meta/alambic status --json` — pending proposals',
     '2. `_meta/alambic review --proposal FILE --decision accept|reject --reason "…"`',
     '3. If accept useful: update existing kb note (wikilink/claims), then validate',
-    '4. After retrieval in a real session: `_meta/alambic feedback --status hit|miss|stale|wrong`',
+    '4. After retrieval in a real session, from a terminal: `_meta/alambic feedback --status hit|miss|stale|wrong`',
     '',
   ]
   atomicWrite(file, `${lines.join('\n')}\n`, 0o644)
@@ -402,7 +408,7 @@ function buildNextActions({ pending, reviewNames, humanFeedbackTotal, seeded, gr
     actions.push(`Human reviews: ${reviewNames.length}/20 toward shadow-apply-gate (do not fabricate)`)
   }
   if (humanFeedbackTotal < 10) {
-    actions.push(`Human feedback: ${humanFeedbackTotal}/10 — log after real retrieval sessions only`)
+    actions.push(`Human feedback: ${humanFeedbackTotal}/10 — log from a terminal after real retrieval sessions only`)
   }
   const gaps = graphLint?.co_occurrence_gaps?.length || 0
   if (gaps) actions.push(`Graph co-occurrence gaps open: ${gaps} (warnings only)`)

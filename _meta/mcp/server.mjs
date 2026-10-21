@@ -126,7 +126,7 @@ const feedbackSchema = z.object({
 
 server.registerTool('vault_feedback', {
   title: 'Record aggregate retrieval feedback',
-  description: 'Record one aggregate hit/miss/stale/wrong feedback after a retrieval outcome, via the vault CLI. No question or answer content.',
+  description: 'Record one aggregate hit/miss/stale/wrong feedback after a retrieval outcome, via the vault CLI. Counted as agent feedback, never as human feedback. No question or answer content.',
   inputSchema: feedbackSchema,
   annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false, idempotentHint: false },
 }, async ({ status }) => {

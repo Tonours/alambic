@@ -278,10 +278,12 @@ if (suite === 'retrieval') {
   const traversal = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', traversalFile], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const proposalFiles = fs.readdirSync(path.join(temp, 'alambic/proposals'))
   const storedProposal = path.join(temp, 'alambic/proposals', proposalFiles[0])
-  const review = spawnSync(path.join(root, '_meta/alambic'), ['review', '--proposal', storedProposal, '--decision', 'accept', '--reason', 'supervised fixture', '--json'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
-  const reviewReplay = spawnSync(path.join(root, '_meta/alambic'), ['review', '--proposal', storedProposal, '--decision', 'accept', '--reason', 'supervised fixture', '--json'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const ptyArgs = ['-c', 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)', path.join(root, '_meta/alambic')]
+  const ptyOptions = { encoding: 'utf8', input: '', env: { ...process.env, XDG_STATE_HOME: temp } }
+  const review = spawnSync('python3', [...ptyArgs, 'review', '--proposal', storedProposal, '--decision', 'accept', '--reason', 'supervised fixture', '--json'], ptyOptions)
+  const reviewReplay = spawnSync('python3', [...ptyArgs, 'review', '--proposal', storedProposal, '--decision', 'accept', '--reason', 'supervised fixture', '--json'], ptyOptions)
   const reviewApply = spawnSync(path.join(root, '_meta/alambic'), ['review', '--proposal', storedProposal, '--apply'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
-  const conflictingReview = spawnSync(path.join(root, '_meta/alambic'), ['review', '--proposal', storedProposal, '--decision', 'reject', '--reason', 'changed decision'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const conflictingReview = spawnSync('python3', [...ptyArgs, 'review', '--proposal', storedProposal, '--decision', 'reject', '--reason', 'changed decision'], ptyOptions)
   const receiptFile = path.join(temp, 'alambic/reviews', `${path.basename(storedProposal, '.json')}.json`)
   const receipt = fs.existsSync(receiptFile) ? JSON.parse(fs.readFileSync(receiptFile, 'utf8')) : null
   const receiptMode = fs.existsSync(receiptFile) ? fs.statSync(receiptFile).mode & 0o777 : null
@@ -297,15 +299,15 @@ if (suite === 'retrieval') {
   fs.writeFileSync(conflictProposalFile, JSON.stringify({ version: 1, action: 'update', target: 'ref/current-work.md', source_refs: ['codex:2026-07-10:test'], trust: 'trusted-local', rationale: 'preimage conflict fixture', preimage_sha256: 'a'.repeat(64), patch: 'safe patch' }))
   const conflictDistill = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', conflictProposalFile], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const conflictStoredProposal = conflictDistill.stdout.trim().replace(/^shadow proposal: /, '')
-  const conflictAccept = spawnSync(path.join(root, '_meta/alambic'), ['review', '--proposal', conflictStoredProposal, '--decision', 'accept', '--reason', 'must fail stale preimage'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
+  const conflictAccept = spawnSync('python3', [...ptyArgs, 'review', '--proposal', conflictStoredProposal, '--decision', 'accept', '--reason', 'must fail stale preimage'], ptyOptions)
   const concurrentProposalFile = path.join(temp, 'concurrent.json')
   fs.writeFileSync(concurrentProposalFile, JSON.stringify({ version: 1, action: 'noop', target: '', source_refs: ['codex:2026-07-10:concurrent'], trust: 'trusted-local', rationale: 'concurrent decision fixture', preimage_sha256: '', patch: '' }))
   const concurrentDistill = spawnSync(path.join(root, '_meta/alambic'), ['distill', '--proposal', concurrentProposalFile], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const concurrentStoredProposal = concurrentDistill.stdout.trim().replace(/^shadow proposal: /, '')
-  const concurrentOptions = { env: { ...process.env, XDG_STATE_HOME: temp } }
+  const concurrentOptions = { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, XDG_STATE_HOME: temp } }
   const concurrentReviews = await Promise.all([
-    runAsync(path.join(root, '_meta/alambic'), ['review', '--proposal', concurrentStoredProposal, '--decision', 'accept', '--reason', 'concurrent accept'], concurrentOptions),
-    runAsync(path.join(root, '_meta/alambic'), ['review', '--proposal', concurrentStoredProposal, '--decision', 'reject', '--reason', 'concurrent reject'], concurrentOptions),
+    runAsync('python3', [...ptyArgs, 'review', '--proposal', concurrentStoredProposal, '--decision', 'accept', '--reason', 'concurrent accept'], concurrentOptions),
+    runAsync('python3', [...ptyArgs, 'review', '--proposal', concurrentStoredProposal, '--decision', 'reject', '--reason', 'concurrent reject'], concurrentOptions),
   ])
   const concurrentVerify = spawnSync(path.join(root, '_meta/alambic'), ['review', '--proposal', concurrentStoredProposal, '--json'], { encoding: 'utf8', env: { ...process.env, XDG_STATE_HOME: temp } })
   const concurrentStatuses = concurrentReviews.map((result) => result.status).sort((a, b) => a - b)

@@ -3,9 +3,11 @@ import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { alambicStateDir } from './lib/state-dir.mjs'
+import { canonicalReceiptPayload, isRefusedReviewReason, readReviewLedger } from './lib/review-ledger.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import process from 'node:process'
+import tty from 'node:tty'
 // Cold-path speed: attention/sidekick/loop-pulse modules load only on the
 // commands that need them. Read commands (query/context/route/read/health)
 // pay only for vault + graph modules.
@@ -38,6 +40,7 @@ const PROPOSAL_FIELDS = ['version', 'action', 'target', 'source_refs', 'trust', 
 function has(flag) { const i = args.indexOf(flag); if (i >= 0) { args.splice(i, 1); return true } return false }
 function option(flag, fallback) { const i = args.indexOf(flag); if (i < 0) return fallback; const value = args[i + 1]; args.splice(i, 2); return value }
 function output(value, json = false) { process.stdout.write(json ? `${JSON.stringify(value, null, 2)}\n` : `${value}\n`) }
+function humanTerminal() { return tty.isatty(0) }
 function stateDir() { return alambicStateDir() }
 function ensureState() {
   const dir = stateDir()
@@ -207,11 +210,9 @@ function inspectShadowProposal(file) {
 }
 
 function validateReceipt(receipt, expectedProposalSha256) {
-  const fields = ['version', 'proposal_sha256', 'decision', 'reason', 'reviewed_at']
-  const unknown = Object.keys(receipt).filter((key) => ![...fields, 'receipt_sha256'].includes(key))
-  if (unknown.length || fields.some((field) => !Object.hasOwn(receipt, field)) || !Object.hasOwn(receipt, 'receipt_sha256')) throw new Error('review receipt has an invalid shape')
+  const payload = canonicalReceiptPayload(receipt)
+  if (!payload) throw new Error('review receipt has an invalid shape')
   if (receipt.version !== 1 || !['accept', 'reject'].includes(receipt.decision) || receipt.proposal_sha256 !== expectedProposalSha256) throw new Error('review receipt does not match the proposal')
-  const payload = Object.fromEntries(fields.map((field) => [field, receipt[field]]))
   if (sha256(JSON.stringify(payload)) !== receipt.receipt_sha256) throw new Error('review receipt hash mismatch; receipt was altered')
   return receipt
 }
@@ -422,7 +423,7 @@ try {
       if (json) output(report, true)
       else output(`inbox: ${report.path}\n${planText(report.plan)}\ndecision: pending (rerun with --decision accept|reject --reason TEXT)`)
     } else {
-      const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: Boolean(process.stdin.isTTY && process.stdout.isTTY) })
+      const report = reviewInbox(ROOT, inboxFile, { decision, reason, tty: humanTerminal() })
       if (json) output(report, true)
       else output(`inbox: ${report.path}\n${planText(report.plan)}\ndecision: ${report.decision}\nreviewer: ${report.receipt.reviewer}${decision === 'accept' ? (report.plan.action === 'noop' ? '\nnext: nothing to promote as the draft stands; see the plan reason' : '\nnext: sidekick --apply-freeform promotes it') : report.archived ? `\narchived: ${report.archived}` : '\narchive refused: the draft changed since it was read'}`)
     }
@@ -435,8 +436,8 @@ try {
     if (args.length || !proposalFile) throw new Error('usage: alambic review --proposal FILE [--decision accept|reject --reason TEXT] [--json]')
     if ((decision && !reason) || (!decision && reason) || (decision && !['accept', 'reject'].includes(decision))) throw new Error('review decision requires accept|reject and a non-empty reason')
     if (reason.length > 500 || (reason && scanUnsafe(reason).length)) throw new Error('review reason is unsafe or exceeds 500 characters')
-    const { isRefusedReviewReason } = await import('./lib/review-ledger.mjs')
     if (isRefusedReviewReason(reason)) throw new Error('review reason must not start with oracle:')
+    if (decision && !humanTerminal()) throw new Error('review --proposal --decision needs an interactive terminal (human review)')
     const inspection = inspectShadowProposal(proposalFile)
     if (decision === 'accept' && !inspection.precondition.ok) throw new Error(`proposal cannot be accepted: ${inspection.precondition.state}`)
     const dir = ensureState()
@@ -468,12 +469,13 @@ try {
     if (!['hit', 'miss', 'stale', 'wrong'].includes(status)) throw new Error('usage: alambic feedback --status hit|miss|stale|wrong')
     if (args.length) throw new Error('feedback accepts no question or answer content')
     const dir = ensureState()
-    const file = path.join(dir, 'feedback', 'counts.json')
+    const human = humanTerminal()
+    const file = path.join(dir, 'feedback', human ? 'counts.json' : 'agent-counts.json')
     const counts = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
     counts[status] += 1
     counts.updated_at = new Date().toISOString()
     atomicJson(file, counts)
-    output(`feedback: ${status}`)
+    output(`feedback: ${status} (${human ? 'human' : 'agent'} counter: ${path.basename(file)})`)
   } else if (command === 'sidekick') {
     const { runSidekick } = await import('./lib/sidekick.mjs')
     const json = has('--json')
@@ -512,8 +514,7 @@ try {
     }
     if (!report.ok) process.exitCode = 1
   } else if (command === 'status' || command === 'loop') {
-    const { loadLatestPulse, pulseFreshness, runLivingLoopPulse } = await import('./lib/loop-pulse.mjs')
-    const { readReviewLedger } = await import('./lib/review-ledger.mjs')
+    const { loadLatestPulse, pulseFreshness, readFeedbackCounts, runLivingLoopPulse, sumFeedback } = await import('./lib/loop-pulse.mjs')
     const json = has('--json')
     // CI / automated hygiene pulse (never fabricates human reviews or human feedback).
     const ci = has('--ci')
@@ -561,19 +562,18 @@ try {
       const reviewDir = path.join(dir, 'reviews')
       const feedbackFile = path.join(dir, 'feedback', 'counts.json')
       const evalFeedbackFile = path.join(dir, 'feedback', 'eval-counts.json')
+      const agentFeedbackFile = path.join(dir, 'feedback', 'agent-counts.json')
       const proposals = fs.existsSync(proposalDir) ? fs.readdirSync(proposalDir).filter((name) => name.endsWith('.json')) : []
       const reviewFiles = fs.existsSync(reviewDir) ? fs.readdirSync(reviewDir).filter((name) => name.endsWith('.json')) : []
       const ledger = readReviewLedger(dir)
       const reviews = ledger.human
       const pending = proposals.filter((name) => !reviewFiles.includes(name))
-      const feedback = fs.existsSync(feedbackFile)
-        ? JSON.parse(fs.readFileSync(feedbackFile, 'utf8'))
-        : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
-      const evalFeedback = fs.existsSync(evalFeedbackFile)
-        ? JSON.parse(fs.readFileSync(evalFeedbackFile, 'utf8'))
-        : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
-      const feedbackTotal = (feedback.hit || 0) + (feedback.miss || 0) + (feedback.stale || 0) + (feedback.wrong || 0)
-      const evalFeedbackTotal = (evalFeedback.hit || 0) + (evalFeedback.miss || 0) + (evalFeedback.stale || 0) + (evalFeedback.wrong || 0)
+      const feedback = readFeedbackCounts(feedbackFile)
+      const evalFeedback = readFeedbackCounts(evalFeedbackFile)
+      const agentFeedback = readFeedbackCounts(agentFeedbackFile)
+      const feedbackTotal = sumFeedback(feedback)
+      const evalFeedbackTotal = sumFeedback(evalFeedback)
+      const agentFeedbackTotal = sumFeedback(agentFeedback)
       const validation = validateVault(ROOT, { strict: true })
       const health = retrievalHealth(ROOT)
       let applyUnlock = false
@@ -600,6 +600,8 @@ try {
           feedback,
           eval_feedback_total: evalFeedbackTotal,
           eval_feedback: evalFeedback,
+          agent_feedback_total: agentFeedbackTotal,
+          agent_feedback: agentFeedback,
           apply_unlock: applyUnlock,
           apply_mode: 'class-a-local-nightly-class-b-off',
           apply_class_a: 'local-nightly',
@@ -610,7 +612,7 @@ try {
         next_actions: [
           pending.length ? `Review ${pending.length} shadow proposal(s) with: _meta/alambic review --proposal FILE --decision accept|reject --reason "…"` : 'No pending shadow proposals — run: _meta/alambic loop --ci',
           'Before non-trivial work: _meta/alambic context --max-tokens 2500 "<question>"',
-          'After retrieval outcomes: _meta/alambic feedback --status hit|miss|stale|wrong',
+          'After retrieval outcomes: _meta/alambic feedback --status hit|miss|stale|wrong (counts as human only from a terminal; otherwise agent feedback)',
           'Automated hygiene: _meta/alambic loop --ci  (or the GitHub Actions ci workflow)',
           applyUnlock ? 'Class B unlock is YES — still prefer review receipts before any distill --apply experiment' : 'Class A/A2: local nightly writer (alambic nightly --push); Class B distill --apply remains DISABLED (shadow-apply-gate)',
         ],
@@ -649,6 +651,7 @@ try {
           `reviews: ${report.living_loop.reviews}  pending: ${report.living_loop.pending_reviews}  proposals: ${report.living_loop.proposals}`,
           `human feedback: total=${report.living_loop.feedback_total} hit=${feedback.hit || 0} miss=${feedback.miss || 0} stale=${feedback.stale || 0} wrong=${feedback.wrong || 0}`,
           `eval feedback: total=${evalFeedbackTotal} (does not count toward apply gate)`,
+          `agent feedback: total=${agentFeedbackTotal} (does not count toward apply gate)`,
           `last pulse: ${report.living_loop.last_pulse ? `${report.living_loop.last_pulse.generated_at} fresh=${report.living_loop.last_pulse.fresh}` : 'none — run loop --ci'}`,
           `apply: Class A local nightly / Class B ${applyUnlock ? 'unlocked' : 'disabled'} (unlock=${applyUnlock ? 'YES' : 'NO'})`,
           `inbox staged md: ${report.inbox_staged}`,

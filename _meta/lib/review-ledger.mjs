@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -24,8 +25,16 @@ export function isHumanDecisionReceipt(receipt) {
   if (isStoredOracleReason(receipt.reason)) return false
   if (typeof receipt.proposal_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.proposal_sha256)) return false
   if (typeof receipt.reviewed_at !== 'string' || !Number.isFinite(Date.parse(receipt.reviewed_at))) return false
-  if (typeof receipt.receipt_sha256 !== 'string' || !receipt.receipt_sha256) return false
-  return true
+  const payload = canonicalReceiptPayload(receipt)
+  return Boolean(payload) && crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex') === receipt.receipt_sha256
+}
+
+const RECEIPT_FIELDS = ['version', 'proposal_sha256', 'decision', 'reason', 'reviewed_at']
+
+export function canonicalReceiptPayload(receipt) {
+  const keys = Object.keys(receipt)
+  if (keys.length !== RECEIPT_FIELDS.length + 1 || !keys.includes('receipt_sha256') || RECEIPT_FIELDS.some((field) => !keys.includes(field))) return null
+  return Object.fromEntries(RECEIPT_FIELDS.map((field) => [field, receipt[field]]))
 }
 
 export function readReviewLedger(stateRoot) {
@@ -42,7 +51,7 @@ export function readReviewLedger(stateRoot) {
       other.push(name)
       continue
     }
-    if (isHumanDecisionReceipt(receipt)) human.push(name)
+    if (isHumanDecisionReceipt(receipt) && name === `${receipt.proposal_sha256}.json`) human.push(name)
     else if (isStoredOracleReason(receipt?.reason)) oracle.push(name)
     else other.push(name)
   }

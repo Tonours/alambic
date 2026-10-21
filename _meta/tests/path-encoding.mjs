@@ -45,6 +45,10 @@ async function checkMcpSpawnsCli() {
     const feedback = await client.callTool({ name: 'vault_feedback', arguments: { status: 'hit' } })
     const text = feedback.content?.[0]?.text || ''
     check(!feedback.isError && /"recorded":\s*true/.test(text), `MCP vault_feedback did not reach the CLI: ${text.trim()}`)
+    const feedbackDir = path.join(env.XDG_STATE_HOME, 'alambic/feedback')
+    const agentCounts = fs.existsSync(path.join(feedbackDir, 'agent-counts.json')) ? JSON.parse(fs.readFileSync(path.join(feedbackDir, 'agent-counts.json'), 'utf8')) : null
+    check(agentCounts?.hit === 1, `MCP vault_feedback must increment agent-counts.json, got ${JSON.stringify(agentCounts)}`)
+    check(!fs.existsSync(path.join(feedbackDir, 'counts.json')), 'MCP vault_feedback must leave the human counts.json absent')
   } finally {
     await client.close()
   }

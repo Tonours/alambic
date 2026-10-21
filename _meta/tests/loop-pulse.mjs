@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { runLivingLoopPulse, seedShadowProposalsFromGraphLint } from '../lib/loop-pulse.mjs'
 import { buildGraph } from '../lib/graph-builder.mjs'
 import { checkGraphLint } from '../lib/graph-linter.mjs'
@@ -91,6 +91,52 @@ if (fs.existsSync(proposalDir)) {
 // Must not claim human supervision without receipts
 assert(pulse.living_loop.reviews === 0 || typeof pulse.living_loop.reviews === 'number', 'reviews numeric')
 assert(pulse.checklist.supervision_ready === false || pulse.living_loop.reviews >= 20, 'supervision_ready only if enough reviews')
+
+const feedbackDir = path.join(xdg, 'alambic/feedback')
+const readCounts = (name) => (fs.existsSync(path.join(feedbackDir, name)) ? JSON.parse(fs.readFileSync(path.join(feedbackDir, name), 'utf8')) : null)
+const quietPulse = () => runLivingLoopPulse(vaultCopy, { seedProposals: false, runEvals: false, writeInbox: false, writePulseFile: false })
+for (let index = 0; index < 10; index += 1) {
+  const piped = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), 'feedback', '--status', 'hit'], { env: cliEnv, encoding: 'utf8' })
+  assert(piped.status === 0 && /agent/.test(piped.stdout), `non-interactive feedback names the agent counter: ${piped.status} ${piped.stdout}${piped.stderr}`)
+}
+assert(readCounts('agent-counts.json')?.hit === 10, 'non-interactive feedback lands in agent-counts.json')
+assert(readCounts('counts.json') === null, 'non-interactive feedback must not write counts.json')
+const agentPulse = quietPulse()
+assert(agentPulse.living_loop.human_feedback_total === 0 && agentPulse.checklist.human_feedback_ge_10 === false, 'agent feedback must not move human_feedback_total or human_feedback_ge_10')
+assert(agentPulse.living_loop.agent_feedback_total === 10 && agentPulse.living_loop.agent_feedback?.hit === 10, 'pulse reports agent feedback separately')
+for (const command of ['status', 'loop']) {
+  const run = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), command, '--json'], { env: cliEnv, encoding: 'utf8' })
+  let report = null
+  try { report = JSON.parse(run.stdout) } catch { report = null }
+  assert(report?.living_loop?.agent_feedback_total === 10 && report?.living_loop?.agent_feedback?.hit === 10 && report?.living_loop?.feedback_total === 0, `${command} --json reports agent feedback apart from human feedback`)
+}
+const spoof = path.join(xdg, 'spoof-tty.mjs')
+fs.writeFileSync(spoof, 'process.stdin.isTTY = true\nprocess.stdout.isTTY = true\n')
+const spoofed = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), 'feedback', '--status', 'hit'], { env: { ...cliEnv, NODE_OPTIONS: `--import ${pathToFileURL(spoof).href}` }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+assert(spoofed.status === 0 && readCounts('agent-counts.json')?.hit === 11 && readCounts('counts.json') === null, `a preload that sets isTTY must stay agent feedback: ${spoofed.stdout}${spoofed.stderr}`)
+const terminal = spawnSync('python3', ['-c', 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)', process.execPath, path.join(liveRoot, '_meta/alambic.mjs'), 'feedback', '--status', 'miss'], { env: cliEnv, encoding: 'utf8', input: '' })
+assert(terminal.status === 0, `terminal feedback: ${terminal.stdout}${terminal.stderr}`)
+assert(readCounts('counts.json')?.miss === 1 && readCounts('agent-counts.json')?.miss === 0, 'terminal feedback lands in counts.json')
+assert(quietPulse().living_loop.human_feedback_total === 1, 'terminal feedback counts as human')
+const feedbackLog = path.join(xdg, 'feedback.log')
+const redirected = spawnSync('python3', ['-c', 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)', 'bash', '-c', '"$0" "$@" > "$FEEDBACK_LOG"', process.execPath, path.join(liveRoot, '_meta/alambic.mjs'), 'feedback', '--status', 'hit'], { env: { ...cliEnv, FEEDBACK_LOG: feedbackLog }, encoding: 'utf8', input: '' })
+assert(redirected.status === 0 && readCounts('counts.json')?.hit === 1, `terminal feedback with stdout redirected counts as human: ${redirected.stdout}${redirected.stderr}`)
+assert(/human counter/.test(fs.readFileSync(feedbackLog, 'utf8')), 'redirected feedback output names the human counter')
+fs.writeFileSync(path.join(feedbackDir, 'counts.json'), `${JSON.stringify({ version: 1, hit: 10, miss: 0, stale: 0, wrong: 0 })}\n`)
+const legacyPulse = quietPulse()
+assert(legacyPulse.living_loop.human_feedback_total === 10 && legacyPulse.checklist.human_feedback_ge_10 === true, 'a legacy counts.json still counts as human')
+fs.writeFileSync(path.join(feedbackDir, 'counts.json'), '{"version":1,"hit":"1","miss":"x","stale":null}\n')
+const stringPulse = quietPulse()
+assert(stringPulse.living_loop.human_feedback_total === 1 && stringPulse.checklist.human_feedback_ge_10 === false, `string counts must not open human_feedback_ge_10: ${JSON.stringify(stringPulse.living_loop.human_feedback_total)}`)
+const stringLoop = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), 'loop', '--json'], { env: cliEnv, encoding: 'utf8' })
+let stringReport = null
+try { stringReport = JSON.parse(stringLoop.stdout) } catch { stringReport = null }
+assert(stringReport?.living_loop?.feedback_total === 1 && stringReport?.checklist?.human_feedback_ge_10 === false && stringReport?.checklist?.supervision_ready === false, `loop --json string counts must not open human_feedback_ge_10: ${JSON.stringify(stringReport?.living_loop?.feedback_total)}`)
+fs.writeFileSync(path.join(feedbackDir, 'agent-counts.json'), '{not json\n')
+const malformed = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), 'status', '--json'], { env: cliEnv, encoding: 'utf8' })
+let malformedReport = null
+try { malformedReport = JSON.parse(malformed.stdout) } catch { malformedReport = null }
+assert(malformedReport?.living_loop?.agent_feedback_total === 0, `a malformed agent-counts.json must read as zeros in status --json: ${malformed.stderr.trim()}`)
 
 assert(liveSnapshot() === liveBefore, 'the pulse test must not write into the live vault (docs/inbox/ai, _meta/loop-pulse.latest.json)')
 fs.rmSync(path.dirname(vaultCopy), { recursive: true, force: true })
