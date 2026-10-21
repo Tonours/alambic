@@ -51,7 +51,7 @@ export function readReviewLedger(stateRoot) {
       other.push(name)
       continue
     }
-    if (isHumanDecisionReceipt(receipt)) human.push(name)
+    if (isHumanDecisionReceipt(receipt) && name === `${receipt.proposal_sha256}.json`) human.push(name)
     else if (isStoredOracleReason(receipt?.reason)) oracle.push(name)
     else other.push(name)
   }
