@@ -125,6 +125,18 @@ assert(/human counter/.test(fs.readFileSync(feedbackLog, 'utf8')), 'redirected f
 fs.writeFileSync(path.join(feedbackDir, 'counts.json'), `${JSON.stringify({ version: 1, hit: 10, miss: 0, stale: 0, wrong: 0 })}\n`)
 const legacyPulse = quietPulse()
 assert(legacyPulse.living_loop.human_feedback_total === 10 && legacyPulse.checklist.human_feedback_ge_10 === true, 'a legacy counts.json still counts as human')
+fs.writeFileSync(path.join(feedbackDir, 'counts.json'), '{"version":1,"hit":"1","miss":"x","stale":null}\n')
+const stringPulse = quietPulse()
+assert(stringPulse.living_loop.human_feedback_total === 1 && stringPulse.checklist.human_feedback_ge_10 === false, `string counts must not open human_feedback_ge_10: ${JSON.stringify(stringPulse.living_loop.human_feedback_total)}`)
+const stringLoop = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), 'loop', '--json'], { env: cliEnv, encoding: 'utf8' })
+let stringReport = null
+try { stringReport = JSON.parse(stringLoop.stdout) } catch { stringReport = null }
+assert(stringReport?.living_loop?.feedback_total === 1 && stringReport?.checklist?.human_feedback_ge_10 === false && stringReport?.checklist?.supervision_ready === false, `loop --json string counts must not open human_feedback_ge_10: ${JSON.stringify(stringReport?.living_loop?.feedback_total)}`)
+fs.writeFileSync(path.join(feedbackDir, 'agent-counts.json'), '{not json\n')
+const malformed = spawnSync(process.execPath, [path.join(liveRoot, '_meta/alambic.mjs'), 'status', '--json'], { env: cliEnv, encoding: 'utf8' })
+let malformedReport = null
+try { malformedReport = JSON.parse(malformed.stdout) } catch { malformedReport = null }
+assert(malformedReport?.living_loop?.agent_feedback_total === 0, `a malformed agent-counts.json must read as zeros in status --json: ${malformed.stderr.trim()}`)
 
 assert(liveSnapshot() === liveBefore, 'the pulse test must not write into the live vault (docs/inbox/ai, _meta/loop-pulse.latest.json)')
 fs.rmSync(path.dirname(vaultCopy), { recursive: true, force: true })
