@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import { alambicStateDir } from './lib/state-dir.mjs'
+import { canonicalReceiptPayload } from './lib/review-ledger.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import process from 'node:process'
@@ -207,11 +208,9 @@ function inspectShadowProposal(file) {
 }
 
 function validateReceipt(receipt, expectedProposalSha256) {
-  const fields = ['version', 'proposal_sha256', 'decision', 'reason', 'reviewed_at']
-  const unknown = Object.keys(receipt).filter((key) => ![...fields, 'receipt_sha256'].includes(key))
-  if (unknown.length || fields.some((field) => !Object.hasOwn(receipt, field)) || !Object.hasOwn(receipt, 'receipt_sha256')) throw new Error('review receipt has an invalid shape')
+  const payload = canonicalReceiptPayload(receipt)
+  if (!payload) throw new Error('review receipt has an invalid shape')
   if (receipt.version !== 1 || !['accept', 'reject'].includes(receipt.decision) || receipt.proposal_sha256 !== expectedProposalSha256) throw new Error('review receipt does not match the proposal')
-  const payload = Object.fromEntries(fields.map((field) => [field, receipt[field]]))
   if (sha256(JSON.stringify(payload)) !== receipt.receipt_sha256) throw new Error('review receipt hash mismatch; receipt was altered')
   return receipt
 }
