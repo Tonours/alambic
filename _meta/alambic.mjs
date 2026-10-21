@@ -564,6 +564,7 @@ try {
       const reviewDir = path.join(dir, 'reviews')
       const feedbackFile = path.join(dir, 'feedback', 'counts.json')
       const evalFeedbackFile = path.join(dir, 'feedback', 'eval-counts.json')
+      const agentFeedbackFile = path.join(dir, 'feedback', 'agent-counts.json')
       const proposals = fs.existsSync(proposalDir) ? fs.readdirSync(proposalDir).filter((name) => name.endsWith('.json')) : []
       const reviewFiles = fs.existsSync(reviewDir) ? fs.readdirSync(reviewDir).filter((name) => name.endsWith('.json')) : []
       const ledger = readReviewLedger(dir)
@@ -577,6 +578,10 @@ try {
         : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
       const feedbackTotal = (feedback.hit || 0) + (feedback.miss || 0) + (feedback.stale || 0) + (feedback.wrong || 0)
       const evalFeedbackTotal = (evalFeedback.hit || 0) + (evalFeedback.miss || 0) + (evalFeedback.stale || 0) + (evalFeedback.wrong || 0)
+      const agentFeedback = fs.existsSync(agentFeedbackFile)
+        ? JSON.parse(fs.readFileSync(agentFeedbackFile, 'utf8'))
+        : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
+      const agentFeedbackTotal = (agentFeedback.hit || 0) + (agentFeedback.miss || 0) + (agentFeedback.stale || 0) + (agentFeedback.wrong || 0)
       const validation = validateVault(ROOT, { strict: true })
       const health = retrievalHealth(ROOT)
       let applyUnlock = false
@@ -603,6 +608,8 @@ try {
           feedback,
           eval_feedback_total: evalFeedbackTotal,
           eval_feedback: evalFeedback,
+          agent_feedback_total: agentFeedbackTotal,
+          agent_feedback: agentFeedback,
           apply_unlock: applyUnlock,
           apply_mode: 'class-a-local-nightly-class-b-off',
           apply_class_a: 'local-nightly',
@@ -613,7 +620,7 @@ try {
         next_actions: [
           pending.length ? `Review ${pending.length} shadow proposal(s) with: _meta/alambic review --proposal FILE --decision accept|reject --reason "…"` : 'No pending shadow proposals — run: _meta/alambic loop --ci',
           'Before non-trivial work: _meta/alambic context --max-tokens 2500 "<question>"',
-          'After retrieval outcomes: _meta/alambic feedback --status hit|miss|stale|wrong',
+          'After retrieval outcomes: _meta/alambic feedback --status hit|miss|stale|wrong (counts as human only from a terminal; otherwise agent feedback)',
           'Automated hygiene: _meta/alambic loop --ci  (or the GitHub Actions ci workflow)',
           applyUnlock ? 'Class B unlock is YES — still prefer review receipts before any distill --apply experiment' : 'Class A/A2: local nightly writer (alambic nightly --push); Class B distill --apply remains DISABLED (shadow-apply-gate)',
         ],
@@ -652,6 +659,7 @@ try {
           `reviews: ${report.living_loop.reviews}  pending: ${report.living_loop.pending_reviews}  proposals: ${report.living_loop.proposals}`,
           `human feedback: total=${report.living_loop.feedback_total} hit=${feedback.hit || 0} miss=${feedback.miss || 0} stale=${feedback.stale || 0} wrong=${feedback.wrong || 0}`,
           `eval feedback: total=${evalFeedbackTotal} (does not count toward apply gate)`,
+          `agent feedback: total=${agentFeedbackTotal} (does not count toward apply gate)`,
           `last pulse: ${report.living_loop.last_pulse ? `${report.living_loop.last_pulse.generated_at} fresh=${report.living_loop.last_pulse.fresh}` : 'none — run loop --ci'}`,
           `apply: Class A local nightly / Class B ${applyUnlock ? 'unlocked' : 'disabled'} (unlock=${applyUnlock ? 'YES' : 'NO'})`,
           `inbox staged md: ${report.inbox_staged}`,
