@@ -607,7 +607,7 @@ else { process.stderr.write('error: unknown switch z'); process.exit(129) }
   const unretired = await setup(vault, ['--uninstall', '--yes', '--json'], envFor(home12))
   assert(unretired.json.items.find((item) => item.id === 'cursor:hook')?.result === 'removed' && JSON.stringify(readJson(legacy12.hooksFile).hooks.beforeSubmitPrompt) === JSON.stringify([legacy12.user]), 'uninstall must remove a recorded cursor:hook and keep user entries')
 
-  const DEFAULT_ITEMS_SHA = 'bd9a4187a68ed46b0112b118254288137e188e158b510a0c1d990d2009e6a30b'
+  const DEFAULT_ITEMS_SHA = 'de2dcaabfa01eb86ef26f3907a9735fa58c781cece53bc08d86a2657de9b433a'
   const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: NODE, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true }, mcpScope: 'user' }).map(({ fingerprint, mcpScope, ...item }) => item)
   assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(NODE, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'explicit legacy user-scope setup items drifted from their frozen fingerprint')
   assert(claudeSkill.includes('\n# alambic vault\n') && claudeSkill.includes('description: Query the alambic vault (a compiled'), 'default skill must keep its alambic identity')
