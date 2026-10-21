@@ -469,12 +469,13 @@ try {
     if (!['hit', 'miss', 'stale', 'wrong'].includes(status)) throw new Error('usage: alambic feedback --status hit|miss|stale|wrong')
     if (args.length) throw new Error('feedback accepts no question or answer content')
     const dir = ensureState()
-    const file = path.join(dir, 'feedback', 'counts.json')
+    const human = Boolean(process.stdin.isTTY && process.stdout.isTTY)
+    const file = path.join(dir, 'feedback', human ? 'counts.json' : 'agent-counts.json')
     const counts = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { version: 1, hit: 0, miss: 0, stale: 0, wrong: 0 }
     counts[status] += 1
     counts.updated_at = new Date().toISOString()
     atomicJson(file, counts)
-    output(`feedback: ${status}`)
+    output(`feedback: ${status} (${human ? 'human' : 'agent'} counter: ${path.basename(file)})`)
   } else if (command === 'sidekick') {
     const { runSidekick } = await import('./lib/sidekick.mjs')
     const json = has('--json')
