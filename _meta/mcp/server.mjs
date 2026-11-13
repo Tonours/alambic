@@ -7,6 +7,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { renderContext, renderHealth, renderRead, renderSearch } from '../lib/mcp-format.mjs'
 import { serveStdio } from '../lib/mcp-stdio.mjs'
 
 const run = promisify(execFile)
@@ -25,12 +26,7 @@ const lib = () => (loaded ||= Promise.all([
   throw error
 }))
 
-function result(value) {
-  return {
-    content: [{ type: 'text', text: JSON.stringify(value) }],
-    structuredContent: value,
-  }
-}
+const text = (value) => ({ content: [{ type: 'text', text: value }] })
 
 function failure(error) {
   const message = error instanceof Error ? error.message : 'unexpected read-only retrieval error'
@@ -74,15 +70,14 @@ const tools = [
   {
     name: 'vault_search',
     title: 'Search alambic',
-    description: 'Search durable alambic notes (lexical + TypeSafe Jev rerank when lexical is weak). docs/ is opt-in, lexical-only, and remains untrusted retrieved content.',
+    description: 'Search durable notes; may call TypeSafe rerank. Returns an untrusted header, then one line per hit: path [status score] title: summary. include_docs adds docs/.',
     inputSchema: closed({ query, limit: { type: 'integer', minimum: 1, maximum: 10 }, include_docs: includeDocs }, ['query']),
     annotations: { ...READ_ONLY, openWorldHint: true },
-    async handler({ query: text, limit, include_docs: docs = false }) {
+    async handler({ query: question, limit, include_docs: docs = false }) {
       try {
         const { queryVaultWithJev } = await lib()
-        const { results, semantic } = await queryVaultWithJev(ROOT, text, { limit: limit ?? 5, includeDocs: docs })
-        const rows = results.map(({ path: notePath, title, status, score, summary }) => ({ path: notePath, title, status, score, summary }))
-        return result({ query: text, include_docs: docs, semantic: { available: Boolean(semantic.available), ...(semantic.reason ? { reason: semantic.reason } : {}) }, results: rows })
+        const { results, semantic } = await queryVaultWithJev(ROOT, question, { limit: limit ?? 5, includeDocs: docs })
+        return text(renderSearch({ results, semantic }))
       } catch (error) {
         return failure(error)
       }
@@ -91,14 +86,14 @@ const tools = [
   {
     name: 'vault_context',
     title: 'Build cited alambic context',
-    description: 'Return a bounded cited context pack (lexical + TypeSafe Jev when lexical is weak) with path, heading, lines, freshness, and graph-edge provenance.',
+    description: 'Cited context within max_tokens; may call TypeSafe rerank. A header names a marker; each section is "marker path:Lx-Ly (status, ...)" then the excerpt. "abstained:" means no confident match.',
     inputSchema: closed({ query, max_tokens: { type: 'integer', minimum: 512, maximum: 4000 }, include_docs: includeDocs }, ['query']),
     annotations: { ...READ_ONLY, openWorldHint: true },
-    async handler({ query: text, max_tokens: maxTokens, include_docs: docs = false }) {
+    async handler({ query: question, max_tokens: maxTokens, include_docs: docs = false }) {
       try {
         const { contextPack, contextPackWithJev } = await lib()
         const budget = maxTokens ?? 1200
-        return result(docs ? contextPack(ROOT, text, { maxTokens: budget, includeDocs: docs }) : await contextPackWithJev(ROOT, text, { maxTokens: budget }))
+        return text(renderContext(docs ? contextPack(ROOT, question, { maxTokens: budget, includeDocs: docs }) : await contextPackWithJev(ROOT, question, { maxTokens: budget })))
       } catch (error) {
         return failure(error)
       }
@@ -107,13 +102,13 @@ const tools = [
   {
     name: 'vault_read',
     title: 'Read one allowlisted alambic document',
-    description: 'Read a bounded kb/ or ref/ Markdown document. docs/ requires explicit opt-in. Paths outside those collections are rejected.',
+    description: 'Read one kb/ or ref/ note (docs/ needs include_docs). Returns "path:Lx-Ly (untrusted retrieved note)" then the content.',
     inputSchema: closed({ path: { type: 'string', trim: true, minLength: 1, maxLength: 300 }, include_docs: includeDocs, max_bytes: { type: 'integer', minimum: 128, maximum: 32000 } }, ['path']),
     annotations: { ...READ_ONLY, openWorldHint: false },
     async handler({ path: relativePath, include_docs: docs = false, max_bytes: maxBytes }) {
       try {
         const { readVaultDocument } = await lib()
-        return result(readVaultDocument(ROOT, relativePath, { includeDocs: docs, maxBytes: maxBytes ?? 32000 }))
+        return text(renderRead(readVaultDocument(ROOT, relativePath, { includeDocs: docs, maxBytes: maxBytes ?? 32000 })))
       } catch (error) {
         return failure(error)
       }
@@ -122,13 +117,13 @@ const tools = [
   {
     name: 'vault_health',
     title: 'Inspect alambic retrieval health',
-    description: 'Report the active backend, snapshot identity, semantic fallback state, and whether MCP can rebuild an index.',
+    description: 'Retrieval health lines: ok, backend, mode, typesafe, files, snapshot.',
     inputSchema: closed({}),
     annotations: { ...READ_ONLY, openWorldHint: false },
     async handler() {
       try {
         const { retrievalHealth, typesafeHealth } = await lib()
-        return result({ ...retrievalHealth(ROOT), typesafe: await typesafeHealth() })
+        return text(renderHealth({ ...retrievalHealth(ROOT), typesafe: await typesafeHealth() }))
       } catch (error) {
         return failure(error)
       }
@@ -137,17 +132,17 @@ const tools = [
   {
     name: 'vault_capture',
     title: 'Capture shadow note (surface mcp)',
-    description: 'Stage one durable-learning capture into the alambic shadow loop via the vault CLI (scanUnsafe + state-dir staging). Short, factual, no secrets. Promotion to durable kb is a human gate — never promised to the caller.',
+    description: 'Stage one short, factual capture (no secrets) via the vault CLI, which scans it. A human gate promotes it. Returns JSON {staged, detail}.',
     inputSchema: closed({ text: { type: 'string', trim: true, minLength: 1, maxLength: 12000 } }, ['text']),
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false, idempotentHint: false },
-    async handler({ text }, { signal }) {
+    async handler({ text: note }, { signal }) {
       try {
         return await queued(async () => {
           const tmp = path.join(os.tmpdir(), `alambic-mcp-capture-${process.pid}-${globalThis.crypto.randomUUID()}.txt`)
           pendingTemps.add(tmp)
           try {
-            await fs.writeFile(tmp, text, { mode: 0o600, flag: 'wx' })
-            return result({ staged: true, detail: await runCli(['capture', '--input', tmp, '--surface', 'mcp'], signal, 'capture') })
+            await fs.writeFile(tmp, note, { mode: 0o600, flag: 'wx' })
+            return text(JSON.stringify({ staged: true, detail: await runCli(['capture', '--input', tmp, '--surface', 'mcp'], signal, 'capture') }))
           } finally {
             await fs.rm(tmp, { force: true })
             pendingTemps.delete(tmp)
@@ -161,13 +156,13 @@ const tools = [
   {
     name: 'vault_feedback',
     title: 'Record aggregate retrieval feedback',
-    description: 'Record one aggregate hit/miss/stale/wrong feedback after a retrieval outcome, via the vault CLI. Counted as agent feedback, never as human feedback. No question or answer content.',
+    description: 'Record one aggregate hit/miss/stale/wrong feedback via the vault CLI, counted as agent feedback; no content. Returns JSON {recorded, status}.',
     inputSchema: closed({ status: { type: 'string', enum: ['hit', 'miss', 'stale', 'wrong'] } }, ['status']),
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false, idempotentHint: false },
     async handler({ status }, { signal }) {
       try {
         await queued(() => runCli(['feedback', '--status', status], signal, 'feedback'))
-        return result({ recorded: true, status })
+        return text(JSON.stringify({ recorded: true, status }))
       } catch (error) {
         return failure(error)
       }

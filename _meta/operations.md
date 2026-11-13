@@ -348,6 +348,14 @@ against the former zod schemas. `node _meta/tests/mcp-footprint.mjs --vault <dir
 startup and memory. After stdin closes an idle server exits within 500 ms; a call still
 running gets 3 s to answer, then the CLI child is killed.
 
+Read tools return one compact text block and no `structuredContent`, because
+clients forward only the structured value when both exist. `vault_context`
+sections start with a per-response marker the header names, and every metadata
+field is collapsed to one line, so note text cannot add a line that looks like a
+citation. This protects the layout only: note text is still untrusted. Capture
+and feedback return compact JSON text. `mcp-footprint.mjs --probes
+_meta/evals/probes-v2.jsonl` reports text against JSON bytes per tool.
+
 ## Evals
 
 `npm test` runs every suite. The capability and regression gates fail on any

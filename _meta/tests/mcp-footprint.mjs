@@ -68,6 +68,50 @@ async function session() {
   return { initMs, idle, afterCalls, p50: median(latencies) }
 }
 
+const probesFile = option('--probes', '')
+if (probesFile) {
+  process.env.TYPESAFE_API_KEY = ''
+  const lib = path.join(repo, '_meta/lib')
+  const { contextPack, readVaultDocument, retrievalHealth } = await import(path.join(lib, 'vault.mjs'))
+  const { queryVaultWithJev } = await import(path.join(lib, 'semantic-vault.mjs'))
+  const { renderContext, renderHealth, renderRead, renderSearch } = await import(path.join(lib, 'mcp-format.mjs'))
+  const bytes = (value) => Buffer.byteLength(typeof value === 'string' ? value : JSON.stringify(value))
+  const queries = fs.readFileSync(path.resolve(probesFile), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line).query)
+  const totals = { vault_context: [0, 0], vault_search: [0, 0], vault_read: [0, 0], vault_health: [0, 0] }
+  const add = (tool, text, json) => { totals[tool][0] += bytes(text); totals[tool][1] += bytes(json) }
+  for (const query of queries) {
+    const pack = contextPack(vault, query, { maxTokens: 1200 })
+    add('vault_context', renderContext(pack), pack)
+    const { results, semantic } = await queryVaultWithJev(vault, query, { limit: 5 })
+    const rows = results.map(({ path: notePath, title, status, score, summary }) => ({ path: notePath, title, status, score, summary }))
+    add('vault_search', renderSearch({ results, semantic }), { query, include_docs: false, semantic: { available: Boolean(semantic.available), ...(semantic.reason ? { reason: semantic.reason } : {}) }, results: rows })
+  }
+  for (const dir of ['kb', 'ref']) {
+    for (const file of fs.existsSync(path.join(vault, dir)) ? fs.readdirSync(path.join(vault, dir)).filter((name) => name.endsWith('.md')) : []) {
+      const document = readVaultDocument(vault, `${dir}/${file}`, { includeDocs: false, maxBytes: 32000 })
+      add('vault_read', renderRead(document), document)
+    }
+  }
+  const health = retrievalHealth(vault)
+  const { typesafeHealth } = await import(path.join(lib, 'typesafe-judge.mjs'))
+  const typesafe = await typesafeHealth()
+  add('vault_health', renderHealth({ ...health, typesafe }), { ...health, typesafe })
+  const definitions = JSON.parse(await new Promise((resolve) => {
+    const child = spawn(process.execPath, [server], { env: { ...process.env, ALAMBIC_ROOT: vault }, stdio: ['pipe', 'pipe', 'inherit'] })
+    let out = ''
+    child.stdout.on('data', (chunk) => { out += chunk; if (out.includes('\n')) { child.kill(); resolve(out.split('\n')[0]) } })
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })}\n`)
+  })).result.tools
+  const report = Object.fromEntries(Object.entries(totals).map(([tool, [text, json]]) => [tool, { text_bytes: text, json_bytes: json, ratio: round(text / json, 3) }]))
+  const limits = { vault_context: 0.8, vault_search: 0.85, vault_read: 0.96, vault_health: 0.25 }
+  const over = Object.entries(limits).filter(([tool, limit]) => report[tool].ratio > limit)
+  const definitionsBytes = definitions.reduce((sum, tool) => sum + bytes({ name: tool.name, description: tool.description, input_schema: tool.inputSchema }), 0)
+  if (definitionsBytes > 2250) over.push(['definitions', 2250])
+  if (over.length) process.exitCode = 1
+  process.stdout.write(`${JSON.stringify({ probes: queries.length, notes: fs.existsSync(path.join(vault, 'kb')) ? fs.readdirSync(path.join(vault, 'kb')).length : 0, ...report, definitions_bytes: definitionsBytes, over_limit: over.map(([tool]) => tool) }, null, 2)}\n`)
+  process.exit(process.exitCode || 0)
+}
+
 const samples = []
 for (let run = 0; run < runs; run++) samples.push(await session())
 const notes = (() => {

@@ -509,9 +509,16 @@ if (suite === 'retrieval') {
     const rawDocs = await client.callTool({ name: 'vault_read', arguments: { path: 'docs/corpus/untrusted-source.md' } })
     const capture = await client.callTool({ name: 'vault_capture', arguments: { text: 'Safe durable MCP capture fixture.' } })
     const feedback = await client.callTool({ name: 'vault_feedback', arguments: { status: 'hit' } })
-    const searchSemantic = search.structuredContent?.semantic
-    const contextSemantic = context.structuredContent?.retrieval?.semantic
-    const healthTypesafe = health.structuredContent?.typesafe
+    const textOf = (reply) => String(reply.content?.[0]?.text ?? '')
+    const semanticOf = (reply) => {
+      const header = textOf(reply).split('\n')[0]
+      const off = /semantic: off\/([^\s;]+)/.exec(header)
+      if (off) return { available: false, reason: off[1] }
+      return /semantic: /.test(header) ? { available: true } : undefined
+    }
+    const searchSemantic = semanticOf(search)
+    const contextSemantic = semanticOf(context)
+    const healthTypesafe = { state: /^typesafe: (\S+)/m.exec(textOf(health))?.[1] }
     const providerCalls = fs.existsSync(providerAudit) ? fs.readFileSync(providerAudit, 'utf8').trim().split('\n').filter(Boolean).length : 0
     const report = {
       suite,
