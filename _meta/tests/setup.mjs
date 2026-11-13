@@ -10,6 +10,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 const NODE = stableNode(process.execPath)
+const FLAG = '--max-semi-space-size=1'
 const temp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-setup-')))
 const CANARY = `canary-${crypto.randomBytes(8).toString('hex')}`
 const stubBin = path.join(temp, 'bin')
@@ -353,12 +354,12 @@ else { process.stderr.write('error: unknown switch z'); process.exit(129) }
   assert(fs.readFileSync(path.join(home, '.agents/skills/alambic/SKILL.md'), 'utf8') === claudeSkill, 'shared skill wrong')
   const server = path.join(vault, '_meta/mcp/server.mjs')
   const claudeAdd = calls('claude').find((entry) => entry.argv[1] === 'add').argv
-  assert(JSON.stringify(claudeAdd) === JSON.stringify(['mcp', 'add', '-s', 'user', 'alambic', '-e', `ALAMBIC_ROOT=${vault}`, '--', NODE, server]), `claude argv wrong: ${claudeAdd}`)
+  assert(JSON.stringify(claudeAdd) === JSON.stringify(['mcp', 'add', '-s', 'user', 'alambic', '-e', `ALAMBIC_ROOT=${vault}`, '--', NODE, FLAG, server]), `claude argv wrong: ${claudeAdd}`)
   assert(readJson(path.join(home, '.claude.json')).mcpServers.alambic.env.ALAMBIC_ROOT === vault, 'claude mcp missing')
   assert(readJson(path.join(home, '.codex/stub-mcp.json')).alambic.command === NODE, 'codex mcp missing')
   const opencode = readJson(path.join(home, '.config/opencode/opencode.json'))
   assert(opencode.$schema && opencode.mcp.alambic.command[0] === NODE && opencode.mcp.alambic.environment.ALAMBIC_ROOT === vault, 'opencode mcp wrong')
-  assert(readJson(path.join(home, '.cursor/mcp.json')).mcpServers.alambic.args[0] === server, 'cursor mcp wrong')
+  assert(readJson(path.join(home, '.cursor/mcp.json')).mcpServers.alambic.args.join(' ') === `${FLAG} ${server}`, 'cursor mcp wrong')
   const shim = path.join(home, '.local/bin/alambic')
   assert(mode(shim) === 0o755, 'shim must be 0755')
   assert(spawnSync(shim, ['a b', "c'd"], { encoding: 'utf8' }).stdout.trim() === "cli:a b|c'd", 'shim quoting broken')
@@ -607,7 +608,7 @@ else { process.stderr.write('error: unknown switch z'); process.exit(129) }
   const unretired = await setup(vault, ['--uninstall', '--yes', '--json'], envFor(home12))
   assert(unretired.json.items.find((item) => item.id === 'cursor:hook')?.result === 'removed' && JSON.stringify(readJson(legacy12.hooksFile).hooks.beforeSubmitPrompt) === JSON.stringify([legacy12.user]), 'uninstall must remove a recorded cursor:hook and keep user entries')
 
-  const DEFAULT_ITEMS_SHA = 'de2dcaabfa01eb86ef26f3907a9735fa58c781cece53bc08d86a2657de9b433a'
+  const DEFAULT_ITEMS_SHA = '5294603c393fa19002c60ddce30e66b02eebfc6fa5a8900ee0034e097207b813'
   const goldenItems = desiredItems(makeContext({ vault: '/fixed/vault', node: NODE, env: { HOME: '/fixed/home', PATH: '/usr/bin' } }), { harnesses: HARNESSES, components: { skill: true, mcp: true, shim: true, hook: true }, mcpScope: 'user' }).map(({ fingerprint, mcpScope, ...item }) => item)
   assert(crypto.createHash('sha256').update(JSON.stringify(goldenItems).replaceAll(NODE, '<node>')).digest('hex') === DEFAULT_ITEMS_SHA, 'explicit legacy user-scope setup items drifted from their frozen fingerprint')
   assert(claudeSkill.includes('\n# alambic vault\n') && claudeSkill.includes('description: Query the alambic vault (a compiled'), 'default skill must keep its alambic identity')
@@ -639,11 +640,11 @@ else { process.stderr.write('error: unknown switch z'); process.exit(129) }
   const pinned = { ALAMBIC_ROOT: brain, ALAMBIC_STATE_DIR: path.join(homeN, '.local/state/alambic-brain') }
   const namedServer = path.join(engine, '_meta/mcp/server.mjs')
   const namedAdd = calls('claude').find((entry) => entry.argv[1] === 'add').argv
-  assert(JSON.stringify(namedAdd) === JSON.stringify(['mcp', 'add', '-s', 'user', 'alambic-brain', '-e', `ALAMBIC_ROOT=${brain}`, '-e', `ALAMBIC_STATE_DIR=${pinned.ALAMBIC_STATE_DIR}`, '--', NODE, namedServer]), `named claude argv wrong: ${namedAdd}`)
+  assert(JSON.stringify(namedAdd) === JSON.stringify(['mcp', 'add', '-s', 'user', 'alambic-brain', '-e', `ALAMBIC_ROOT=${brain}`, '-e', `ALAMBIC_STATE_DIR=${pinned.ALAMBIC_STATE_DIR}`, '--', NODE, FLAG, namedServer]), `named claude argv wrong: ${namedAdd}`)
   assert(!readJson(path.join(homeN, '.claude.json')).mcpServers.alambic, 'named setup must not register the default MCP')
   assert(JSON.stringify(readJson(path.join(homeN, '.codex/stub-mcp.json'))['alambic-brain'].env) === JSON.stringify(pinned), 'named codex env wrong')
   const namedOpencode = readJson(path.join(homeN, '.config/opencode/opencode.json')).mcp['alambic-brain']
-  assert(namedOpencode.command[1] === namedServer && JSON.stringify(namedOpencode.environment) === JSON.stringify(pinned), 'named opencode entry wrong')
+  assert(namedOpencode.command.slice(1).join(' ') === `${FLAG} ${namedServer}` && JSON.stringify(namedOpencode.environment) === JSON.stringify(pinned), 'named opencode entry wrong')
   assert(JSON.stringify(readJson(path.join(homeN, '.cursor/mcp.json')).mcpServers['alambic-brain'].env) === JSON.stringify(pinned), 'named cursor entry wrong')
   const namedSkill = fs.readFileSync(path.join(homeN, '.claude/skills/alambic-brain/SKILL.md'), 'utf8')
   assert(namedSkill.startsWith('---\nname: alambic-brain\n') && namedSkill.includes('\n# brain vault\n') && namedSkill.includes(`Vault: \`${brain}\``), 'named skill identity wrong')
