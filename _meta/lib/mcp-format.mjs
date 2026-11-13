@@ -20,7 +20,7 @@ export const oneLine = (value) => String(value ?? '').replace(COLLAPSE, ' ').tri
 export function token(value) {
   const text = String(value ?? '')
   if (SAFE_TOKEN.test(text) && text.isWellFormed()) return text
-  return JSON.stringify(text).replace(ESCAPE, (char) => { const code = char.codePointAt(0); return code > 0xffff ? `\\u{${code.toString(16)}}` : `\\u${code.toString(16).padStart(4, '0')}` })
+  return JSON.stringify(text).replace(ESCAPE, (char) => Array.from({ length: char.length }, (_, index) => `\\u${char.charCodeAt(index).toString(16).padStart(4, '0')}`).join(''))
 }
 
 const citationParts = /^([\s\S]*):L(\d+)-L(\d+)$/u

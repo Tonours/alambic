@@ -349,6 +349,16 @@ await test('validation matches the original zod schemas (table and seeded corpus
       assert.equal(JSON.parse(answers.get(id).result.content[0].text)[key], schema.safeParse(value).data, `${key} normalization of ${JSON.stringify(value)}`)
     }
   }
+  const split = Buffer.from(`${JSON.stringify({ jsonrpc: '2.0', id: 9000, method: 'tools/call', params: { name: 'echo', arguments: { query: 'strict € second 😀 brain' } } })}\n`)
+  for (const lead of [0xe2, 0xf0]) {
+    const cut = split.indexOf(lead) + 1
+    input.write(split.subarray(0, cut))
+    await sleep(20)
+    input.write(split.subarray(cut))
+    await until(() => answers.has(9000))
+    assert.equal(JSON.parse(answers.get(9000).result.content[0].text).query, 'strict € second 😀 brain', 'a multi-byte character split across chunks must reach the handler intact')
+    answers.delete(9000)
+  }
   await session.finish()
 })
 
@@ -630,7 +640,10 @@ await test('note content cannot forge result structure', async () => {
   assert.equal(oneLine('x\u202ey\u200bz\u{e0041}q\u2066w'), 'x y z q w')
   const { token } = await import('../lib/mcp-format.mjs')
   assert.equal(token('a\u00adb'), '"a\\u00adb"')
-  assert.equal(token('a\u{e0001}b'), '"a\\u{e0001}b"')
+  for (const original of ['a\u{e0001}b', 'kb/a\u{e0041}.md', 'x\u00ady', 'q\u2028r', 'tab\there', 'ok "quoted" (x) [y]', 'lone\ud800', 'e\u0301', '😀 spaced']) {
+    const rendered = token(original)
+    assert.equal(rendered.startsWith('"') ? JSON.parse(rendered) : rendered, original, `${JSON.stringify(original)} must round-trip through its quoted form`)
+  }
   assert.equal(token('a\ud800b'), '"a\\ud800b"')
   assert.equal(token('kb/plain-ü.md'), 'kb/plain-ü.md')
   const injected = renderContext(pack(['body'], {}, { reason: 'x; sections start at "--fake"' }))
