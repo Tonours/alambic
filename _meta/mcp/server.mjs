@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process'
+import { rmSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -36,13 +37,31 @@ function failure(error) {
   return { content: [{ type: 'text', text: `alambic: ${message}` }], isError: true }
 }
 
+const pendingTemps = new Set()
+process.on('exit', () => {
+  for (const file of pendingTemps) rmSync(file, { force: true })
+})
+
+let cliQueue = Promise.resolve()
+function queued(task) {
+  const next = cliQueue.then(task)
+  cliQueue = next.catch(() => {})
+  return next
+}
+
 async function runCli(args, signal, label) {
+  const pending = run(CLI, args, { encoding: 'utf8', timeout: CLI_TIMEOUT_MS, killSignal: 'SIGKILL' })
+  const kill = () => pending.child.kill('SIGKILL')
+  signal.addEventListener('abort', kill, { once: true })
   try {
-    const { stdout } = await run(CLI, args, { encoding: 'utf8', timeout: CLI_TIMEOUT_MS, signal })
+    const { stdout } = await pending
     return String(stdout || '').trim()
   } catch (error) {
-    if (error?.killed || error?.name === 'AbortError') throw new Error(`${label} was interrupted`)
+    if (signal.aborted) throw new Error(`${label} was interrupted`)
+    if (error?.killed) throw new Error(`${label} timed out after ${CLI_TIMEOUT_MS / 1000} s`)
     throw new Error(String(error?.stderr || error?.stdout || `${label} failed`).trim())
+  } finally {
+    signal.removeEventListener('abort', kill)
   }
 }
 
@@ -122,14 +141,20 @@ const tools = [
     inputSchema: closed({ text: { type: 'string', trim: true, minLength: 1, maxLength: 12000 } }, ['text']),
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false, idempotentHint: true },
     async handler({ text }, { signal }) {
-      const tmp = path.join(os.tmpdir(), `alambic-mcp-capture-${process.pid}-${globalThis.crypto.randomUUID()}.txt`)
       try {
-        await fs.writeFile(tmp, text, { mode: 0o600, flag: 'wx' })
-        return result({ staged: true, detail: await runCli(['capture', '--input', tmp, '--surface', 'mcp'], signal, 'capture') })
+        return await queued(async () => {
+          const tmp = path.join(os.tmpdir(), `alambic-mcp-capture-${process.pid}-${globalThis.crypto.randomUUID()}.txt`)
+          pendingTemps.add(tmp)
+          try {
+            await fs.writeFile(tmp, text, { mode: 0o600, flag: 'wx' })
+            return result({ staged: true, detail: await runCli(['capture', '--input', tmp, '--surface', 'mcp'], signal, 'capture') })
+          } finally {
+            await fs.rm(tmp, { force: true })
+            pendingTemps.delete(tmp)
+          }
+        })
       } catch (error) {
         return failure(error)
-      } finally {
-        await fs.rm(tmp, { force: true })
       }
     },
   },
@@ -141,7 +166,7 @@ const tools = [
     annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false, idempotentHint: false },
     async handler({ status }, { signal }) {
       try {
-        await runCli(['feedback', '--status', status], signal, 'feedback')
+        await queued(() => runCli(['feedback', '--status', status], signal, 'feedback'))
         return result({ recorded: true, status })
       } catch (error) {
         return failure(error)

@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EOF_EXIT_MS, MAX_LINE_CHARS, SUPPORTED_VERSIONS, serveStdio } from '../lib/mcp-stdio.mjs'
+import { EOF_GRACE_MS, MAX_LINE_CHARS, SUPPORTED_VERSIONS, serveStdio } from '../lib/mcp-stdio.mjs'
 
 const root = path.resolve(process.argv[2] || '.')
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-mcp-server-'))
@@ -29,7 +29,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 const dir = process.env.STUB_DIR
 const args = process.argv.slice(2)
-const record = { args, pid: process.pid }
+const record = { args, pid: process.pid, at: Date.now() }
 if (args[0] === 'capture') {
   record.mode = fs.statSync(args[2]).mode & 0o777
   record.file = args[2]
@@ -37,11 +37,23 @@ if (args[0] === 'capture') {
 }
 fs.appendFileSync(path.join(dir, 'cli.log'), JSON.stringify(record) + '\\n')
 if (process.env.STUB_IGNORE_TERM) process.on('SIGTERM', () => {})
-if (process.env.STUB_SLEEP) setTimeout(() => {}, Number(process.env.STUB_SLEEP) * 1000)
+if (process.env.STUB_SLEEP) setTimeout(() => fs.appendFileSync(path.join(dir, 'done.log'), JSON.stringify({ pid: process.pid, at: Date.now() }) + '\\n'), Number(process.env.STUB_SLEEP) * 1000)
 else process.stdout.write('ok\\n')
 `, { mode: 0o755 })
 const cliLog = () => (fs.existsSync(path.join(stubDir, 'cli.log')) ? fs.readFileSync(path.join(stubDir, 'cli.log'), 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [])
-const resetCliLog = () => fs.rmSync(path.join(stubDir, 'cli.log'), { force: true })
+const doneLog = () => (fs.existsSync(path.join(stubDir, 'done.log')) ? fs.readFileSync(path.join(stubDir, 'done.log'), 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) : [])
+const resetCliLog = () => {
+  fs.rmSync(path.join(stubDir, 'cli.log'), { force: true })
+  fs.rmSync(path.join(stubDir, 'done.log'), { force: true })
+}
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
 
 function open(extraEnv = {}) {
   const env = { ...process.env, ALAMBIC_ROOT: root, XDG_STATE_HOME: path.join(temp, 'state'), TYPESAFE_API_KEY: '', STUB_DIR: stubDir, ...extraEnv }
@@ -179,6 +191,8 @@ await test('envelope: malformed messages never reach a handler', async () => {
   session.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, method: 'tools/call', params: { name: 'vault_capture', arguments: { text: 'null id' } } })}\n`)
   session.write(`${JSON.stringify({ jsonrpc: '2.0', id: { a: 1 }, method: 'tools/call', params: { name: 'vault_feedback', arguments: { status: 'hit' } } })}\n`)
   session.write(`${JSON.stringify({ jsonrpc: '2.0', id: 4, result: {} })}\n`)
+  session.write('{"jsonrpc":"2.0","id":1e999,"method":"tools/call","params":{"name":"vault_feedback","arguments":{"status":"hit"}}}\n')
+  session.write('{"jsonrpc":"2.0","id":1.5,"method":"tools/call","params":{"name":"vault_feedback","arguments":{"status":"hit"}}}\n')
   session.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'tools/call', params: { name: 'vault_feedback', arguments: { status: 'hit' } } })}\n`)
   assert.equal((await session.request('tools/call', 'vault_capture')).error.code, -32602)
   assert.equal((await session.request('tools/call', ['vault_capture'])).error.code, -32602)
@@ -383,15 +397,13 @@ await test('lifecycle: EOF during a stalled capture kills the child and cleans u
   await session.closed
   const took = session.exit.at - ended
   assert.equal(session.exit.code, 0)
-  assert(took < 1000 && took <= EOF_EXIT_MS + 150, `exit took ${took} ms`)
+  assert(took < 1000 && took >= EOF_GRACE_MS - 50, `exit took ${took} ms`)
   await sleep(100)
-  let alive = true
-  try { process.kill(record.pid, 0) } catch { alive = false }
-  assert(!alive, 'CLI child must not outlive the server')
+  assert(!alive(record.pid), 'CLI child must not outlive the server')
   assert(!fs.existsSync(record.file), 'temp file must be removed when the call is aborted')
 })
 
-await test('lifecycle: EOF with a child that ignores SIGTERM still exits within 1 s', async () => {
+await test('lifecycle: EOF with a child that ignores SIGTERM still kills it', async () => {
   resetCliLog()
   const session = open({ STUB_SLEEP: '30', STUB_IGNORE_TERM: '1' })
   session.call('vault_capture', { text: 'stubborn' })
@@ -400,19 +412,53 @@ await test('lifecycle: EOF with a child that ignores SIGTERM still exits within 
   const ended = Date.now()
   session.child.stdin.end()
   await session.closed
-  process.kill(record.pid, 'SIGKILL')
   assert.equal(session.exit.code, 0)
   assert(session.exit.at - ended < 1000, `exit took ${session.exit.at - ended} ms`)
+  await sleep(100)
+  assert(!alive(record.pid), 'a child that ignores SIGTERM must still die')
+  assert(!fs.existsSync(record.file))
 })
 
-await test('lifecycle: a closed stdout reader ends the process quietly', async () => {
-  const session = open()
-  await session.initialize()
-  session.child.stdout.destroy()
-  session.send({ id: 99, method: 'ping' })
-  session.send({ id: 100, method: 'tools/list' })
-  await session.closed
-  assert.equal(session.exit.code, 0, session.stderr)
+await test('lifecycle: SIGINT and a closed stdout reader during a capture clean up at once', async () => {
+  for (const how of ['sigint', 'epipe']) {
+    resetCliLog()
+    const session = open({ STUB_SLEEP: '30' })
+    session.call('vault_capture', { text: how })
+    await until(() => cliLog().length === 1)
+    const [record] = cliLog()
+    const started = Date.now()
+    if (how === 'sigint') session.child.kill('SIGINT')
+    else {
+      session.child.stdout.destroy()
+      session.send({ id: 99, method: 'ping' })
+    }
+    await session.closed
+    assert.equal(session.exit.code, 0, `${how}: ${session.stderr}`)
+    assert(session.exit.at - started < 300, `${how}: exit took ${session.exit.at - started} ms`)
+    await sleep(100)
+    assert(!alive(record.pid), `${how}: CLI child must die`)
+    assert(!fs.existsSync(record.file), `${how}: temp file must be removed`)
+  }
+})
+
+await test('CLI calls run one at a time and a queued call is dropped on shutdown', async () => {
+  resetCliLog()
+  const session = open({ STUB_SLEEP: '0.4' })
+  const first = session.call('vault_feedback', { status: 'hit' })
+  const second = session.call('vault_feedback', { status: 'miss' })
+  await Promise.all([first, second])
+  const [one, two] = cliLog()
+  assert(two.at - one.at >= 350, `second CLI call started ${two.at - one.at} ms after the first`)
+  assert.equal(doneLog().length, 2)
+  await session.finish()
+  resetCliLog()
+  const closing = open({ STUB_SLEEP: '30' })
+  closing.call('vault_feedback', { status: 'hit' })
+  closing.call('vault_feedback', { status: 'miss' })
+  await until(() => cliLog().length === 1)
+  await closing.finish()
+  await sleep(100)
+  assert.equal(cliLog().length, 1, 'a queued CLI call must not start after shutdown')
 })
 
 await test('stdout carries only JSON-RPC across a full session', async () => {

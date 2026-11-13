@@ -344,7 +344,7 @@ that loads the retrieval library on the first tool call: an idle process costs
 about 16 MB and starts in under 60 ms. The official MCP SDK is a dev dependency
 only; `_meta/tests/mcp-server.mjs` and `eval --suite mcp-security` drive the
 server with it. `node _meta/tests/mcp-footprint.mjs --vault <dir>` measures
-startup and memory. After stdin closes the server exits within 800 ms and stops
+startup and memory. After stdin closes the server exits within 500 ms and stops
 any CLI call still running.
 
 ## Evals

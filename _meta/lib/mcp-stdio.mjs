@@ -8,7 +8,6 @@ import process from 'node:process'
 export const SUPPORTED_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']
 export const MAX_LINE_CHARS = 1024 * 1024
 export const EOF_GRACE_MS = 500
-export const EOF_EXIT_MS = 800
 
 const INVALID_PARAMS = -32602
 const METHOD_NOT_FOUND = -32601
@@ -22,7 +21,7 @@ const PROPERTY_KEYS = {
 }
 
 const plainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
-const validId = (id) => typeof id === 'string' || typeof id === 'number'
+const validId = (id) => typeof id === 'string' || Number.isInteger(id)
 
 /** Accepts only the closed-schema subset the validator implements; `trim` is an input transform and is not published. */
 function compileSchema(toolName, schema) {
@@ -109,7 +108,14 @@ export function serveStdio({ name, version, instructions, tools, input = process
   const fail = (id, code, message) => send({ id, error: { code, message } })
   const toolFailure = (text) => ({ content: [{ type: 'text', text }], isError: true })
 
-  output.on('error', () => process.exit(0))
+  const stop = () => {
+    controller.abort()
+    process.exit(0)
+  }
+  output.on('error', stop)
+  input.on('error', stop)
+  process.once('SIGINT', stop)
+  process.once('SIGTERM', stop)
 
   async function callTool(params) {
     const entry = table.get(params.name)
@@ -209,9 +215,6 @@ export function serveStdio({ name, version, instructions, tools, input = process
     if (!skipping && pending) onLine(pending)
     pending = ''
     if (!inflight) return
-    setTimeout(() => {
-      controller.abort()
-      setTimeout(() => process.exit(0), EOF_EXIT_MS - EOF_GRACE_MS).unref()
-    }, EOF_GRACE_MS).unref()
+    setTimeout(stop, EOF_GRACE_MS).unref()
   })
 }

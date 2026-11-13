@@ -69,7 +69,7 @@ if (route && route.abstained === false && Array.isArray(route.matched_notes)) {
 }
 
 const mcpSource = fs.readFileSync(path.join(root, '_meta/mcp/server.mjs'), 'utf8')
-const toolRegs = [...mcpSource.matchAll(/^ {4}name:\s*['"]([^'"]+)['"]/gm)].map((m) => m[1])
+const toolRegs = [...mcpSource.matchAll(/\bname:\s*['"](vault_[a-z_]+)['"]/g)].map((m) => m[1])
 const allowed = new Set(['vault_search', 'vault_context', 'vault_read', 'vault_health'])
 // Deliberate staging surface (feat(mcp) shadow capture/feedback):
 // aggregate-only staging, never a durable kb write. Anything else is unexpected.
