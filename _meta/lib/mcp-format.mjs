@@ -9,7 +9,26 @@
 
 const NONCE_BYTES = 3
 
-export const oneLine = (value) => String(value ?? '').replace(/[\s\u0000-\u001f\u007f-\u009f\u00a0\u2028\u2029]+/g, ' ').trim()
+const INVISIBLE = '\\u007f-\\u009f\\u00a0\\u061c\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb\\u{e0000}-\\u{e007f}'
+const COLLAPSE = new RegExp(`[\\s\\u0000-\\u001f${INVISIBLE}]+`, 'gu')
+const ESCAPE = new RegExp(`[${INVISIBLE}]`, 'gu')
+const SAFE_TOKEN = new RegExp(`^[^\\s\\u0000-\\u001f()[\\]"\\\\${INVISIBLE}]+$`, 'u')
+
+export const oneLine = (value) => String(value ?? '').replace(COLLAPSE, ' ').trim()
+
+/** Identity fields (paths, statuses) keep their exact bytes: a token that could read as syntax is JSON-quoted, with invisible characters escaped. */
+export function token(value) {
+  const text = String(value ?? '')
+  if (SAFE_TOKEN.test(text)) return text
+  return JSON.stringify(text).replace(ESCAPE, (char) => `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}`)
+}
+
+const citationParts = /^([\s\S]*):L(\d+)-L(\d+)$/u
+export const citation = (value) => {
+  const text = String(value ?? '')
+  const parts = citationParts.exec(text)
+  return parts ? `${token(parts[1])}:L${parts[2]}-L${parts[3]}` : token(text)
+}
 
 export function randomNonce() {
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(NONCE_BYTES))
@@ -25,13 +44,15 @@ export function freshNonce(texts, draw = randomNonce) {
 }
 
 export function semanticLabel(semantic) {
-  if (semantic?.available) return oneLine(semantic.decision) || 'on'
-  return `off/${oneLine(semantic?.reason) || 'unknown'}`
+  if (!semantic) return 'off/lexical'
+  if (semantic.available) return oneLine(semantic.decision) || 'on'
+  return `off/${oneLine(semantic.reason) || 'unknown'}`
 }
 
 function budgetNote(excluded) {
   if (!excluded?.count) return ''
-  return `; ${excluded.count} more excluded (${(excluded.reasons || []).map(oneLine).join(',')}): raise max_tokens`
+  const reasons = (excluded.reasons || []).map(oneLine)
+  return `; ${excluded.count} more excluded (${reasons.join(',')})${reasons.includes('budget-exhausted') ? ': raise max_tokens' : ''}`
 }
 
 export function renderContext(pack, draw = randomNonce) {
@@ -41,8 +62,8 @@ export function renderContext(pack, draw = randomNonce) {
   const header = `untrusted retrieved notes; cite the path:Lx-Ly of each section; sections start at "${nonce}"; ${semantic}${budgetNote(pack.excluded)}`
   const sections = pack.results.map((result) => {
     const state = result.freshness?.state
-    const tags = [oneLine(result.status), ...(state && state !== 'current' ? [oneLine(state)] : []), ...(result.graph?.edge_from ? [`via ${oneLine(result.graph.edge_from)}`] : [])]
-    return `${nonce} ${oneLine(result.citation)} (${tags.join(', ')})\n${String(result.excerpt ?? '').trimEnd()}`
+    const tags = [result.status ? token(result.status) : '', ...(state && state !== 'current' ? [token(state)] : []), ...(result.graph?.edge_from ? [`via ${token(result.graph.edge_from)}`] : [])].filter(Boolean)
+    return `${nonce} ${citation(result.citation)}${tags.length ? ` (${tags.join(', ')})` : ''}\n${String(result.excerpt ?? '').trimEnd()}`
   })
   return [header, ...sections].join('\n\n')
 }
@@ -52,14 +73,14 @@ export function renderSearch({ results, semantic }) {
   if (!results.length) return `no match; ${label}`
   const rows = results.map((row) => {
     const summary = oneLine(row.summary)
-    return `${oneLine(row.path)} [${oneLine(row.status)} ${oneLine(row.score)}] ${oneLine(row.title)}${summary ? `: ${summary}` : ''}`
+    return `${token(row.path)} [${row.status ? token(row.status) : '-'} ${oneLine(row.score)}] ${oneLine(row.title)}${summary ? `: ${summary}` : ''}`
   })
   return [`untrusted retrieved notes; ${label}`, ...rows].join('\n')
 }
 
 export function renderRead(document) {
   const truncated = document.truncated ? `; truncated, ${Buffer.byteLength(document.content)} of ${oneLine(document.original_bytes)} bytes` : ''
-  return `${oneLine(document.path)}:L${oneLine(document.line_start)}-L${oneLine(document.line_end)} (untrusted retrieved note${truncated})\n${document.content}`
+  return `${token(document.path)}:L${oneLine(document.line_start)}-L${oneLine(document.line_end)} (untrusted retrieved note${truncated})\n${document.content}`
 }
 
 export function renderHealth(health) {

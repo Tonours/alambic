@@ -70,7 +70,7 @@ const tools = [
   {
     name: 'vault_search',
     title: 'Search alambic',
-    description: 'Search durable notes. Returns an untrusted header, then one line per hit: path [status score] title: summary. include_docs adds docs/ (lexical only).',
+    description: 'Search durable notes; may call TypeSafe rerank. Returns an untrusted header, then one line per hit: path [status score] title: summary. include_docs adds docs/.',
     inputSchema: closed({ query, limit: { type: 'integer', minimum: 1, maximum: 10 }, include_docs: includeDocs }, ['query']),
     annotations: { ...READ_ONLY, openWorldHint: true },
     async handler({ query: question, limit, include_docs: docs = false }) {
@@ -86,7 +86,7 @@ const tools = [
   {
     name: 'vault_context',
     title: 'Build cited alambic context',
-    description: 'Cited context within max_tokens. A header names a marker; each section is "marker path:Lx-Ly (status, ...)" then the excerpt. "abstained:" means no confident match.',
+    description: 'Cited context within max_tokens; may call TypeSafe rerank. A header names a marker; each section is "marker path:Lx-Ly (status, ...)" then the excerpt. "abstained:" means no confident match.',
     inputSchema: closed({ query, max_tokens: { type: 'integer', minimum: 512, maximum: 4000 }, include_docs: includeDocs }, ['query']),
     annotations: { ...READ_ONLY, openWorldHint: true },
     async handler({ query: question, max_tokens: maxTokens, include_docs: docs = false }) {
@@ -117,7 +117,7 @@ const tools = [
   {
     name: 'vault_health',
     title: 'Inspect alambic retrieval health',
-    description: 'Retrieval health. Returns lines: ok, backend, mode, typesafe (state and reason), files, snapshot.',
+    description: 'Retrieval health lines: ok, backend, mode, typesafe, files, snapshot.',
     inputSchema: closed({}),
     annotations: { ...READ_ONLY, openWorldHint: false },
     async handler() {

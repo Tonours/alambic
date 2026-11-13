@@ -511,8 +511,10 @@ if (suite === 'retrieval') {
     const feedback = await client.callTool({ name: 'vault_feedback', arguments: { status: 'hit' } })
     const textOf = (reply) => String(reply.content?.[0]?.text ?? '')
     const semanticOf = (reply) => {
-      const off = /semantic: off\/([^\s;]+)/.exec(textOf(reply))
-      return off ? { available: false, reason: off[1] } : undefined
+      const header = textOf(reply).split('\n')[0]
+      const off = /semantic: off\/([^\s;]+)/.exec(header)
+      if (off) return { available: false, reason: off[1] }
+      return /semantic: /.test(header) ? { available: true } : undefined
     }
     const searchSemantic = semanticOf(search)
     const contextSemantic = semanticOf(context)

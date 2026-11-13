@@ -29,7 +29,7 @@ MCP is opt-in: add `--mcp`. New Claude installs use local scope for this
 vault; use `--mcp-project <dir>` to select a coding project, or
 `--mcp-scope user` to make it available in every project. Other harnesses
 keep their usual MCP scope. Existing registrations stay until explicitly
-removed. See the [scope and launch guide](_meta/operations.md#claude-mcp-scopes-and-session-profiles).
+removed. Read tools return compact text, not JSON. See the [scope and launch guide](_meta/operations.md#claude-mcp-scopes-and-session-profiles).
 
 To hack on alambic itself:
 

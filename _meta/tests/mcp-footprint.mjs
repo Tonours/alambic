@@ -103,8 +103,13 @@ if (probesFile) {
     child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })}\n`)
   })).result.tools
   const report = Object.fromEntries(Object.entries(totals).map(([tool, [text, json]]) => [tool, { text_bytes: text, json_bytes: json, ratio: round(text / json, 3) }]))
-  process.stdout.write(`${JSON.stringify({ probes: queries.length, notes: fs.existsSync(path.join(vault, 'kb')) ? fs.readdirSync(path.join(vault, 'kb')).length : 0, ...report, definitions_bytes: definitions.reduce((sum, tool) => sum + bytes({ name: tool.name, description: tool.description, input_schema: tool.inputSchema }), 0) }, null, 2)}\n`)
-  process.exit(0)
+  const limits = { vault_context: 0.8, vault_search: 0.85, vault_read: 0.96, vault_health: 0.25 }
+  const over = Object.entries(limits).filter(([tool, limit]) => report[tool].ratio > limit)
+  const definitionsBytes = definitions.reduce((sum, tool) => sum + bytes({ name: tool.name, description: tool.description, input_schema: tool.inputSchema }), 0)
+  if (definitionsBytes > 2250) over.push(['definitions', 2250])
+  if (over.length) process.exitCode = 1
+  process.stdout.write(`${JSON.stringify({ probes: queries.length, notes: fs.existsSync(path.join(vault, 'kb')) ? fs.readdirSync(path.join(vault, 'kb')).length : 0, ...report, definitions_bytes: definitionsBytes, over_limit: over.map(([tool]) => tool) }, null, 2)}\n`)
+  process.exit(process.exitCode || 0)
 }
 
 const samples = []
