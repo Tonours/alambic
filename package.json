@@ -33,8 +33,10 @@
     "eval:freeze": "node _meta/bin/eval-freeze.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "@typesafe-ai/sdk": "0.6.0",
+    "@typesafe-ai/sdk": "0.6.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "zod": "4.4.3"
   }
 }

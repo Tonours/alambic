@@ -69,7 +69,7 @@ if (route && route.abstained === false && Array.isArray(route.matched_notes)) {
 }
 
 const mcpSource = fs.readFileSync(path.join(root, '_meta/mcp/server.mjs'), 'utf8')
-const toolRegs = [...mcpSource.matchAll(/registerTool\(\s*['"]([^'"]+)['"]/g)].map((m) => m[1])
+const toolRegs = [...mcpSource.matchAll(/\bname:\s*['"](vault_[a-z_]+)['"]/g)].map((m) => m[1])
 const allowed = new Set(['vault_search', 'vault_context', 'vault_read', 'vault_health'])
 // Deliberate staging surface (feat(mcp) shadow capture/feedback):
 // aggregate-only staging, never a durable kb write. Anything else is unexpected.
@@ -83,7 +83,7 @@ for (const need of allowed) {
 for (const need of allowedStaging) {
   if (!toolRegs.includes(need)) fail(`MCP missing staging tool: ${need}`)
 }
-if (/registerTool\(\s*['"]vault_write/.test(mcpSource) || /registerTool\(\s*['"]vault_apply/.test(mcpSource)) {
+if (toolRegs.some((name) => /^vault_(write|apply)/.test(name))) {
   fail('MCP must not register write/apply tools')
 }
 

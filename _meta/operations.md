@@ -339,6 +339,15 @@ and local error codes, never keys or passages.
 Input schemas are closed. Reads are limited to `kb/` and `ref/`, plus `docs/`
 when you opt in. The only outbound call is the optional Jev request.
 
+The server is a dependency-free stdio JSON-RPC layer (`_meta/lib/mcp-stdio.mjs`)
+that loads the retrieval library on the first tool call: an idle process costs
+about 16 MB and starts in under 60 ms. The official MCP SDK is a dev dependency
+only: `eval --suite mcp-security` drives the server with its client, and
+`_meta/tests/mcp-server.mjs` talks raw JSON-RPC and checks input validation
+against the former zod schemas. `node _meta/tests/mcp-footprint.mjs --vault <dir>` measures
+startup and memory. After stdin closes an idle server exits within 500 ms; a call still
+running gets 3 s to answer, then the CLI child is killed.
+
 ## Evals
 
 `npm test` runs every suite. The capability and regression gates fail on any
