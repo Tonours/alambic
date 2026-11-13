@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EOF_GRACE_MS, MAX_LINE_CHARS, SUPPORTED_VERSIONS, serveStdio } from '../lib/mcp-stdio.mjs'
+import { EOF_GRACE_MS, EOF_INFLIGHT_MS, MAX_LINE_CHARS, SUPPORTED_VERSIONS, serveStdio } from '../lib/mcp-stdio.mjs'
 
 const root = path.resolve(process.argv[2] || '.')
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'alambic-mcp-server-'))
@@ -407,7 +407,7 @@ await test('lifecycle: idle SIGINT exits promptly', async () => {
   assert(session.exit.at - sent < 100, `SIGINT exit took ${session.exit.at - sent} ms`)
 })
 
-await test('lifecycle: EOF during a stalled capture kills the child and cleans up within 1 s', async () => {
+await test('lifecycle: EOF during a stalled capture kills the child and cleans up after the in-flight grace', async () => {
   resetCliLog()
   const session = open({ STUB_SLEEP: '30' })
   session.call('vault_capture', { text: 'stalled' })
@@ -418,10 +418,22 @@ await test('lifecycle: EOF during a stalled capture kills the child and cleans u
   await session.closed
   const took = session.exit.at - ended
   assert.equal(session.exit.code, 0)
-  assert(took < 1000 && took >= EOF_GRACE_MS - 50, `exit took ${took} ms`)
+  assert(took < EOF_INFLIGHT_MS + 1000 && took >= EOF_INFLIGHT_MS - 50, `exit took ${took} ms`)
   await sleep(100)
   assert(!alive(record.pid), 'CLI child must not outlive the server')
   assert(!fs.existsSync(record.file), 'temp file must be removed when the call is aborted')
+})
+
+await test('lifecycle: a call that finishes within the in-flight grace is answered after EOF', async () => {
+  resetCliLog()
+  const session = open({ STUB_SLEEP: '0.9' })
+  const reply = session.call('vault_capture', { text: 'slow but fine' })
+  await until(() => cliLog().length === 1)
+  session.child.stdin.end()
+  const answer = await reply
+  assert.deepEqual(JSON.parse(answer.result.content[0].text), { staged: true, detail: '' })
+  await session.closed
+  assert.equal(session.exit.code, 0)
 })
 
 await test('lifecycle: EOF with a child that ignores SIGTERM still kills it', async () => {
@@ -434,7 +446,7 @@ await test('lifecycle: EOF with a child that ignores SIGTERM still kills it', as
   session.child.stdin.end()
   await session.closed
   assert.equal(session.exit.code, 0)
-  assert(session.exit.at - ended < 1000, `exit took ${session.exit.at - ended} ms`)
+  assert(session.exit.at - ended < EOF_INFLIGHT_MS + 1000, `exit took ${session.exit.at - ended} ms`)
   await sleep(100)
   assert(!alive(record.pid), 'a child that ignores SIGTERM must still die')
   assert(!fs.existsSync(record.file))

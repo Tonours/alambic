@@ -8,6 +8,7 @@ import process from 'node:process'
 export const SUPPORTED_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']
 export const MAX_LINE_CHARS = 1024 * 1024
 export const EOF_GRACE_MS = 500
+export const EOF_INFLIGHT_MS = 3000
 
 const INVALID_PARAMS = -32602
 const METHOD_NOT_FOUND = -32601
@@ -221,6 +222,6 @@ export function serveStdio({ name, version, instructions, tools, input = process
   input.on('end', () => {
     if (!skipping && pending) onLine(pending)
     pending = ''
-    setTimeout(stop, EOF_GRACE_MS).unref()
+    setTimeout(stop, inflight ? EOF_INFLIGHT_MS : EOF_GRACE_MS).unref()
   })
 }

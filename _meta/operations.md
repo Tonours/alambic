@@ -345,8 +345,8 @@ about 16 MB and starts in under 60 ms. The official MCP SDK is a dev dependency
 only: `eval --suite mcp-security` drives the server with its client, and
 `_meta/tests/mcp-server.mjs` talks raw JSON-RPC and checks input validation
 against the former zod schemas. `node _meta/tests/mcp-footprint.mjs --vault <dir>` measures
-startup and memory. After stdin closes the server exits within 500 ms and stops
-any CLI call still running.
+startup and memory. After stdin closes an idle server exits within 500 ms; a call still
+running gets 3 s to answer, then the CLI child is killed.
 
 ## Evals
 
