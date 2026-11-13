@@ -9,7 +9,7 @@
 
 const NONCE_BYTES = 3
 
-const INVISIBLE = '\\u007f-\\u009f\\u00a0\\u061c\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb\\u{e0000}-\\u{e007f}'
+const INVISIBLE = '\\u007f-\\u009f\\u00a0\\u00ad\\u034f\\u061c\\u115f\\u1160\\u17b4\\u17b5\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\u2800\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff9-\\ufffb\\u{e0000}-\\u{e01ef}'
 const COLLAPSE = new RegExp(`[\\s\\u0000-\\u001f${INVISIBLE}]+`, 'gu')
 const ESCAPE = new RegExp(`[${INVISIBLE}]`, 'gu')
 const SAFE_TOKEN = new RegExp(`^[^\\s\\u0000-\\u001f()[\\]"\\\\${INVISIBLE}]+$`, 'u')
@@ -19,8 +19,8 @@ export const oneLine = (value) => String(value ?? '').replace(COLLAPSE, ' ').tri
 /** Identity fields (paths, statuses) keep their exact bytes: a token that could read as syntax is JSON-quoted, with invisible characters escaped. */
 export function token(value) {
   const text = String(value ?? '')
-  if (SAFE_TOKEN.test(text)) return text
-  return JSON.stringify(text).replace(ESCAPE, (char) => `\\u${char.codePointAt(0).toString(16).padStart(4, '0')}`)
+  if (SAFE_TOKEN.test(text) && text.isWellFormed()) return text
+  return JSON.stringify(text).replace(ESCAPE, (char) => { const code = char.codePointAt(0); return code > 0xffff ? `\\u{${code.toString(16)}}` : `\\u${code.toString(16).padStart(4, '0')}` })
 }
 
 const citationParts = /^([\s\S]*):L(\d+)-L(\d+)$/u
@@ -45,13 +45,13 @@ export function freshNonce(texts, draw = randomNonce) {
 
 export function semanticLabel(semantic) {
   if (!semantic) return 'off/lexical'
-  if (semantic.available) return oneLine(semantic.decision) || 'on'
-  return `off/${oneLine(semantic.reason) || 'unknown'}`
+  if (semantic.available) return token(oneLine(semantic.decision) || 'on')
+  return `off/${token(oneLine(semantic.reason) || 'unknown')}`
 }
 
 function budgetNote(excluded) {
   if (!excluded?.count) return ''
-  const reasons = (excluded.reasons || []).map(oneLine)
+  const reasons = (excluded.reasons || []).map((reason) => token(oneLine(reason)))
   return `; ${excluded.count} more excluded (${reasons.join(',')})${reasons.includes('budget-exhausted') ? ': raise max_tokens' : ''}`
 }
 
