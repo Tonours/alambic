@@ -139,7 +139,7 @@ const tools = [
     title: 'Capture shadow note (surface mcp)',
     description: 'Stage one durable-learning capture into the alambic shadow loop via the vault CLI (scanUnsafe + state-dir staging). Short, factual, no secrets. Promotion to durable kb is a human gate — never promised to the caller.',
     inputSchema: closed({ text: { type: 'string', trim: true, minLength: 1, maxLength: 12000 } }, ['text']),
-    annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false, idempotentHint: true },
+    annotations: { readOnlyHint: false, openWorldHint: false, destructiveHint: false, idempotentHint: false },
     async handler({ text }, { signal }) {
       try {
         return await queued(async () => {

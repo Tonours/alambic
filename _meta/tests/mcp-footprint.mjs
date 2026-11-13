@@ -28,7 +28,8 @@ function memoryMb(pid) {
 
 async function session() {
   const started = performance.now()
-  const child = spawn(process.execPath, [...nodeArgs, server], { env: { ...process.env, ALAMBIC_ROOT: vault, TYPESAFE_API_KEY: '', XDG_STATE_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-footprint-')) }, stdio: ['pipe', 'pipe', 'inherit'] })
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-footprint-'))
+  const child = spawn(process.execPath, [...nodeArgs, server], { env: { ...process.env, ALAMBIC_ROOT: vault, TYPESAFE_API_KEY: '', XDG_STATE_HOME: state }, stdio: ['pipe', 'pipe', 'inherit'] })
   const waiters = new Map()
   let buffer = ''
   let nextId = 1
@@ -63,6 +64,7 @@ async function session() {
   const afterCalls = memoryMb(child.pid)
   child.stdin.end()
   await new Promise((resolve) => child.on('close', resolve))
+  fs.rmSync(state, { recursive: true, force: true })
   return { initMs, idle, afterCalls, p50: median(latencies) }
 }
 

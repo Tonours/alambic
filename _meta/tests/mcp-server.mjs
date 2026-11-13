@@ -113,7 +113,7 @@ async function test(name, fn) {
 }
 
 await test('static import graph keeps the idle process dependency-free', () => {
-  const staticImports = (file) => [...fs.readFileSync(file, 'utf8').matchAll(/^import\s[^'"\n]*['"]([^'"]+)['"]/gm)].map((match) => match[1])
+  const staticImports = (file) => [...fs.readFileSync(file, 'utf8').matchAll(/^(?:import|export)\s[^;'"]*?from\s*['"]([^'"]+)['"]|^import\s*['"]([^'"]+)['"]/gm)].map((match) => match[1] || match[2])
   const server = path.join(root, '_meta/mcp/server.mjs')
   const allowedLocal = new Set(['../lib/mcp-stdio.mjs', '../lib/mcp-format.mjs', './mcp-format.mjs'])
   for (const file of [server, path.join(root, '_meta/lib/mcp-stdio.mjs'), path.join(root, '_meta/lib/mcp-format.mjs')].filter((candidate) => fs.existsSync(candidate))) {
@@ -144,11 +144,18 @@ await test('surface, handshake and negotiation', async () => {
   assert.equal(init.result.protocolVersion, '2025-06-18')
   assert.deepEqual(init.result.capabilities, { tools: {} })
   assert.equal(init.result.serverInfo.name, 'alambic')
-  assert(typeof init.result.instructions === 'string' && init.result.instructions.length <= 400, 'instructions must be one short string')
-  for (const version of SUPPORTED_VERSIONS) assert.equal((await session.request('initialize', { protocolVersion: version })).result.protocolVersion, version)
-  for (const params of [{ protocolVersion: '1999-01-01' }, { protocolVersion: 7 }, {}, undefined]) {
-    assert.equal((await session.request('initialize', params)).result.protocolVersion, SUPPORTED_VERSIONS[0])
+  assert(typeof init.result.instructions === 'string' && init.result.instructions.length <= 200, 'instructions must be one short string')
+  const hello = (protocolVersion) => ({ protocolVersion, capabilities: {}, clientInfo: { name: 'c', version: '0' } })
+  for (const version of SUPPORTED_VERSIONS) assert.equal((await session.request('initialize', hello(version))).result.protocolVersion, version)
+  assert.equal((await session.request('initialize', hello('1999-01-01'))).result.protocolVersion, SUPPORTED_VERSIONS[0])
+  const badHellos = [{}, undefined, null, 5, { ...hello('2025-06-18'), protocolVersion: 7 }, { protocolVersion: '2025-06-18' }, { ...hello('2025-06-18'), capabilities: null }, { ...hello('2025-06-18'), clientInfo: { name: 'c' } }, { ...hello('2025-06-18'), clientInfo: null }, { ...hello('2025-06-18'), clientInfo: { name: 1, version: '0' } }]
+  for (const params of badHellos) {
+    const reply = await session.request('initialize', params)
+    assert.equal(reply.error?.code, -32602, JSON.stringify(params))
   }
+  for (const params of [5, [], { cursor: 5 }, { cursor: null }]) assert.equal((await session.request('tools/list', params)).error?.code, -32602, JSON.stringify(params))
+  assert.equal((await session.request('tools/list', { cursor: 'x' })).result.tools.length, 6)
+  assert.equal((await session.request('tools/list', {})).result.tools.length, 6)
   assert.deepEqual((await session.request('ping')).result, {})
   const listed = (await session.request('tools/list')).result.tools
   assert.deepEqual(listed.map((tool) => tool.name).sort(), ['vault_capture', 'vault_context', 'vault_feedback', 'vault_health', 'vault_read', 'vault_search'])
@@ -161,7 +168,7 @@ await test('surface, handshake and negotiation', async () => {
   }
   const writes = listed.filter((tool) => tool.annotations.readOnlyHint === false).map((tool) => tool.name).sort()
   assert.deepEqual(writes, ['vault_capture', 'vault_feedback'])
-  assert.equal(listed.find((tool) => tool.name === 'vault_capture').annotations.idempotentHint, true)
+  assert.equal(listed.find((tool) => tool.name === 'vault_capture').annotations.idempotentHint, false)
   assert.equal((await session.request('nope')).error.code, -32601)
   assert.equal((await session.request('server/discover')).error.code, -32601)
   await session.finish()
@@ -375,6 +382,20 @@ await test('lifecycle: exits 0 on stdin EOF', async () => {
   await session.finish()
   assert.equal(session.exit.code, 0)
   assert(session.exit.at - ended < 1000, `exit took ${session.exit.at - ended} ms`)
+})
+
+await test('lifecycle: EOF exits even when the client stopped reading stdout', async () => {
+  const session = open()
+  await session.initialize()
+  session.child.stdout.pause()
+  const burst = Array.from({ length: 3000 }, (_, index) => JSON.stringify({ jsonrpc: '2.0', id: 1000 + index, method: 'tools/list' })).join('\n')
+  session.write(`${burst}\n`)
+  await sleep(300)
+  const ended = Date.now()
+  session.child.stdin.end()
+  await session.closed
+  assert.equal(session.exit.code, 0)
+  assert(session.exit.at - ended < EOF_GRACE_MS + 1500, `exit took ${session.exit.at - ended} ms`)
 })
 
 await test('lifecycle: idle SIGINT exits promptly', async () => {

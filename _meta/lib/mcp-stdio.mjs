@@ -22,6 +22,11 @@ const PROPERTY_KEYS = {
 
 const plainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 const validId = (id) => typeof id === 'string' || Number.isInteger(id)
+const validInitialize = (params) => plainObject(params)
+  && typeof params.protocolVersion === 'string'
+  && plainObject(params.capabilities)
+  && typeof params.clientInfo?.name === 'string'
+  && typeof params.clientInfo?.version === 'string'
 
 /** Accepts only the closed-schema subset the validator implements; `trim` is an input transform and is not published. */
 function compileSchema(toolName, schema) {
@@ -142,7 +147,8 @@ export function serveStdio({ name, version, instructions, tools, input = process
     if (!validId(id)) return warn('dropped request with invalid id')
     switch (method) {
       case 'initialize': {
-        const asked = plainObject(params) ? params.protocolVersion : undefined
+        if (!validInitialize(params)) return fail(id, INVALID_PARAMS, 'Invalid params')
+        const asked = params.protocolVersion
         return reply(id, {
           protocolVersion: SUPPORTED_VERSIONS.includes(asked) ? asked : SUPPORTED_VERSIONS[0],
           capabilities: { tools: {} },
@@ -153,6 +159,7 @@ export function serveStdio({ name, version, instructions, tools, input = process
       case 'ping':
         return reply(id, {})
       case 'tools/list':
+        if (params !== undefined && (!plainObject(params) || (params.cursor !== undefined && typeof params.cursor !== 'string'))) return fail(id, INVALID_PARAMS, 'Invalid params')
         return reply(id, { tools: listed })
       case 'tools/call': {
         if (!plainObject(params) || typeof params.name !== 'string' || (params.arguments !== undefined && !plainObject(params.arguments))) {
@@ -214,7 +221,6 @@ export function serveStdio({ name, version, instructions, tools, input = process
   input.on('end', () => {
     if (!skipping && pending) onLine(pending)
     pending = ''
-    if (!inflight) return
     setTimeout(stop, EOF_GRACE_MS).unref()
   })
 }
